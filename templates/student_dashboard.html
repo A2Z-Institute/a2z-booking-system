@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block title %}My timetable{% endblock %}
+
+{% block content %}
+{% set booking_list = bookings|default([], true) %}
+{% set summary = stats|default({}, true) %}
+<header class="page-heading compact-page-heading">
+  <div>
+    <p class="eyebrow">Student timetable</p>
+    <h1>Your training schedule</h1>
+    <p class="lead">Your training office arranges every appointment for you. This page is read-only and always shows the latest schedule.</p>
+  </div>
+  {% if branch %}<span class="branch-pill">{{ branch.name|default(branch) }}</span>{% endif %}
+</header>
+
+<div class="notice-strip" role="note">
+  <span class="notice-strip-icon" aria-hidden="true">i</span>
+  <p><strong>Need a new appointment or a change?</strong> Call the training office or speak to a member of staff. Students cannot book, move, or cancel appointments online.</p>
+</div>
+
+{% if summary.attendance_due|default(0) %}
+  <div class="alert alert-warning" role="status">
+    <span class="alert-icon" aria-hidden="true"></span>
+    <div><strong>{{ summary.attendance_due }} past session{{ '' if summary.attendance_due == 1 else 's' }} await attendance.</strong> A member of staff will update the record.</div>
+  </div>
+{% endif %}
+
+<section class="stats-grid" aria-label="Timetable summary">
+  <article class="stat-card">
+    <span class="stat-label">Upcoming</span>
+    <strong class="stat-value">{{ summary.upcoming|default(0) }}</strong>
+    <span class="stat-detail">Sessions scheduled ahead</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Being arranged</span>
+    <strong class="stat-value">{{ summary.pending|default(0) }}</strong>
+    <span class="stat-detail">Times being confirmed by staff</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Completed</span>
+    <strong class="stat-value">{{ summary.completed|default(0) }}</strong>
+    <span class="stat-detail">Training sessions attended</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">All sessions</span>
+    <strong class="stat-value">{{ summary.total|default(booking_list|length) }}</strong>
+    <span class="stat-detail">Your retained training history</span>
+  </article>
+</section>
+
+<div class="content-grid two-column student-timetable-layout">
+  <section class="section-card" aria-labelledby="timetable-title">
+    <div class="section-header">
+      <div>
+        <h2 id="timetable-title">Appointments</h2>
+        <p>Times, instructors, equipment, and staff notes appear here after the training office updates them.</p>
+      </div>
+    </div>
+
+    {% if booking_list %}
+      <div class="section-body flush desktop-only">
+        <div class="table-scroll" tabindex="0" aria-label="Scrollable training timetable">
+          <table class="data-table">
+            <caption class="sr-only">Your training timetable</caption>
+            <thead>
+              <tr>
+                <th scope="col">Training</th>
+                <th scope="col">Date and time</th>
+                <th scope="col">Instructor</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for booking in booking_list %}
+                {% set status = booking.status|default(booking.validation_status|default('Scheduled')) %}
+                {% set status_key = status|lower|replace(' ', '-') %}
+                <tr>
+                  <td>
+                    <span class="cell-title">{{ booking.service_name|default(booking.machine_name|default(booking.machine_code|default(booking.machine_category|default('Practical training'))), true) }}</span>
+                    <span class="cell-detail">Appointment #{{ booking.id }}</span>
+                    <span class="sr-only">Booking #{{ booking.id }}</span>
+                    {% if booking.review_notes|default('') %}<span class="cell-detail"><strong>Staff note:</strong> {{ booking.review_notes }}</span>{% endif %}
+                  </td>
+                  <td>
+                    <time class="cell-title" datetime="{{ booking.target_date }}" data-format-date>{{ booking.target_date }}</time>
+                    <span class="cell-detail">{{ booking.start_time }}–{{ booking.end_time }}</span>
+                  </td>
+                  <td>{{ booking.instructor_name|default('To be confirmed') }}</td>
+                  <td><span class="status-badge status-{{ status_key }}">{{ status }}</span></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="mobile-record-list">
+        {% for booking in booking_list %}
+          {% set status = booking.status|default(booking.validation_status|default('Scheduled')) %}
+          {% set status_key = status|lower|replace(' ', '-') %}
+          <article class="record-card">
+            <div class="record-card-header">
+              <div>
+                <div class="record-card-title">{{ booking.service_name|default(booking.machine_name|default(booking.machine_code|default(booking.machine_category|default('Practical training'))), true) }}</div>
+                <p class="record-card-subtitle">Appointment #{{ booking.id }}</p>
+              </div>
+              <span class="status-badge status-{{ status_key }}">{{ status }}</span>
+            </div>
+            <dl class="meta-grid">
+              <div>
+                <dt>Date</dt>
+                <dd><time datetime="{{ booking.target_date }}" data-format-date>{{ booking.target_date }}</time></dd>
+              </div>
+              <div>
+                <dt>Time</dt>
+                <dd>{{ booking.start_time }}–{{ booking.end_time }}</dd>
+              </div>
+              <div class="field-span-2">
+                <dt>Instructor</dt>
+                <dd>{{ booking.instructor_name|default('To be confirmed') }}</dd>
+              </div>
+            </dl>
+            {% if booking.review_notes|default('') %}<p class="review-note"><strong>Staff note:</strong> {{ booking.review_notes }}</p>{% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <div class="empty-illustration" aria-hidden="true">0</div>
+        <h3>No training appointments are scheduled</h3>
+        <p>Please call the training office or speak to a member of staff when you are ready to arrange a session.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <aside class="content-stack" aria-label="Timetable guidance">
+    <section class="section-card contact-office-card">
+      <div class="section-header">
+        <div>
+          <h2>Contact the training office</h2>
+          <p>Staff will find a suitable instructor, equipment item, and available time.</p>
+        </div>
+      </div>
+      <div class="section-body">
+        <ol class="auth-points">
+          <li>Tell staff which training or assessment you need.</li>
+          <li>Let them know any days or times you cannot attend.</li>
+          <li>Return here to check the confirmed appointment.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section-card">
+      <div class="section-header">
+        <div>
+          <h2>Before you attend</h2>
+          <p>Prepare for your scheduled session.</p>
+        </div>
+      </div>
+      <div class="section-body">
+        <p>Arrive 15 minutes early, bring your student identification, and follow the safety guidance provided by your branch.</p>
+      </div>
+    </section>
+  </aside>
+</div>
+{% endblock %}

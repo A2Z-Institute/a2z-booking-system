@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Import clients{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <div><p class="eyebrow">Clients</p><h1>Import client list</h1></div>
+  <a class="button button-secondary" href="{{ url_for('clients_directory') }}">Back to clients</a>
+</header>
+<section class="section-card">
+  <div class="section-body">
+    <p>Upload a Smart Scheduling client export in Excel format. Existing imported clients are updated by their stable source ID, so importing the same file again will not create duplicates.</p>
+    <form method="post" enctype="multipart/form-data" class="stacked-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field">
+        <label for="client-file">Excel file (.xlsx)</label>
+        <input id="client-file" name="client_file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+      </div>
+      <button class="button button-primary" type="submit">Import clients</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

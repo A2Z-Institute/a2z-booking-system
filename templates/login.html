@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Sign in{% endblock %}
+{% block body_class %}auth-page{% endblock %}
+
+{% block content %}
+<div class="auth-shell auth-shell-compact">
+  <section class="auth-card" aria-labelledby="login-title">
+    <div class="auth-card-header">
+      <p class="eyebrow">A2Z Training Scheduler</p>
+      <h1 id="login-title">Sign in</h1>
+      <p>Use the account details issued by the institute.</p>
+    </div>
+
+    {% if error %}
+      <div class="alert alert-error" role="alert" id="login-error">
+        <span class="alert-icon" aria-hidden="true"></span>
+        <div>{{ error }}</div>
+      </div>
+    {% endif %}
+
+    <form action="{{ url_for('login') }}" method="post" {% if error %}aria-describedby="login-error"{% endif %}>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-grid">
+        <div class="field">
+          <label for="username">Email or username</label>
+          <input
+            id="username"
+            name="username"
+            type="text"
+            value="{{ request.form.get('username', '') }}"
+            autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
+            required
+            autofocus
+          >
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button class="button button-primary button-block" type="submit">Sign in</button>
+      </div>
+    </form>
+
+    <p class="managed-access-note">Need an account or cannot sign in? Contact A2Z administration.</p>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Clients{% endblock %}
+
+{% block content %}
+{% set client_list = clients|default([], true) %}
+<section class="management-panel client-management-panel" aria-labelledby="clients-title">
+  <header class="management-panel-header">
+    <div>
+      <p class="eyebrow">Client database</p>
+      <h1 id="clients-title">Clients</h1>
+      <p>Staff use these records when arranging appointments by phone or in person.</p>
+    </div>
+    <div class="management-panel-actions">
+      <a class="icon-button labelled-icon-button" href="{{ url_for('export_clients_csv') }}" title="Export clients">
+        <span aria-hidden="true">⇩</span>
+        <span>Export</span>
+      </a>
+      <a class="button button-primary button-small" href="{{ url_for('client_new') }}">
+        <span aria-hidden="true">+</span>
+        Add client
+      </a>
+    </div>
+  </header>
+
+  <form class="directory-search-bar" method="get" action="{{ url_for('clients_directory') }}" role="search">
+    <label class="directory-search-field" for="client-search">
+      <span class="sr-only">Search clients by name, email, or mobile</span>
+      <span aria-hidden="true">⌕</span>
+      <input id="client-search" name="q" type="search" value="{{ search_query }}" placeholder="Search by name, email, or mobile">
+    </label>
+    <button class="button button-secondary button-small" type="submit">Search</button>
+    {% if search_query %}<a class="button button-quiet button-small" href="{{ url_for('clients_directory') }}">Clear</a>{% endif %}
+  </form>
+
+  {% if client_list %}
+    <div class="client-table-wrap desktop-only" tabindex="0" aria-label="Scrollable client directory">
+      <table class="data-table compact-data-table client-table">
+        <caption class="sr-only">{{ client_list|length }} client records</caption>
+        <thead>
+          <tr>
+            <th scope="col">Client</th>
+            <th scope="col">Mobile</th>
+            <th scope="col">Email</th>
+            <th scope="col">Branch</th>
+            <th scope="col">Appointments</th>
+            <th scope="col"><span class="sr-only">Open record</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for client in client_list %}
+            <tr>
+              <td>
+                <a class="client-name-link" href="{{ url_for('client_detail', client_id=client.id) }}">
+                  <span class="avatar avatar-small" aria-hidden="true">{{ client.full_name[:1]|upper }}</span>
+                  <span>
+                    <strong>{{ client.full_name }}</strong>
+                    <small>{{ 'Active' if client.is_active else 'Archived' }}</small>
+                  </span>
+                </a>
+              </td>
+              <td>{{ client.phone|default('Not recorded', true) }}</td>
+              <td>{{ client.email|default('Not recorded', true) }}</td>
+              <td>{{ client.branch_name|default('Not assigned', true) }}</td>
+              <td>
+                <strong>{{ client.appointment_count }}</strong>
+                <small>{{ client.upcoming_count }} upcoming</small>
+              </td>
+              <td><a class="directory-arrow-link" href="{{ url_for('client_detail', client_id=client.id) }}" aria-label="Open {{ client.full_name }}’s record">›</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mobile-record-list client-mobile-list">
+      {% for client in client_list %}
+        <a class="client-directory-card" href="{{ url_for('client_detail', client_id=client.id) }}">
+          <span class="avatar" aria-hidden="true">{{ client.full_name[:1]|upper }}</span>
+          <span class="client-directory-copy">
+            <span class="client-directory-heading">
+              <strong>{{ client.full_name }}</strong>
+              <span class="status-badge {{ 'status-approved' if client.is_active else 'status-cancelled' }}">{{ 'Active' if client.is_active else 'Archived' }}</span>
+            </span>
+            <span>{{ client.phone|default('No mobile', true) }}</span>
+            <span>{{ client.email|default('No email', true) }}</span>
+            <small>{{ client.branch_name|default('No branch', true) }} · {{ client.upcoming_count }} upcoming</small>
+          </span>
+          <span class="directory-arrow" aria-hidden="true">›</span>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <div class="empty-illustration" aria-hidden="true">0</div>
+      <h2>No clients match this search</h2>
+      <p>Try a shorter name, email address, or mobile number. New clients can be created while adding an appointment.</p>
+      <a class="button button-secondary" href="{{ url_for('clients_directory') }}">Clear search</a>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+
+{% block title %}Courses{% endblock %}
+
+{% block content %}
+{% set service_list = services|default([], true) %}
+<header class="management-panel-header standalone-management-header">
+  <div>
+    <span class="sr-only">Booking setup</span>
+    <p class="eyebrow">Scheduling setup</p>
+    <h1>Courses</h1>
+    <p>Define what staff can schedule, how long it takes, and which instructors and equipment support it.</p>
+  </div>
+  <div class="management-panel-actions">
+    <a class="button button-secondary button-small" href="{{ url_for('calendar_view') }}">Open calendar</a>
+    <a class="button button-primary button-small" href="#new-service">+ Add course</a>
+  </div>
+</header>
+
+<div class="services-layout">
+  <details class="management-panel service-create-panel" id="new-service">
+    <summary>+ Add a course</summary>
+    <div class="service-create-panel-body">
+    <div class="section-header">
+      <div>
+        <h2>New course</h2>
+        <p>Active courses appear in the staff appointment editor.</p>
+      </div>
+    </div>
+    <form class="section-body service-form" method="post" action="{{ url_for('admin_services') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field">
+        <label for="new-service-name">Course name</label>
+        <input id="new-service-name" name="name" maxlength="100" required placeholder="For example: Forklift refresher">
+      </div>
+      <div class="field">
+        <label for="new-service-category">Group</label>
+        <input id="new-service-category" name="category" maxlength="100" placeholder="For example: Forklift">
+      </div>
+      <div class="field">
+        <label for="new-service-description">Description</label>
+        <textarea id="new-service-description" name="description" maxlength="600"></textarea>
+      </div>
+      <div class="field">
+        <label for="new-service-branch">Branch</label>
+        <select id="new-service-branch" name="branch_id" required>
+          {% for branch in branches %}<option value="{{ branch.id }}">{{ branch.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-grid two-column">
+        <div class="field">
+          <label for="new-service-duration">Duration</label>
+          <select id="new-service-duration" name="duration_minutes">
+            {% for value in range(30, 241, 30) %}<option value="{{ value }}" {% if value == 60 %}selected{% endif %}>{{ value }} minutes</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="new-service-price">Price</label>
+          <input id="new-service-price" name="price" type="number" min="0" max="1000000" step="0.01" value="0">
+        </div>
+        <div class="field">
+          <label for="new-service-currency">Currency</label>
+          <input id="new-service-currency" name="currency" value="{{ branches[0].currency if branches else 'INR' }}" minlength="3" maxlength="3" pattern="[A-Za-z]{3}" required aria-describedby="new-service-currency-hint">
+          <span class="field-hint" id="new-service-currency-hint">Three-letter code, such as INR, GBP or USD.</span>
+        </div>
+        <div class="field">
+          <label for="new-buffer-before">Padding before</label>
+          <select id="new-buffer-before" name="buffer_before_minutes">
+            {% for value in range(0, 121, 5) %}<option value="{{ value }}" {% if value == 15 %}selected{% endif %}>{{ value }} min</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="new-buffer-after">Padding after</label>
+          <select id="new-buffer-after" name="buffer_after_minutes">
+            {% for value in range(0, 121, 5) %}<option value="{{ value }}" {% if value == 15 %}selected{% endif %}>{{ value }} min</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="new-service-color">Calendar colour</label>
+        <input id="new-service-color" name="color" type="color" value="#c8141b">
+      </div>
+      <fieldset class="choice-field">
+        <legend>Available weekdays</legend>
+        <div class="weekday-choices">
+          {% for day in day_names %}
+            <label><input type="checkbox" name="weekday" value="{{ loop.index0 }}" {% if loop.index0 < 6 %}checked{% endif %}> {{ day[:3] }}</label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      <div class="field">
+        <label for="new-service-machines">Compatible equipment</label>
+        <select id="new-service-machines" name="machine_id" multiple size="7" required>
+          {% for machine in machines %}<option value="{{ machine.id }}">{{ machine.branch_name }} · {{ machine.category }} · {{ machine.machine_code|replace('-', ' ') }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="new-service-instructors">Assigned instructors <span class="text-muted">(optional)</span></label>
+        <select id="new-service-instructors" name="instructor_id" multiple size="5">
+          {% for instructor in instructors %}<option value="{{ instructor.id }}">{{ instructor.branch_name }} · {{ instructor.name }}</option>{% endfor %}
+        </select>
+        <span class="field-hint">Leave empty to offer this course with every verified instructor at the branch.</span>
+      </div>
+      <label class="checkbox-field">
+        <input type="checkbox" name="requires_approval" value="1">
+        <span><strong>Require secondary approval</strong><small>Leave off for staff-created appointments to confirm immediately.</small></span>
+      </label>
+      <input type="hidden" name="is_active" value="1">
+      <button class="button button-primary button-block" type="submit">Create course</button>
+    </form>
+    </div>
+  </details>
+
+  <section class="service-catalogue" aria-label="Course catalogue">
+    {% if service_list %}
+      {% for service in service_list %}
+        <article class="management-panel service-admin-card" id="service-{{ service.id }}">
+          <div class="section-header">
+            <div class="service-admin-heading">
+              <span class="service-admin-colour service-color-{{ loop.index0 % 7 }}" aria-hidden="true"></span>
+              <div>
+                <h2>{{ service.name }}</h2>
+                <p>{{ service.category|default('Other services', true) }} · {{ service.branch_name }} · {{ service.duration_minutes }} minutes · {% if service.price_cents %}{{ service.currency }} {{ '%.2f'|format(service.price_cents / 100) }}{% else %}Included in course{% endif %}</p>
+              </div>
+            </div>
+            <div class="service-admin-badges">
+              <span class="status-badge {{ 'status-approved' if service.is_active else 'status-cancelled' }}">{{ 'Active' if service.is_active else 'Archived' }}</span>
+              {% if service.requires_approval %}<span class="status-badge status-pending">Secondary approval</span>{% endif %}
+            </div>
+          </div>
+
+          <details class="service-settings" {% if request.args.get('service')|string == service.id|string %}open{% endif %}>
+            <summary>Edit course settings</summary>
+            <form class="section-body service-form" method="post" action="{{ url_for('admin_services') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="service_id" value="{{ service.id }}">
+              <div class="form-grid two-column">
+                <div class="field">
+                  <label for="service-name-{{ service.id }}">Course name</label>
+                  <input id="service-name-{{ service.id }}" name="name" value="{{ service.name }}" maxlength="100" required>
+                </div>
+                <div class="field">
+                  <label for="service-category-{{ service.id }}">Group</label>
+                  <input id="service-category-{{ service.id }}" name="category" value="{{ service.category|default('', true) }}" maxlength="100">
+                </div>
+                <div class="field field-span-2">
+                  <label for="service-description-{{ service.id }}">Description</label>
+                  <textarea id="service-description-{{ service.id }}" name="description" maxlength="600">{{ service.description|default('', true) }}</textarea>
+                </div>
+                <div class="field">
+                  <label for="service-branch-{{ service.id }}">Branch</label>
+                  <select id="service-branch-{{ service.id }}" name="branch_id" required>
+                    {% for branch in branches %}
+                      <option value="{{ branch.id }}" {% if branch.id == service.branch_id %}selected{% endif %}>{{ branch.name }}</option>
+                    {% endfor %}
+                  </select>
+                  <span class="field-hint">A branch change is blocked while this course has future active appointments.</span>
+                </div>
+                <div class="field">
+                  <label for="service-duration-{{ service.id }}">Duration</label>
+                  <select id="service-duration-{{ service.id }}" name="duration_minutes">
+                    {% for value in range(30, 241, 30) %}<option value="{{ value }}" {% if service.duration_minutes == value %}selected{% endif %}>{{ value }} minutes</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="service-price-{{ service.id }}">Price</label>
+                  <input id="service-price-{{ service.id }}" name="price" type="number" min="0" max="1000000" step="0.01" value="{{ '%.2f'|format(service.price_cents / 100) }}">
+                </div>
+                <div class="field">
+                  <label for="service-currency-{{ service.id }}">Currency</label>
+                  <input id="service-currency-{{ service.id }}" name="currency" value="{{ service.currency }}" minlength="3" maxlength="3" pattern="[A-Za-z]{3}" required>
+                </div>
+                <div class="field">
+                  <label for="service-before-{{ service.id }}">Padding before</label>
+                  <select id="service-before-{{ service.id }}" name="buffer_before_minutes">
+                    {% for value in range(0, 121, 5) %}<option value="{{ value }}" {% if service.buffer_before_minutes == value %}selected{% endif %}>{{ value }} min</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="service-after-{{ service.id }}">Padding after</label>
+                  <select id="service-after-{{ service.id }}" name="buffer_after_minutes">
+                    {% for value in range(0, 121, 5) %}<option value="{{ value }}" {% if service.buffer_after_minutes == value %}selected{% endif %}>{{ value }} min</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="service-color-{{ service.id }}">Calendar colour</label>
+                  <input id="service-color-{{ service.id }}" name="color" type="color" value="{{ service.color }}">
+                </div>
+              </div>
+              <fieldset class="choice-field">
+                <legend>Bookable days</legend>
+                <div class="weekday-choices">
+                  {% for day in day_names %}
+                    <label><input type="checkbox" name="weekday" value="{{ loop.index0 }}" {% if loop.index0 in service.weekday_numbers %}checked{% endif %}> {{ day[:3] }}</label>
+                  {% endfor %}
+                </div>
+              </fieldset>
+              <div class="form-grid two-column">
+                <div class="field">
+                  <label for="service-machines-{{ service.id }}">Compatible equipment</label>
+                  <select id="service-machines-{{ service.id }}" name="machine_id" multiple size="7" required>
+                    {% for machine in machines %}
+                      <option value="{{ machine.id }}" {% if machine.id in service.machine_ids %}selected{% endif %}>{{ machine.branch_name }} · {{ machine.category }} · {{ machine.machine_code|replace('-', ' ') }}</option>
+                    {% endfor %}
+                  </select>
+                  <span class="field-hint">Select equipment from the chosen branch.</span>
+                </div>
+                <div class="field">
+                  <label for="service-instructors-{{ service.id }}">Assigned instructors</label>
+                  <select id="service-instructors-{{ service.id }}" name="instructor_id" multiple size="7">
+                    {% for instructor in instructors %}
+                      <option value="{{ instructor.id }}" {% if instructor.id in service.instructor_ids %}selected{% endif %}>{{ instructor.branch_name }} · {{ instructor.name }}</option>
+                    {% endfor %}
+                  </select>
+                  <span class="field-hint">Select instructors from the chosen branch, or leave empty for all verified instructors there.</span>
+                </div>
+              </div>
+              <div class="form-grid two-column">
+                <label class="checkbox-field">
+                  <input type="checkbox" name="requires_approval" value="1" {% if service.requires_approval %}checked{% endif %}>
+                  <span><strong>Require approval</strong><small>Otherwise appointments confirm immediately.</small></span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" name="is_active" value="1" {% if service.is_active %}checked{% endif %}>
+                    <span><strong>Available to staff</strong><small>Archive without losing history by turning this off.</small></span>
+                </label>
+              </div>
+              <button class="button button-primary" type="submit">Save course</button>
+            </form>
+          </details>
+
+          {% set active_question_count = service.intake_fields|selectattr('is_active')|list|length %}
+          <details class="service-settings service-questions" {% if request.args.get('service')|string == service.id|string %}open{% endif %}>
+            <summary>Course questions ({{ active_question_count }} active, {{ service.intake_fields|length }} total)</summary>
+            <div class="section-body">
+              {% if service.intake_fields %}
+                <div class="service-field-list">
+                  {% for field in service.intake_fields %}
+                    <div>
+                      <details class="service-settings">
+                        <summary>
+                          <span><strong>{{ field.label }}</strong><small>{{ field.field_type|title }} · Order {{ field.sort_order }}{% if field.is_required %} · Required{% endif %}{% if field.duration_adjustment_minutes %} · +{{ field.duration_adjustment_minutes }} min{% endif %}{% if field.price_adjustment_cents %} · +{{ service.currency }} {{ '%.2f'|format(field.price_adjustment_cents / 100) }}{% endif %} · {{ 'Active' if field.is_active else 'Archived' }}</small></span>
+                        </summary>
+                        <form class="section-body service-field-form" method="post" action="{{ url_for('admin_service_field_edit', service_id=service.id, field_id=field.id) }}">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                          <div class="form-grid two-column">
+                            <div class="field">
+                              <label for="field-edit-label-{{ field.id }}">Label</label>
+                              <input id="field-edit-label-{{ field.id }}" name="label" value="{{ field.label }}" maxlength="120" required>
+                            </div>
+                            <div class="field">
+                              <label for="field-edit-type-{{ field.id }}">Type</label>
+                              <select id="field-edit-type-{{ field.id }}" name="field_type">
+                                {% for value, label in [('text', 'Short text'), ('textarea', 'Long text'), ('select', 'Dropdown'), ('checkbox', 'Checkbox'), ('file', 'File upload')] %}
+                                  <option value="{{ value }}" {% if field.field_type == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                              </select>
+                            </div>
+                            <div class="field">
+                              <label for="field-edit-help-{{ field.id }}">Help text</label>
+                              <input id="field-edit-help-{{ field.id }}" name="help_text" value="{{ field.help_text|default('', true) }}" maxlength="300">
+                            </div>
+                            <div class="field">
+                              <label for="field-edit-placeholder-{{ field.id }}">Placeholder</label>
+                              <input id="field-edit-placeholder-{{ field.id }}" name="placeholder" value="{{ field.placeholder|default('', true) }}" maxlength="200">
+                            </div>
+                            <div class="field field-span-2">
+                              <label for="field-edit-options-{{ field.id }}">Dropdown choices <span class="text-muted">(one per line)</span></label>
+                              <textarea id="field-edit-options-{{ field.id }}" name="options">{{ field.options_text }}</textarea>
+                            </div>
+                            <div class="field">
+                              <label for="field-edit-duration-{{ field.id }}">Duration change</label>
+                              <select id="field-edit-duration-{{ field.id }}" name="duration_adjustment_minutes">
+                                {% for value in range(0, 121, 30) %}<option value="{{ value }}" {% if field.duration_adjustment_minutes == value %}selected{% endif %}>{{ '+' if value else '' }}{{ value }} min</option>{% endfor %}
+                              </select>
+                            </div>
+                            <div class="field">
+                              <label for="field-edit-price-{{ field.id }}">Price change ({{ service.currency }})</label>
+                              <input id="field-edit-price-{{ field.id }}" name="price_adjustment" type="number" min="0" max="1000000" step="0.01" value="{{ '%.2f'|format(field.price_adjustment_cents / 100) }}">
+                            </div>
+                            <div class="field">
+                              <label for="field-edit-order-{{ field.id }}">Display order</label>
+                              <input id="field-edit-order-{{ field.id }}" name="sort_order" type="number" min="0" max="10000" step="1" value="{{ field.sort_order }}" required>
+                              <span class="field-hint">Lower numbers appear first.</span>
+                            </div>
+                          </div>
+                          <label class="checkbox-field">
+                            <input type="checkbox" name="is_required" value="1" {% if field.is_required %}checked{% endif %}>
+                            <span><strong>Required before saving an appointment</strong></span>
+                          </label>
+                          <button class="button button-secondary" type="submit">Save question</button>
+                        </form>
+                      </details>
+                      <form method="post" action="{{ url_for('admin_service_field_archive' if field.is_active else 'admin_service_field_reactivate', service_id=service.id, field_id=field.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        {% if field.is_active %}
+                          <button class="button button-quiet button-small" type="submit" data-confirm="Archive this booking question? Historical answers will be retained.">Archive</button>
+                        {% else %}
+                          <button class="button button-secondary button-small" type="submit">Reactivate</button>
+                        {% endif %}
+                      </form>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              <form class="service-field-form" method="post" action="{{ url_for('admin_service_field_add', service_id=service.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <h3>Add course question</h3>
+                <div class="form-grid two-column">
+                  <div class="field">
+                    <label for="field-label-{{ service.id }}">Label</label>
+                    <input id="field-label-{{ service.id }}" name="label" maxlength="120" required>
+                  </div>
+                  <div class="field">
+                    <label for="field-type-{{ service.id }}">Type</label>
+                    <select id="field-type-{{ service.id }}" name="field_type">
+                      <option value="text">Short text</option>
+                      <option value="textarea">Long text</option>
+                      <option value="select">Dropdown</option>
+                      <option value="checkbox">Checkbox</option>
+                      <option value="file">File upload</option>
+                    </select>
+                  </div>
+                  <div class="field field-span-2">
+                    <label for="field-help-{{ service.id }}">Help text</label>
+                    <input id="field-help-{{ service.id }}" name="help_text" maxlength="300">
+                  </div>
+                  <div class="field field-span-2">
+                    <label for="field-placeholder-{{ service.id }}">Placeholder</label>
+                    <input id="field-placeholder-{{ service.id }}" name="placeholder" maxlength="200" placeholder="Example text shown before staff enter an answer">
+                  </div>
+                  <div class="field field-span-2">
+                    <label for="field-options-{{ service.id }}">Dropdown choices <span class="text-muted">(one per line)</span></label>
+                    <textarea id="field-options-{{ service.id }}" name="options"></textarea>
+                  </div>
+                  <div class="field">
+                    <label for="field-duration-{{ service.id }}">Duration change</label>
+                    <select id="field-duration-{{ service.id }}" name="duration_adjustment_minutes">
+                      {% for value in range(0, 121, 30) %}<option value="{{ value }}">{{ '+' if value else '' }}{{ value }} min</option>{% endfor %}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="field-price-{{ service.id }}">Price change ({{ service.currency }})</label>
+                    <input id="field-price-{{ service.id }}" name="price_adjustment" type="number" min="0" step="0.01" value="0">
+                  </div>
+                </div>
+                <label class="checkbox-field">
+                  <input type="checkbox" name="is_required" value="1">
+                  <span><strong>Required before saving an appointment</strong></span>
+                </label>
+                <button class="button button-secondary" type="submit">Add question</button>
+              </form>
+            </div>
+          </details>
+        </article>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state">
+        <h3>No courses yet</h3>
+        <p>Add the first bookable course using the form.</p>
+      </div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

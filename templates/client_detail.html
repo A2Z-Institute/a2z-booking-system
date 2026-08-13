@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+
+{% block title %}{{ client.full_name }}{% endblock %}
+
+{% block content %}
+{% set booking_list = bookings|default([], true) %}
+<nav class="breadcrumb" aria-label="Breadcrumb">
+  <a href="{{ url_for('clients_directory') }}">Clients</a>
+  <span aria-hidden="true">›</span>
+  <span>{{ client.full_name }}</span>
+</nav>
+
+<header class="management-panel-header standalone-management-header client-record-header">
+  <div class="client-profile-identity">
+    <span class="avatar avatar-large" aria-hidden="true">{{ client.full_name[:1]|upper }}</span>
+    <div>
+      <p class="eyebrow">Client record</p>
+      <h1>{{ client.full_name }}</h1>
+      <p>{{ client.branch_name|default('No branch', true) }} · {{ 'Active' if client.is_active else 'Archived' }}</p>
+    </div>
+  </div>
+  <div class="management-panel-actions">
+    {% if client.email %}<a class="button button-secondary button-small" href="mailto:{{ client.email }}">Email client</a>{% endif %}
+    {% if client.is_active %}
+      <a class="button button-primary button-small" href="{{ url_for('calendar_view') }}?client={{ client.id }}">+ Add appointment</a>
+    {% endif %}
+    {% if current_user.role == 'admin' %}
+      <form class="inline-form" method="post" action="{{ url_for('client_toggle', client_id=client.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button
+          class="button {{ 'button-danger' if client.is_active else 'button-secondary' }} button-small"
+          type="submit"
+          data-confirm="{{ 'Archive this client and safely cancel future appointments?' if client.is_active else 'Reactivate this client?' }}"
+        >{{ 'Archive client' if client.is_active else 'Reactivate client' }}</button>
+      </form>
+    {% endif %}
+  </div>
+</header>
+
+<section class="management-panel client-profile-panel" aria-labelledby="client-details-title">
+  <header class="management-panel-header">
+    <div>
+      <h2 id="client-details-title">Client details</h2>
+      <p>Contact information and private preferences used by staff when arranging training.</p>
+    </div>
+  </header>
+
+  <form class="client-profile-form" method="post" action="{{ url_for('client_profile_update', client_id=client.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-grid client-details-grid">
+      <div class="field field-span-2">
+        <label for="client-full-name">Full name</label>
+        <input id="client-full-name" name="full_name" maxlength="160" value="{{ client.full_name }}" required autocomplete="name">
+      </div>
+      {% if current_user.role == 'admin' %}
+        <div class="field">
+          <label for="client-branch">Branch</label>
+          <select id="client-branch" name="branch_id" required>
+            {% for branch in branches %}
+              <option value="{{ branch.id }}" {% if branch.id == client.branch_id %}selected{% endif %} {% if not branch.is_active and branch.id != client.branch_id %}disabled{% endif %}>
+                {{ branch.name }}{% if not branch.is_active %} (archived){% endif %}
+              </option>
+            {% endfor %}
+          </select>
+          <span class="field-hint">Future appointments must be cancelled before moving a client to another branch.</span>
+        </div>
+        <div class="field">
+          <input type="hidden" name="manage_instructor_assignments" value="1">
+          <label for="client-instructors">Assigned instructors</label>
+          <select id="client-instructors" name="instructor_ids" multiple size="5">
+            {% for instructor in available_instructors %}
+              <option value="{{ instructor.id }}" {% if instructor.id in assigned_instructor_ids %}selected{% endif %}>
+                {{ instructor.name }} — {{ instructor.branch_name }}
+              </option>
+            {% endfor %}
+          </select>
+          <span class="field-hint">Use Ctrl or Command to select more than one. Only instructors in the selected branch can be saved.</span>
+        </div>
+      {% endif %}
+      <div class="field">
+        <label for="client-birthday">Birthday</label>
+        <input id="client-birthday" name="birthday" type="date" value="{{ client.birthday|default('', true) }}">
+      </div>
+      <div class="field">
+        <label for="client-gender">Gender</label>
+        <select id="client-gender" name="gender">
+          <option value="" {% if not client.gender %}selected{% endif %}>Unspecified</option>
+          <option value="male" {% if client.gender == 'male' %}selected{% endif %}>Male</option>
+          <option value="female" {% if client.gender == 'female' %}selected{% endif %}>Female</option>
+          <option value="other" {% if client.gender == 'other' %}selected{% endif %}>Other</option>
+          <option value="prefer_not_to_say" {% if client.gender == 'prefer_not_to_say' %}selected{% endif %}>Prefer not to say</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="client-phone">Mobile</label>
+        <input id="client-phone" name="phone" maxlength="30" value="{{ client.phone|default('', true) }}" autocomplete="tel">
+      </div>
+      <div class="field">
+        <label for="client-secondary-phone">Secondary phone</label>
+        <input id="client-secondary-phone" name="secondary_phone" maxlength="30" value="{{ client.secondary_phone|default('', true) }}" autocomplete="tel">
+      </div>
+      <div class="field">
+        <label for="client-email">Email</label>
+        <input id="client-email" name="email" type="email" maxlength="160" value="{{ client.email|default('', true) }}" autocomplete="email">
+      </div>
+      <div class="field">
+        <label for="client-secondary-email">Secondary email</label>
+        <input id="client-secondary-email" name="secondary_email" type="email" maxlength="160" value="{{ client.secondary_email|default('', true) }}">
+      </div>
+      <div class="field">
+        <label for="client-zip">Postcode</label>
+        <input id="client-zip" name="zip_code" maxlength="20" value="{{ client.zip_code|default('', true) }}" autocomplete="postal-code">
+      </div>
+      <div class="field field-span-2">
+        <label for="client-city">City</label>
+        <input id="client-city" name="city" maxlength="120" value="{{ client.city|default('', true) }}" autocomplete="address-level2">
+      </div>
+      <div class="field field-span-all">
+        <label for="client-street">Street address</label>
+        <input id="client-street" name="street" maxlength="250" value="{{ client.street|default('', true) }}" autocomplete="street-address">
+      </div>
+    </div>
+
+    <div class="client-profile-secondary">
+      <div class="field">
+        <label for="client-tags">Tags</label>
+        <input id="client-tags" name="tags" maxlength="250" value="{{ client.tags|default('', true) }}" placeholder="For example: assessment, refresher">
+      </div>
+      <div class="field">
+        <label for="preferred-channel">Reminder channel</label>
+        <select id="preferred-channel" name="preferred_channel">
+          <option value="email" {% if client.preferred_channel == 'email' %}selected{% endif %}>Email</option>
+          <option value="sms" {% if client.preferred_channel == 'sms' %}selected{% endif %}>SMS</option>
+        </select>
+      </div>
+      <label class="checkbox-field">
+        <input type="checkbox" name="reminders_enabled" value="1" {% if client.reminders_enabled %}checked{% endif %}>
+        <span><strong>Appointment reminders enabled</strong><small>Turn this off if the client opts out.</small></span>
+      </label>
+      <div class="field field-span-all">
+        <label for="client-notes">Private staff notes</label>
+        <textarea id="client-notes" name="internal_notes" maxlength="2000" placeholder="Information staff should remember.">{{ client.internal_notes|default('', true) }}</textarea>
+        <span class="field-hint">These notes are never shown to the client.</span>
+      </div>
+    </div>
+
+    <footer class="management-panel-footer">
+      <button class="button button-primary" type="submit">Save client details</button>
+    </footer>
+  </form>
+</section>
+
+<div class="content-grid client-history-grid">
+  <section class="management-panel" aria-labelledby="upcoming-title">
+    <header class="management-panel-header">
+      <div>
+        <h2 id="upcoming-title">Upcoming appointments</h2>
+        <p>Future training arranged for this client.</p>
+      </div>
+    </header>
+    {% set upcoming_count = namespace(value=0) %}
+    <div class="client-timeline">
+      {% for booking in booking_list if booking.target_date >= today %}
+        {% set upcoming_count.value = upcoming_count.value + 1 %}
+        {% set status_key = booking.validation_status|lower|replace(' ', '-') %}
+        <article class="timeline-record">
+          <div class="timeline-date">
+            <time datetime="{{ booking.target_date }}" data-format-date>{{ booking.target_date }}</time>
+            <span>{{ booking.start_time }}–{{ booking.end_time }}</span>
+          </div>
+          <div class="timeline-copy">
+            <div class="timeline-heading">
+              <strong>{{ booking.service_name|default(booking.machine_category, true) }}</strong>
+              <span class="status-badge status-{{ status_key }}">{{ booking.validation_status }}</span>
+            </div>
+            <p>{{ booking.instructor_name }} · {{ booking.machine_code|replace('-', ' ') }}</p>
+            {% if booking.notes %}<p><strong>Appointment note:</strong> {{ booking.notes }}</p>{% endif %}
+          </div>
+        </article>
+      {% endfor %}
+      {% if not upcoming_count.value %}<div class="empty-state compact-empty"><p>No upcoming appointments.</p></div>{% endif %}
+    </div>
+  </section>
+
+  <section class="management-panel" aria-labelledby="history-title">
+    <header class="management-panel-header">
+      <div>
+        <h2 id="history-title">Past appointments</h2>
+        <p>Retained attendance and scheduling history.</p>
+      </div>
+    </header>
+    {% set past_count = namespace(value=0) %}
+    <div class="client-timeline">
+      {% for booking in booking_list if booking.target_date < today %}
+        {% set past_count.value = past_count.value + 1 %}
+        {% set status_key = booking.validation_status|lower|replace(' ', '-') %}
+        <article class="timeline-record">
+          <div class="timeline-date">
+            <time datetime="{{ booking.target_date }}" data-format-date>{{ booking.target_date }}</time>
+            <span>{{ booking.start_time }}–{{ booking.end_time }}</span>
+          </div>
+          <div class="timeline-copy">
+            <div class="timeline-heading">
+              <strong>{{ booking.service_name|default(booking.machine_category, true) }}</strong>
+              <span class="status-badge status-{{ status_key }}">{{ booking.validation_status }}</span>
+            </div>
+            <p>{{ booking.instructor_name }} · {{ booking.machine_code|replace('-', ' ') }}</p>
+            {% if booking.review_notes %}<p><strong>Staff note:</strong> {{ booking.review_notes }}</p>{% endif %}
+          </div>
+        </article>
+      {% endfor %}
+      {% if not past_count.value %}<div class="empty-state compact-empty"><p>No past appointments.</p></div>{% endif %}
+    </div>
+  </section>
+</div>
+
+<section class="management-panel client-intake-panel" aria-labelledby="intake-title">
+  <header class="management-panel-header">
+    <div>
+      <h2 id="intake-title">Service questions and files</h2>
+      <p>Information retained with each appointment for staff reference.</p>
+    </div>
+  </header>
+  {% if intake_values %}
+    <div class="intake-history">
+      {% for booking_id, values in intake_values|groupby('booking_id') %}
+        <article>
+          <h3>{{ values[0].service_name }} · <time datetime="{{ values[0].target_date }}" data-format-date>{{ values[0].target_date }}</time></h3>
+          <dl class="profile-definition-list">
+            {% for value in values %}
+              <div>
+                <dt>{{ value.field_label }}</dt>
+                <dd>
+                  {% if value.file_path %}
+                    <a href="{{ url_for('intake_file_download', value_id=value.id) }}">Download {{ value.file_name }}</a>
+                  {% else %}
+                    {{ value.value_text|default('Not answered', true) }}
+                  {% endif %}
+                </dd>
+              </div>
+            {% endfor %}
+          </dl>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state compact-empty"><p>No service questions or files are recorded.</p></div>
+  {% endif %}
+</section>
+{% endblock %}
