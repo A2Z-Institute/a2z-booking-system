@@ -260,6 +260,17 @@ Prevent the PC from sleeping. Prefer Ethernet and a UPS, keep Windows and Python
 
 ## Where to host it
 
+### Deploy with Coolify
+
+This repository now includes a production `Dockerfile` for Coolify. The app
+listens on port `8000` and provides a health check at `/health`. Before the
+first deployment, add a persistent volume at `/data` and configure the required
+secrets and environment variables. See [COOLIFY.md](COOLIFY.md) for the exact
+build, storage, environment, domain and redeployment settings.
+
+The application uses SQLite, so keep it at one replica. The `/data` volume must
+be backed up and retained across deployments.
+
 ### Spare always-on computer
 
 A spare computer is reasonable for an internal, single-site pilot when it is:
