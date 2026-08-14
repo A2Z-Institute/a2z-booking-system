@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+
+{% block title %}Administration{% endblock %}
+
+{% block content %}
+{% set booking_list = bookings|default([], true) %}
+{% set branch_list = branches|default([], true) %}
+{% set summary = stats|default({}, true) %}
+{% set active_filters = filters|default({}, true) %}
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">Administration</p>
+    <h1>Training operations</h1>
+    <p class="lead">Monitor booking demand, instructor decisions, and branch activity without losing sight of the students behind each request.</p>
+  </div>
+  <div class="page-actions">
+    {% if today %}<span class="date-pill"><time datetime="{{ today }}" data-format-date>{{ today }}</time></span>{% endif %}
+    <a class="button button-primary" href="{{ url_for('admin_users') }}">Manage people</a>
+  </div>
+</header>
+
+{% if summary.unverified_instructors|default(0) %}
+  <div class="alert alert-warning" role="status">
+    <span class="alert-icon" aria-hidden="true"></span>
+    <div><strong>{{ summary.unverified_instructors }} instructor profile{{ '' if summary.unverified_instructors == 1 else 's' }} need verification.</strong> Review institute records before assigning these instructors to students. <a href="{{ url_for('admin_users') }}">Open people &amp; access</a>.</div>
+  </div>
+{% endif %}
+
+<section class="stats-grid admin-stats" aria-label="Administration summary">
+  <article class="stat-card">
+    <span class="stat-label">Today</span>
+    <strong class="stat-value">{{ summary.today|default(0) }}</strong>
+    <span class="stat-detail">Approved sessions</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Awaiting review</span>
+    <strong class="stat-value">{{ summary.pending|default(0) }}</strong>
+    <span class="stat-detail">Requests across branches</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Students</span>
+    <strong class="stat-value">{{ summary.students|default(0) }}</strong>
+    <span class="stat-detail">Active student accounts</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Equipment</span>
+    <strong class="stat-value">{{ summary.active_resources|default(0) }}</strong>
+    <span class="stat-detail">Active training resources</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Active accounts</span>
+    <strong class="stat-value">{{ summary.active_users|default(0) }}</strong>
+    <span class="stat-detail">Current institute access</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Needs verification</span>
+    <strong class="stat-value">{{ summary.unverified_instructors|default(0) }}</strong>
+    <span class="stat-detail">Instructor profiles to review</span>
+  </article>
+</section>
+
+{% if recent_events|default([], true) %}
+  <section class="section-card recent-activity" aria-labelledby="recent-activity-title">
+    <div class="section-header">
+      <div>
+        <h2 id="recent-activity-title">Recent activity</h2>
+        <p>The latest operational changes recorded by the system.</p>
+      </div>
+    </div>
+    <ol class="activity-list">
+      {% for event in recent_events %}
+        <li>
+          <span class="activity-marker" aria-hidden="true"></span>
+          <div>
+            <strong>{{ event.event_type|replace('_', ' ')|title }}</strong>
+            <span>{% if event.student_name %}{{ event.student_name }}{% elif event.actor_name %}By {{ event.actor_name }}{% else %}System activity{% endif %}{% if event.booking_id %} · Booking #{{ event.booking_id }}{% endif %}</span>
+          </div>
+          <time datetime="{{ event.created_at }}">{{ event.created_at }}</time>
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+{% endif %}
+
+<section class="section-card" aria-labelledby="registry-title">
+  <div class="section-header">
+    <div>
+      <h2 id="registry-title">Booking register</h2>
+      <p>Search, filter, and oversee student training requests.</p>
+    </div>
+  </div>
+
+  <form class="filter-bar" action="{{ url_for('admin_dashboard') }}" method="get" aria-label="Filter bookings">
+    <div class="field">
+      <label for="branch-filter">Branch</label>
+      <select id="branch-filter" name="branch">
+        <option value="">All branches</option>
+        {% for item in branch_list %}
+          <option value="{{ item.id }}" {% if active_filters.branch|default('')|string == item.id|string %}selected{% endif %}>{{ item.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="status-filter">Status</label>
+      <select id="status-filter" name="status">
+        <option value="">All statuses</option>
+        {% for value, label in [('pending', 'Pending'), ('approved', 'Approved'), ('rejected', 'Declined'), ('cancelled', 'Cancelled'), ('completed', 'Completed'), ('no-show', 'No-show')] %}
+          <option value="{{ value }}" {% if active_filters.status|default('') == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="date-filter">Date</label>
+      <input id="date-filter" name="date" type="date" value="{{ active_filters.date|default('') }}">
+    </div>
+    <div class="field">
+      <label for="booking-search">Student, instructor, or equipment</label>
+      <input id="booking-search" name="q" type="search" value="{{ active_filters.q|default('') }}" placeholder="Search bookings">
+    </div>
+    <div class="filter-actions">
+      <button class="button button-primary button-small" type="submit">Apply</button>
+      <button class="button button-quiet button-small" type="button" data-reset-filters>Clear</button>
+    </div>
+  </form>
+
+  {% if booking_list %}
+    <div class="section-body flush desktop-only">
+      <div class="table-scroll" tabindex="0" aria-label="Scrollable admin bookings table">
+        <table class="data-table">
+          <caption class="sr-only">Bookings matching the selected administration filters</caption>
+          <thead>
+            <tr>
+              <th scope="col">Student</th>
+              <th scope="col">Training</th>
+              <th scope="col">Date and time</th>
+              <th scope="col">Instructor</th>
+              <th scope="col">Branch</th>
+              <th scope="col">Status</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for booking in booking_list %}
+              {% set status = booking.status|default(booking.validation_status|default('pending')) %}
+              {% set status_key = status|lower|replace(' ', '-') %}
+              <tr>
+                <td>
+                  <span class="cell-title">{{ booking.student_name|default('Student') }}</span>
+                  <span class="cell-detail">#{{ booking.id }}</span>
+                </td>
+                <td>{{ booking.machine_name|default(booking.machine_code|default(booking.machine_category|default('Practical training'))) }}</td>
+                <td>
+                  <time class="cell-title" datetime="{{ booking.target_date }}" data-format-date>{{ booking.target_date }}</time>
+                  <span class="cell-detail">{{ booking.start_time }}–{{ booking.end_time }}</span>
+                </td>
+                <td>{{ booking.instructor_name|default('Unassigned') }}</td>
+                <td>{{ booking.branch_name|default('—') }}</td>
+                <td><span class="status-badge status-{{ status_key }}">{{ status }}</span></td>
+                <td>
+                  {% if status_key == 'pending' %}
+                    <div class="table-actions">
+                      <form class="inline-form" action="{{ url_for('booking_decision', booking_id=booking.id) }}" method="post">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="decision" value="approve">
+                        <button class="button button-primary button-small" type="submit">Approve</button>
+                      </form>
+                      <details class="decision-details">
+                        <summary class="button button-danger button-small">Decline</summary>
+                        <form class="compact-decision-form" action="{{ url_for('booking_decision', booking_id=booking.id) }}" method="post">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                          <input type="hidden" name="decision" value="reject">
+                          <div class="field">
+                            <label for="admin-review-{{ booking.id }}">Reason for student</label>
+                            <textarea id="admin-review-{{ booking.id }}" name="review_notes" maxlength="500" required></textarea>
+                          </div>
+                          <button class="button button-danger button-small" type="submit" data-confirm="Decline this booking request? The student will see your reason.">Confirm decline</button>
+                        </form>
+                      </details>
+                    </div>
+                  {% elif status_key in ['approved', 'confirmed'] %}
+                    <div class="table-actions">
+                      {% if booking.target_date < today or (booking.target_date == today and booking.end_time <= current_time) %}
+                        <form class="inline-form" action="{{ url_for('booking_attendance', booking_id=booking.id) }}" method="post">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                          <input type="hidden" name="status" value="completed">
+                          <button class="button button-secondary button-small" type="submit" data-confirm="Mark booking #{{ booking.id }} as completed?">Completed</button>
+                        </form>
+                        <form class="inline-form" action="{{ url_for('booking_attendance', booking_id=booking.id) }}" method="post">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                          <input type="hidden" name="status" value="no-show">
+                          <button class="button button-danger button-small" type="submit" data-confirm="Record a no-show for booking #{{ booking.id }}?">No-show</button>
+                        </form>
+                      {% endif %}
+                      <form class="inline-form" action="{{ url_for('cancel_booking', booking_id=booking.id) }}" method="post">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="button button-quiet button-small" type="submit" data-confirm="Cancel booking #{{ booking.id }}? This action is recorded and cannot be undone.">Cancel</button>
+                      </form>
+                    </div>
+                  {% else %}
+                    <span class="text-muted text-small">No action</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mobile-record-list">
+      {% for booking in booking_list %}
+        {% set status = booking.status|default(booking.validation_status|default('pending')) %}
+        {% set status_key = status|lower|replace(' ', '-') %}
+        <article class="record-card">
+          <div class="record-card-header">
+            <div>
+              <div class="record-card-title">{{ booking.student_name|default('Student') }}</div>
+              <p class="record-card-subtitle">Booking #{{ booking.id }}</p>
+            </div>
+            <span class="status-badge status-{{ status_key }}">{{ status }}</span>
+          </div>
+          <dl class="meta-grid">
+            <div>
+              <dt>Date</dt>
+              <dd><time datetime="{{ booking.target_date }}" data-format-date>{{ booking.target_date }}</time></dd>
+            </div>
+            <div>
+              <dt>Time</dt>
+              <dd>{{ booking.start_time }}–{{ booking.end_time }}</dd>
+            </div>
+            <div>
+              <dt>Training</dt>
+              <dd>{{ booking.machine_name|default(booking.machine_code|default(booking.machine_category|default('Practical training'))) }}</dd>
+            </div>
+            <div>
+              <dt>Instructor</dt>
+              <dd>{{ booking.instructor_name|default('Unassigned') }}</dd>
+            </div>
+            <div class="field-span-2">
+              <dt>Branch</dt>
+              <dd>{{ booking.branch_name|default('—') }}</dd>
+            </div>
+          </dl>
+          {% if status_key == 'pending' %}
+            <div class="action-row">
+              <form action="{{ url_for('booking_decision', booking_id=booking.id) }}" method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="decision" value="approve">
+                <button class="button button-primary button-small" type="submit">Approve</button>
+              </form>
+              <details class="decision-details">
+                <summary class="button button-danger button-small">Decline</summary>
+                <form class="compact-decision-form" action="{{ url_for('booking_decision', booking_id=booking.id) }}" method="post">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="decision" value="reject">
+                  <div class="field">
+                    <label for="admin-mobile-review-{{ booking.id }}">Reason for student</label>
+                    <textarea id="admin-mobile-review-{{ booking.id }}" name="review_notes" maxlength="500" required></textarea>
+                  </div>
+                  <button class="button button-danger button-small" type="submit" data-confirm="Decline this booking request? The student will see your reason.">Confirm decline</button>
+                </form>
+              </details>
+            </div>
+          {% elif status_key in ['approved', 'confirmed'] %}
+            <div class="action-row">
+              {% if booking.target_date < today or (booking.target_date == today and booking.end_time <= current_time) %}
+                <form action="{{ url_for('booking_attendance', booking_id=booking.id) }}" method="post">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="status" value="completed">
+                  <button class="button button-secondary button-small" type="submit" data-confirm="Mark booking #{{ booking.id }} as completed?">Completed</button>
+                </form>
+                <form action="{{ url_for('booking_attendance', booking_id=booking.id) }}" method="post">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="status" value="no-show">
+                  <button class="button button-danger button-small" type="submit" data-confirm="Record a no-show for booking #{{ booking.id }}?">No-show</button>
+                </form>
+              {% endif %}
+              <form action="{{ url_for('cancel_booking', booking_id=booking.id) }}" method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="button button-quiet button-small" type="submit" data-confirm="Cancel booking #{{ booking.id }}? This action is recorded and cannot be undone.">Cancel booking</button>
+              </form>
+            </div>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <div class="empty-illustration" aria-hidden="true">0</div>
+      <h3>No bookings match these filters</h3>
+      <p>Clear one or more filters to broaden the results. New student requests will appear here automatically.</p>
+      <a class="button button-secondary" href="{{ url_for('admin_dashboard') }}">Clear all filters</a>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="color-scheme" content="light">
+  <title>{% block title %}Scheduling{% endblock %} · A2Z Institute</title>
+  <link rel="icon" type="image/jpeg" href="{{ url_for('static', filename='images/a2z-logo.jpg', v='20260813-2') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v='20260813-2') }}">
+  {% block head %}{% endblock %}
+</head>
+{% set signed_in = current_user.is_authenticated %}
+{% set user_role = current_user.role|default('student') if signed_in else 'guest' %}
+{% if user_role == 'admin' %}
+  {% set dashboard_endpoint = 'calendar_view' %}
+{% elif user_role == 'instructor' %}
+  {% set dashboard_endpoint = 'calendar_view' %}
+{% else %}
+  {% set dashboard_endpoint = 'student_dashboard' %}
+{% endif %}
+<body class="{% block body_class %}{% endblock %}" data-user-role="{{ user_role }}">
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <header class="site-header {{ 'site-header-minimal' if not signed_in else '' }}" data-site-header>
+    <div class="container header-inner">
+      <a class="brand" href="{{ url_for(dashboard_endpoint) if signed_in else url_for('login') }}" aria-label="A2Z Institute scheduling home">
+        <span class="brand-logo" aria-hidden="true"><img src="{{ url_for('static', filename='images/a2z-logo.jpg', v='20260813-1') }}" alt=""></span>
+        <span class="brand-copy">
+          <span class="brand-name">A2Z Institute</span>
+          <span class="brand-product">Training Scheduler</span>
+        </span>
+      </a>
+
+      {% if signed_in %}
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-navigation" data-nav-toggle>
+          <span class="sr-only">Open navigation</span>
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+        </button>
+
+        <nav class="site-nav" id="primary-navigation" aria-label="Primary navigation" data-site-nav>
+          <div class="nav-links">
+            {% if user_role == 'student' %}
+              <a href="{{ url_for('student_dashboard') }}" {% if request.endpoint == 'student_dashboard' %}aria-current="page"{% endif %}>My timetable</a>
+            {% elif user_role == 'instructor' %}
+              <a href="{{ url_for('calendar_view') }}" {% if request.endpoint == 'calendar_view' %}aria-current="page"{% endif %}>Calendar</a>
+              <a href="{{ url_for('clients_directory') }}" {% if request.endpoint in ['clients_directory', 'client_detail'] %}aria-current="page"{% endif %}>Clients</a>
+              <a href="{{ url_for('instructor_availability') }}" {% if request.endpoint and (request.endpoint.startswith('instructor_availability') or request.endpoint.startswith('instructor_time_off')) %}aria-current="page"{% endif %}>Availability</a>
+            {% elif user_role == 'admin' %}
+              <a href="{{ url_for('calendar_view') }}" {% if request.endpoint == 'calendar_view' %}aria-current="page"{% endif %}>Calendar</a>
+              <a href="{{ url_for('clients_directory') }}" {% if request.endpoint in ['clients_directory', 'client_detail'] %}aria-current="page"{% endif %}>Clients</a>
+              <a href="{{ url_for('admin_services') }}" {% if request.endpoint and request.endpoint.startswith('admin_service') %}aria-current="page"{% endif %}>Courses</a>
+              <a href="{{ url_for('admin_resources') }}" {% if request.endpoint and (request.endpoint == 'admin_resources' or request.endpoint.startswith('admin_branch') or request.endpoint.startswith('admin_equipment')) %}aria-current="page"{% endif %}>Resources</a>
+              <a href="{{ url_for('admin_users') }}" {% if request.endpoint in ['admin_users', 'admin_user_edit'] %}aria-current="page"{% endif %}>Staff</a>
+              <details class="nav-dropdown" {% if request.endpoint == 'admin_dashboard' or request.endpoint and (request.endpoint.startswith('admin_reminder') or request.endpoint.startswith('instructor_availability') or request.endpoint.startswith('instructor_time_off')) %}data-current="true"{% endif %}>
+                <summary>Settings</summary>
+                <div class="nav-dropdown-menu">
+                  <a href="{{ url_for('admin_dashboard') }}" {% if request.endpoint == 'admin_dashboard' %}aria-current="page"{% endif %}>Appointment records</a>
+                  <a href="{{ url_for('instructor_availability') }}" {% if request.endpoint and (request.endpoint.startswith('instructor_availability') or request.endpoint.startswith('instructor_time_off')) %}aria-current="page"{% endif %}>Instructor availability</a>
+                  <a href="{{ url_for('admin_reminders') }}" {% if request.endpoint and request.endpoint.startswith('admin_reminder') %}aria-current="page"{% endif %}>Reminders</a>
+                  <a href="{{ url_for('import_clients_view') }}">Import clients</a>
+                  <a href="{{ url_for('export_appointments_csv') }}">Export appointments</a>
+                  <a href="{{ url_for('export_clients_csv') }}">Export clients</a>
+                  <a href="{{ url_for('export_activity_csv') }}">Export activity log</a>
+                  <a href="{{ url_for('download_database_backup') }}">Download backup</a>
+                </div>
+              </details>
+            {% endif %}
+          </div>
+
+          <div class="account-menu">
+            <div class="account-copy">
+              <span class="account-name">{{ current_user.full_name|default(current_user.username|default('Your account')) }}</span>
+              <span class="role-badge">{{ user_role|title }}</span>
+            </div>
+            <details class="account-dropdown">
+              <summary aria-label="Open account menu">{{ current_user.full_name[:1]|default('A')|upper }}</summary>
+              <div class="account-dropdown-menu">
+                <a href="{{ url_for('account_password') }}" {% if request.endpoint == 'account_password' %}aria-current="page"{% endif %}>Change password</a>
+                <form action="{{ url_for('logout') }}" method="post">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit">Sign out</button>
+                </form>
+              </div>
+            </details>
+          </div>
+        </nav>
+      {% endif %}
+    </div>
+  </header>
+
+  <main class="site-main" id="main-content" tabindex="-1">
+    <div class="container">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="flash-stack" aria-label="Notifications">
+            {% for category, message in messages %}
+              <div class="alert alert-{{ category|default('info') }}" role="{{ 'alert' if category in ['error', 'danger'] else 'status' }}" data-dismissible>
+                <span class="alert-icon" aria-hidden="true"></span>
+                <div>{{ message }}</div>
+                <button class="alert-dismiss" type="button" aria-label="Dismiss notification" data-dismiss>×</button>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <p><strong>A2Z Institute</strong> · Staff-managed training appointments.</p>
+      <p>Times are shown in India Standard Time.</p>
+    </div>
+  </footer>
+
+  <div class="sr-only" aria-live="polite" aria-atomic="true" id="app-announcer"></div>
+  <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

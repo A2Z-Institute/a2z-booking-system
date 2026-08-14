@@ -1,0 +1,506 @@
+{% extends "base.html" %}
+
+{% block title %}Calendar{% endblock %}
+
+{% block body_class %}calendar-page{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260813-2') }}">
+{% endblock %}
+
+{% block content %}
+<header class="calendar-page-title">
+  <div class="calendar-title-copy">
+    <h1>Calendar</h1>
+    <p>Staff scheduling in 15-minute intervals</p>
+  </div>
+  <button class="button button-primary calendar-add-button" type="button" data-add-appointment>
+    <span aria-hidden="true">+</span>
+    Add appointment
+  </button>
+</header>
+
+<section
+  class="calendar-shell"
+  data-calendar
+  data-events-url="{{ url_for('api_calendar_events') }}"
+  data-create-url="{{ url_for('api_calendar_create_appointment') }}"
+  data-update-url-template="{{ url_for('api_calendar_reschedule_appointment', booking_id=0) }}"
+  data-client-create-url="{{ url_for('api_calendar_create_client') }}"
+  data-client-search-url="{{ url_for('api_calendar_search_clients') }}"
+  data-cancel-url-template="{{ url_for('api_calendar_cancel_appointment', booking_id=0) }}"
+  data-delete-url-template="{{ url_for('api_calendar_delete_appointment', booking_id=0) }}"
+  data-busy-create-url="{{ url_for('api_calendar_create_busy_time') }}"
+  data-busy-update-url-template="{{ url_for('api_calendar_update_busy_time', time_off_id=0) }}"
+  data-busy-delete-url-template="{{ url_for('api_calendar_delete_busy_time', time_off_id=0) }}"
+  data-slot-create-url="{{ url_for('api_calendar_create_booking_slot') }}"
+  data-slot-update-url-template="{{ url_for('api_calendar_update_booking_slot', slot_id=0) }}"
+  data-slot-delete-url-template="{{ url_for('api_calendar_delete_booking_slot', slot_id=0) }}"
+  data-selected-instructor="{{ selected_instructor|default('', true) }}"
+  data-selected-client="{{ selected_client_id|default('', true) }}"
+  data-initial-client-id="{{ selected_client_id|default('', true) }}"
+  data-client-url-template="{{ url_for('client_detail', client_id=0) }}"
+>
+  <div class="calendar-toolbar" aria-label="Calendar controls">
+    <div class="calendar-toolbar-primary">
+      <label class="calendar-date-control" for="calendar-date">
+        <span class="sr-only">Calendar date</span>
+        <span aria-hidden="true">▣</span>
+        <input id="calendar-date" type="date" value="{{ calendar_date }}" data-calendar-date>
+      </label>
+
+      <div class="calendar-tool-group" aria-label="Calendar tools">
+        <details class="calendar-filter-menu">
+          <summary class="icon-button" aria-label="Calendar preferences" title="Calendar preferences">⚙</summary>
+          <div class="calendar-filter-popover">
+            <div class="field compact-field">
+              <label for="calendar-view">View</label>
+              <select id="calendar-view" data-calendar-view>
+                <option value="day">Day</option>
+                <option value="week" {% if current_user.role == 'instructor' %}selected{% endif %}>Week</option>
+              </select>
+            </div>
+            <div class="field compact-field">
+              <label for="calendar-status">Appointment status</label>
+              <select id="calendar-status" data-calendar-status>
+                <option value="">All statuses</option>
+                <option value="Pending">Pending</option>
+                <option value="Approved">Confirmed</option>
+                <option value="Completed">Completed</option>
+                <option value="No-show">No-show</option>
+                <option value="Cancelled">Cancelled</option>
+                <option value="Rejected">Declined</option>
+              </select>
+            </div>
+          </div>
+        </details>
+        {% if current_user.role == 'admin' %}
+          <a class="icon-button" href="{{ url_for('export_appointments_csv') }}" aria-label="Export appointments" title="Export appointments">⇩</a>
+        {% endif %}
+        <button class="icon-button" type="button" aria-label="Print calendar" title="Print calendar" data-calendar-print>Print</button>
+      </div>
+
+      <label class="calendar-staff-control" for="calendar-instructor">
+        <span class="sr-only">Instructor</span>
+        <select id="calendar-instructor" data-calendar-instructor>
+          {% if current_user.role == 'admin' %}<option value="">All instructors</option>{% endif %}
+          {% for instructor in instructors %}
+            <option
+              value="{{ instructor.id }}"
+              data-branch-id="{{ instructor.branch_id }}"
+              {% if selected_instructor|string == instructor.id|string %}selected{% endif %}
+            >{{ instructor.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <div class="calendar-navigation">
+      <button class="icon-button" type="button" aria-label="Previous period" title="Previous period" data-calendar-previous>‹</button>
+      <button class="button button-secondary button-small" type="button" data-calendar-today>Today</button>
+      <button class="icon-button" type="button" aria-label="Next period" title="Next period" data-calendar-next>›</button>
+    </div>
+  </div>
+
+  <div class="calendar-range-row">
+    <strong data-calendar-range>Loading calendar…</strong>
+    <div class="calendar-legend" aria-label="Calendar legend">
+      <span><i class="legend-dot status-approved"></i>Confirmed</span>
+      <span><i class="legend-dot status-pending"></i>Pending</span>
+      <span><i class="legend-dot non-working-dot"></i>Unavailable</span>
+      <span><i class="legend-padding" aria-hidden="true"></i>Private padding</span>
+    </div>
+  </div>
+
+  <div class="calendar-live-state" role="status" data-calendar-message>Loading appointments…</div>
+  <div class="calendar-scroll" tabindex="0" aria-label="Scrollable appointment calendar" data-calendar-scroll>
+    <div class="staff-calendar-grid" data-calendar-grid></div>
+  </div>
+</section>
+
+<dialog class="appointment-dialog" data-appointment-dialog aria-labelledby="appointment-editor-title">
+  <form class="appointment-editor" data-appointment-form method="dialog">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="booking_id" value="" data-editor-booking-id>
+    <input type="hidden" name="revision" value="" data-editor-revision>
+
+    <header class="appointment-editor-header">
+      <div class="appointment-editor-tabs" role="tablist" aria-label="Schedule item type">
+        <button class="appointment-editor-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="appointment-panel" data-editor-tab="appointment">Appointment</button>
+        <button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="booking-slot-panel" data-editor-tab="slot">Booking Slot</button>
+        <button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="busy-time-panel" data-editor-tab="busy">Event / Busy Time</button>
+      </div>
+      <button class="icon-button editor-close-button" type="button" aria-label="Close appointment editor" data-editor-close>×</button>
+    </header>
+
+    <div class="appointment-editor-body">
+      <div class="appointment-editor-intro sr-only">
+        <p class="eyebrow" data-editor-eyebrow>New appointment</p>
+        <h2 id="appointment-editor-title" data-editor-title>Appointment</h2>
+        <p data-editor-description>Create an appointment while speaking with the client.</p>
+        <p class="editor-series-summary" data-editor-series-summary hidden></p>
+      </div>
+
+      <div class="alert alert-error" role="alert" data-editor-error hidden>
+        <span class="alert-icon" aria-hidden="true"></span>
+        <div data-editor-error-text>We could not save this appointment.</div>
+      </div>
+
+      <section id="appointment-panel" class="editor-panel" role="tabpanel" data-editor-panel="appointment">
+        <dl class="editor-existing-summary" data-editor-existing-summary hidden>
+          <div><dt>Client</dt><dd data-editor-summary-client>—</dd></div>
+          <div><dt>Service</dt><dd data-editor-summary-service>—</dd></div>
+          <div><dt>Status</dt><dd data-editor-summary-status>—</dd></div>
+          <div><dt>Phone</dt><dd><a data-editor-summary-phone href="#">—</a></dd></div>
+          <div><dt>Private padding</dt><dd data-editor-summary-padding>—</dd></div>
+        </dl>
+
+        <fieldset class="editor-section smart-service-section service-picker" data-editor-services-field>
+          <legend class="sr-only">Services</legend>
+          <button class="smart-service-trigger" type="button" data-service-picker-open>
+            <span data-service-trigger-title>Click here to choose services</span>
+            <span aria-hidden="true">✎</span>
+          </button>
+          <div class="smart-service-total" data-service-total hidden>Total: ₹0.00</div>
+          <div class="smart-service-picker" data-service-picker hidden>
+            <div class="smart-service-picker-header">
+              <h3>Choose Services</h3>
+              <button class="icon-button" type="button" aria-label="Close services" data-service-picker-close>×</button>
+            </div>
+            <div class="service-checkbox-list">
+            {% for group in services|groupby('category', default='SERVICES') %}
+              <section class="service-picker-group">
+                <h4>{{ group.grouper|default('SERVICES', true)|upper }}</h4>
+                {% for service in group.list %}
+                  <label class="service-checkbox-option">
+                    <input
+                      type="checkbox"
+                      name="service_ids"
+                      value="{{ service.id }}"
+                      data-editor-service
+                      data-branch-id="{{ service.branch_id }}"
+                      data-instructor-ids="{{ service.instructor_ids|default([], true)|join(',') }}"
+                      data-duration="{{ service.duration_minutes }}"
+                      data-machine-ids="{{ service.machine_ids|join(',') }}"
+                      data-buffer-before="{{ service.buffer_before_minutes }}"
+                      data-buffer-after="{{ service.buffer_after_minutes }}"
+                    >
+                    <strong>{{ service.name }}</strong>
+                    <span class="service-picker-price">₹{{ '%.2f'|format(service.price_cents / 100) }}</span>
+                  </label>
+                {% endfor %}
+              </section>
+            {% endfor %}
+            </div>
+            <div class="smart-service-picker-actions">
+              <button class="button button-primary" type="button" data-service-picker-done>OK</button>
+              <button class="button button-secondary" type="button" data-service-picker-close>Cancel</button>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="editor-section">
+          <legend class="sr-only">Staff and time</legend>
+          <div class="form-grid smart-appointment-grid">
+            <div class="field">
+              <label for="editor-instructor">Staff Member</label>
+              <select id="editor-instructor" name="instructor_id" data-editor-instructor required>
+                <option value="">Choose an instructor</option>
+                {% for instructor in instructors %}
+                  <option value="{{ instructor.id }}" data-branch-id="{{ instructor.branch_id }}">{{ instructor.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field field-span-all">
+              <label for="editor-notes">Notes</label>
+              <input id="editor-notes" name="notes" maxlength="500" data-editor-notes>
+            </div>
+            <div class="field">
+              <label for="new-client-first-name">First Name</label>
+              <input id="new-client-first-name" name="new_client_first_name" maxlength="80" autocomplete="given-name" data-new-client-first-name>
+            </div>
+            <div class="field">
+              <label for="new-client-last-name">Last Name</label>
+              <input id="new-client-last-name" name="new_client_last_name" maxlength="80" autocomplete="family-name" data-new-client-last-name>
+            </div>
+            <div class="field">
+              <label for="new-client-phone">Phone</label>
+              <input id="new-client-phone" name="new_client_phone" maxlength="30" autocomplete="tel" data-new-client-phone>
+            </div>
+            <div class="field">
+              <label for="new-client-email">Email <span class="text-muted">(optional)</span></label>
+              <input id="new-client-email" name="new_client_email" type="email" maxlength="160" autocomplete="email" data-new-client-email>
+            </div>
+            <div class="client-typeahead field-span-all" data-client-typeahead hidden>
+              <div class="client-typeahead-heading">Existing clients</div>
+              <div data-client-typeahead-results></div>
+            </div>
+            <div class="field">
+              <label for="editor-date">Date</label>
+              <input id="editor-date" name="target_date" type="date" value="{{ calendar_date }}" data-editor-date required>
+            </div>
+            <div class="field">
+              <label for="editor-start">Start</label>
+              <select id="editor-start" name="start_time" data-editor-start required>
+                {% for hour in range(6, 19) %}
+                  {% for minute in [0, 15, 30, 45] %}
+                    {% if hour < 18 or minute <= 15 %}
+                      {% set value = '%02d:%02d'|format(hour, minute) %}
+                      {% set display_hour = 12 if hour % 12 == 0 else hour % 12 %}
+                      <option value="{{ value }}">{{ display_hour }}:{{ '%02d'|format(minute) }} {{ 'am' if hour < 12 else 'pm' }}</option>
+                    {% endif %}
+                  {% endfor %}
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="editor-end">Finish</label>
+              <select id="editor-end" name="end_time" data-editor-end required>
+                {% for hour in range(6, 19) %}
+                  {% for minute in [0, 15, 30, 45] %}
+                    {% if hour < 18 or minute <= 30 %}
+                    {% set value = '%02d:%02d'|format(hour, minute) %}
+                    {% set display_hour = 12 if hour % 12 == 0 else hour % 12 %}
+                    <option value="{{ value }}">{{ display_hour }}:{{ '%02d'|format(minute) }} {{ 'am' if hour < 12 else 'pm' }}</option>
+                    {% endif %}
+                  {% endfor %}
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <span class="sr-only" data-editor-duration>Choose services</span>
+          <span class="sr-only" data-editor-end-time></span>
+        </fieldset>
+
+        <details class="editor-additional-details" data-editor-additional>
+          <summary class="sr-only">Additional appointment details</summary>
+          <div class="editor-additional-body">
+            <div class="form-grid two-column">
+              <div class="field field-span-2" data-editor-client-section>
+                <label for="editor-client">Existing client</label>
+                <select id="editor-client" name="student_id" data-editor-client data-editor-student>
+                  <option value="">Create from the contact details above</option>
+                  {% for student in students %}
+                    <option value="{{ student.id }}" data-branch-id="{{ student.branch_id }}">{{ student.full_name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field">
+                <label for="editor-machine">Equipment</label>
+                <select id="editor-machine" name="machine_id" data-editor-machine required>
+                  <option value="">Choose compatible equipment</option>
+                  {% for machine in machines %}
+                    <option value="{{ machine.id }}" data-branch-id="{{ machine.branch_id }}">{{ machine.machine_code|replace('-', ' ') }} · {{ machine.category }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field">
+                <label for="editor-status">Status</label>
+                <select id="editor-status" name="status" data-editor-status>
+                  {% if current_user.role == 'instructor' %}
+                  <option value="Approved">Confirmed</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Completed">Completed</option>
+                  {% else %}
+                  <option value="Approved">Confirmed</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Not Confirmed">Not Confirmed</option>
+                  <option value="Rejected">Declined</option>
+                  <option value="Completed">Completed</option>
+                  <option value="No-show">No-show</option>
+                  <option value="Running Late">Running Late</option>
+                  <option value="Arrived">Arrived</option>
+                  <option value="Rescheduled">Rescheduled</option>
+                  <option value="Cancelled">Cancelled</option>
+                  {% endif %}
+                </select>
+                {% if current_user.role == 'instructor' %}<span class="field-hint">Update your appointment to Pending or Completed.</span>{% endif %}
+              </div>
+              <div class="field">
+                <label for="editor-buffer-before">Padding before</label>
+                <select id="editor-buffer-before" name="buffer_before_minutes" data-editor-buffer-before>
+                  {% for value in range(0, 121, 5) %}<option value="{{ value }}">{{ 'None' if value == 0 else value ~ ' min' }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="field">
+                <label for="editor-buffer-after">Padding after</label>
+                <select id="editor-buffer-after" name="buffer_after_minutes" data-editor-buffer-after>
+                  {% for value in range(0, 121, 5) %}<option value="{{ value }}">{{ 'None' if value == 0 else value ~ ' min' }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="field">
+                <label for="editor-repeat">Repeat</label>
+                <select id="editor-repeat" name="repeat" data-editor-repeat>
+                  <option value="none">Does not repeat</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekdays">Weekdays</option>
+                  <option value="mwf">Monday, Wednesday &amp; Friday</option>
+                  <option value="tuth">Tuesday &amp; Thursday</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="fortnightly">Every 2 weeks</option>
+                  <option value="every_3_weeks">Every 3 weeks</option>
+                  <option value="every_4_weeks">Every 4 weeks</option>
+                  <option value="every_5_weeks">Every 5 weeks</option>
+                  <option value="every_6_weeks">Every 6 weeks</option>
+                  <option value="every_8_weeks">Every 8 weeks</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="every_2_months">Every 2 months</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="editor-repeat-count">Occurrences</label>
+                <input id="editor-repeat-count" name="repeat_count" type="number" min="1" max="52" value="1" data-editor-repeat-count>
+              </div>
+              {% if current_user.role == 'admin' %}<label class="checkbox-row field-span-2">
+                <input type="checkbox" name="allow_double_booking" data-editor-allow-double-booking>
+                <span><strong>Allow Double Booking</strong><small>Permit this appointment to overlap another booking for the same instructor or equipment.</small></span>
+              </label>{% endif %}
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section id="booking-slot-panel" class="editor-panel" role="tabpanel" data-editor-panel="slot" hidden>
+        <fieldset class="editor-section">
+          <legend>Booking slot</legend>
+          <p>Show the booking agent which equipment can be booked with this staff member. Appointments can be placed inside this band.</p>
+          <div class="form-grid two-column">
+            <div class="field">
+              <label for="slot-instructor">Staff Member</label>
+              <select id="slot-instructor" data-editor-slot-instructor>
+                <option value="">Choose an instructor</option>
+                {% for instructor in instructors %}<option value="{{ instructor.id }}" data-branch-id="{{ instructor.branch_id }}">{{ instructor.name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="slot-machine">Equipment / Slot</label>
+              <select id="slot-machine" data-editor-slot-machine>
+                <option value="">Choose equipment</option>
+                {% for machine in machines %}<option value="{{ machine.id }}" data-branch-id="{{ machine.branch_id }}">{{ machine.machine_code|replace('-', ' ') }} · {{ machine.category }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="field"><label for="slot-date">Date</label><input id="slot-date" type="date" value="{{ calendar_date }}" data-editor-slot-date></div>
+            <div class="field">
+              <label for="slot-start">Start</label>
+              <select id="slot-start" data-editor-slot-start>
+                {% for hour in range(6, 19) %}
+                  {% for minute in [0, 15, 30, 45] %}
+                    {% if hour < 18 or minute <= 15 %}
+                    {% set value = '%02d:%02d'|format(hour, minute) %}
+                    {% set display_hour = 12 if hour % 12 == 0 else hour % 12 %}
+                    <option value="{{ value }}">{{ display_hour }}:{{ '%02d'|format(minute) }} {{ 'am' if hour < 12 else 'pm' }}</option>
+                    {% endif %}
+                  {% endfor %}
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="slot-end">Finish</label>
+              <select id="slot-end" data-editor-slot-end>
+                {% for hour in range(6, 19) %}
+                  {% for minute in [0, 15, 30, 45] %}
+                    {% if hour < 18 or minute <= 30 %}
+                    {% set value = '%02d:%02d'|format(hour, minute) %}
+                    {% set display_hour = 12 if hour % 12 == 0 else hour % 12 %}
+                    <option value="{{ value }}">{{ display_hour }}:{{ '%02d'|format(minute) }} {{ 'am' if hour < 12 else 'pm' }}</option>
+                    {% endif %}
+                  {% endfor %}
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field"><label for="slot-repeat">Repeat</label><select id="slot-repeat" data-editor-slot-repeat><option value="none">Does not repeat</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option></select></div>
+            <div class="field"><label for="slot-repeat-count">Occurrences</label><input id="slot-repeat-count" type="number" min="1" max="52" value="1" data-editor-slot-repeat-count></div>
+            <div class="field field-span-2"><label for="slot-notes">Note <span class="text-muted">(optional)</span></label><textarea id="slot-notes" maxlength="500" data-editor-slot-notes></textarea></div>
+          </div>
+        </fieldset>
+      </section>
+
+      <section id="busy-time-panel" class="editor-panel" role="tabpanel" data-editor-panel="busy" hidden>
+        <fieldset class="editor-section">
+          <legend>Event / Busy time</legend>
+          <p>Block an instructor’s calendar for training, leave, meetings, or other private time.</p>
+          <div class="form-grid two-column">
+            <div class="field field-span-2">
+              <label for="busy-title">Title</label>
+              <input id="busy-title" name="busy_title" maxlength="120" placeholder="For example: Staff training" data-editor-busy-title>
+            </div>
+            <div class="field">
+              <label for="busy-instructor">Instructor</label>
+              <select id="busy-instructor" name="busy_instructor_id" data-editor-busy-instructor>
+                <option value="">Choose an instructor</option>
+                {% for instructor in instructors %}
+                  <option value="{{ instructor.id }}" data-branch-id="{{ instructor.branch_id }}">{{ instructor.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="busy-date">Date</label>
+              <input id="busy-date" name="busy_date" type="date" value="{{ calendar_date }}" data-editor-busy-date>
+            </div>
+            <div class="field">
+              <label for="busy-start">Start</label>
+              <input id="busy-start" name="busy_start_time" type="time" min="06:00" max="18:15" step="300" data-editor-busy-start>
+            </div>
+            <div class="field">
+              <label for="busy-end">Finish</label>
+              <input id="busy-end" name="busy_end_time" type="time" min="06:15" max="18:30" step="300" data-editor-busy-end>
+            </div>
+            <div class="field">
+              <label for="busy-repeat">Repeat</label>
+              <select id="busy-repeat" name="busy_repeat" data-editor-busy-repeat>
+                <option value="none">Does not repeat</option>
+                <option value="daily">Daily</option>
+                <option value="weekdays">Weekdays</option>
+                <option value="mwf">Monday, Wednesday &amp; Friday</option>
+                <option value="tuth">Tuesday &amp; Thursday</option>
+                <option value="weekly">Weekly</option>
+                <option value="fortnightly">Every 2 weeks</option>
+                <option value="every_3_weeks">Every 3 weeks</option>
+                <option value="every_4_weeks">Every 4 weeks</option>
+                <option value="every_5_weeks">Every 5 weeks</option>
+                <option value="every_6_weeks">Every 6 weeks</option>
+                <option value="every_8_weeks">Every 8 weeks</option>
+                <option value="monthly">Monthly</option>
+                <option value="every_2_months">Every 2 months</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="busy-repeat-count">Occurrences</label>
+              <input id="busy-repeat-count" name="busy_repeat_count" type="number" min="1" max="52" value="1" data-editor-busy-repeat-count>
+            </div>
+            <div class="field field-span-2">
+              <label for="busy-notes">Private note <span class="text-muted">(optional)</span></label>
+              <textarea id="busy-notes" name="busy_notes" maxlength="500" data-editor-busy-notes></textarea>
+            </div>
+          </div>
+        </fieldset>
+      </section>
+    </div>
+
+    <footer class="appointment-editor-footer">
+      <button class="button button-quiet" type="button" data-editor-additional-toggle>More <span aria-hidden="true">⌃</span></button>
+      <details class="editor-booking-menu" data-editor-booking-menu hidden>
+        <summary class="button button-quiet">Actions</summary>
+        <div class="editor-booking-popover">
+          <button type="button" data-editor-cancel>Delete</button>
+          <a href="#" data-editor-client-details>Client Details</a>
+          <a href="#" data-editor-client-notes>Client Notes</a>
+        </div>
+      </details>
+      <button type="button" data-editor-busy-delete hidden>Delete busy time</button>
+      <button type="button" data-editor-slot-delete hidden>Delete slot</button>
+      <div class="appointment-editor-actions">
+        <button class="button button-danger" type="button" data-editor-permanent-delete hidden>Delete</button>
+        <button class="button button-secondary" type="button" data-editor-close>Cancel</button>
+        <button class="button button-primary" type="submit" data-editor-save>Save appointment</button>
+      </div>
+    </footer>
+  </form>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', filename='js/calendar.js', v='20260814-1') }}" defer></script>
+{% endblock %}

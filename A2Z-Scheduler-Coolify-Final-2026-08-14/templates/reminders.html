@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}Reminders{% endblock %}
+
+{% block content %}
+<header class="management-panel-header standalone-management-header">
+  <div>
+    <p class="eyebrow">Settings</p>
+    <h1>Confirmations &amp; reminders</h1>
+    <p>Choose how clients are contacted, review delivery, and retry messages that need attention.</p>
+  </div>
+  <div class="management-panel-actions">
+    <form method="post" action="{{ url_for('admin_reminders_send_due') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="button button-secondary button-small" type="submit">Send due now</button>
+    </form>
+    <a class="button button-primary button-small" href="{{ url_for('calendar_view') }}">Open calendar</a>
+  </div>
+</header>
+
+{% if not provider_status.worker_enabled %}
+  <div class="alert alert-warning" role="status">
+    <span class="alert-icon" aria-hidden="true"></span>
+    <div><strong>Automatic delivery is paused.</strong> Messages are safely queued. Please contact the system administrator to resume delivery.</div>
+  </div>
+{% endif %}
+
+<section class="stats-grid" aria-label="Notification queue summary">
+  <article class="stat-card">
+    <span class="stat-label">Queued</span>
+    <strong class="stat-value">{{ queue_stats.queued|default(0) }}</strong>
+    <span class="stat-detail">Waiting for delivery</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Sent</span>
+    <strong class="stat-value">{{ queue_stats.sent|default(0) }}</strong>
+    <span class="stat-detail">Delivered jobs retained</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Needs attention</span>
+    <strong class="stat-value">{{ queue_stats.failed|default(0) }}</strong>
+    <span class="stat-detail">Stopped after five attempts</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Automatic delivery</span>
+    <strong class="stat-value stat-value-word">{{ 'On' if provider_status.worker_enabled else 'Paused' }}</strong>
+    <span class="stat-detail">Current delivery status</span>
+  </article>
+</section>
+
+<div class="content-grid reminder-settings-grid">
+  <aside class="content-stack">
+    {% for branch in branches %}
+      <section class="management-panel">
+        <div class="section-header">
+          <div>
+            <h2>{{ branch.name }}</h2>
+            <p>One channel is used for confirmations and reminders.</p>
+          </div>
+        </div>
+        <form class="section-body" method="post" action="{{ url_for('admin_reminders') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="branch_id" value="{{ branch.id }}">
+          <fieldset class="choice-field reminder-channel-options">
+            <legend>Preferred channel</legend>
+            <label class="checkbox-field">
+              <input type="radio" name="reminder_channel" value="email" {% if branch.reminder_channel == 'email' %}checked{% endif %}>
+              <span><strong>Email</strong><small>{{ 'Ready to send' if provider_status.email_configured else 'Administrator setup required' }}</small></span>
+            </label>
+            <label class="checkbox-field">
+              <input type="radio" name="reminder_channel" value="sms" {% if branch.reminder_channel == 'sms' %}checked{% endif %}>
+              <span><strong>SMS</strong><small>{{ 'Ready to send' if provider_status.sms_configured else 'Administrator setup required' }}</small></span>
+            </label>
+          </fieldset>
+          <button class="button button-primary button-block" type="submit">Save channel</button>
+        </form>
+      </section>
+    {% endfor %}
+
+    <section class="management-panel">
+      <div class="section-header">
+        <div>
+          <h2>Delivery schedule</h2>
+          <p>Created automatically when an appointment is confirmed.</p>
+        </div>
+      </div>
+      <div class="section-body">
+        <ol class="auth-points">
+          <li>Confirmation or appointment update immediately.</li>
+          <li>Reminder 24 hours before the appointment.</li>
+          <li>Final reminder 2 hours before the appointment.</li>
+        </ol>
+        <p class="field-hint">Rescheduling cancels the old reminder jobs and builds a fresh schedule. Client opt-outs are managed from the client record.</p>
+      </div>
+    </section>
+  </aside>
+
+  <section class="management-panel" aria-labelledby="delivery-log-title">
+    <div class="section-header">
+      <div>
+        <h2 id="delivery-log-title">Delivery log</h2>
+        <p>The latest 100 queued, sent, or failed messages.</p>
+      </div>
+    </div>
+    {% if jobs %}
+      <div class="notification-log">
+        {% for job in jobs %}
+          <article>
+            <div class="notification-log-heading">
+              <div>
+                <strong>{{ job.event_type|replace('_', ' ')|title }}</strong>
+                <span>{{ job.student_name }} · {{ job.target_date }} at {{ job.start_time }}</span>
+              </div>
+              <span class="status-badge status-{{ 'approved' if job.status == 'sent' else 'pending' if job.status in ['queued', 'processing'] else 'rejected' }}">{{ job.status|title }}</span>
+            </div>
+            <dl class="meta-grid">
+              <div><dt>Channel</dt><dd>{{ job.channel|upper }}</dd></div>
+              <div><dt>Scheduled</dt><dd>{{ job.scheduled_for }}</dd></div>
+              <div><dt>Destination</dt><dd>{{ job.destination }}</dd></div>
+              <div><dt>Attempts</dt><dd>{{ job.attempts }}</dd></div>
+            </dl>
+            {% if job.last_error %}<p class="review-note"><strong>Latest issue:</strong> {{ job.last_error }}</p>{% endif %}
+            {% if job.status == 'failed' %}
+              <form method="post" action="{{ url_for('admin_reminder_retry', job_id=job.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="button button-secondary button-small" type="submit">Retry delivery</button>
+              </form>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <h3>No notifications yet</h3>
+        <p>Confirmations and reminders will appear here after staff create appointments.</p>
+      </div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
