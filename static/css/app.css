@@ -1923,6 +1923,12 @@ textarea:focus {
   color: #8b1117;
 }
 
+.role-booking_agent {
+  border-color: #8bc6d8;
+  background: #e9f7fb;
+  color: #155267;
+}
+
 .role-admin {
   border-color: #dfbf62;
   background: var(--yellow-100);

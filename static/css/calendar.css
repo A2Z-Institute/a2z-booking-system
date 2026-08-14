@@ -1,5 +1,7 @@
 .calendar-page .site-main > .container {
-  width: min(100% - 1.5rem, 1640px);
+  width: 100%;
+  max-width: none;
+  padding-inline: 0.5rem;
 }
 
 .calendar-heading {
@@ -552,7 +554,9 @@
 }
 
 .calendar-page .site-main > .container {
-  width: min(100% - 1rem, 1640px);
+  width: 100%;
+  max-width: none;
+  padding-inline: 0.5rem;
 }
 
 .calendar-page-title {
@@ -690,11 +694,17 @@
   background: transparent;
 }
 
-.legend-padding {
+.legend-padding,
+.legend-slot {
   width: 20px;
   height: 10px;
   border: 1px solid #c6cbd0;
   background: repeating-linear-gradient(-45deg, #f3f4f5, #f3f4f5 3px, #d9dde1 3px, #d9dde1 6px);
+}
+
+.legend-slot {
+  border-color: #4ca6c4;
+  background: #80c7df;
 }
 
 .calendar-live-state {
@@ -1417,7 +1427,8 @@
 
 @media (max-width: 759px) {
   .calendar-page .site-main > .container {
-    width: min(100% - 0.5rem, 1640px);
+    width: 100%;
+    padding-inline: 0.25rem;
   }
 
   .calendar-page-title {
@@ -1624,6 +1635,10 @@
 .calendar-booking-slot:hover,
 .calendar-booking-slot:focus-visible {
   background: #70bdd7;
+}
+
+.calendar-booking-slot[aria-readonly="true"] {
+  cursor: pointer;
 }
 
 .appointment-dialog {

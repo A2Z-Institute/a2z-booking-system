@@ -581,8 +581,11 @@
         summaryPhone.href = phone ? `tel:${phone.replace(/[^+\d]/g, "")}` : "#";
         summaryPhone.toggleAttribute("aria-disabled", !phone);
       }
-      existingSummary.querySelector("[data-editor-summary-padding]").textContent =
-        `${event.buffer_before_minutes || 0} min before · ${event.buffer_after_minutes || 0} min after`;
+      const paddingSummary = existingSummary.querySelector("[data-editor-summary-padding]");
+      if (paddingSummary) {
+        paddingSummary.textContent =
+          `${event.buffer_before_minutes || 0} min before · ${event.buffer_after_minutes || 0} min after`;
+      }
     }
   };
 
@@ -773,7 +776,12 @@
     const button = document.createElement("button");
     button.type = "button";
     button.className = eventClass(event);
-    button.draggable = ["appointment", "slot"].includes(event.type) && Boolean(event.can_edit);
+    const isBusy = event.type === "busy";
+    const isSlot = event.type === "slot";
+    const canDragEvent = Boolean(event.can_edit) && (
+      event.type === "appointment" || (isSlot && currentRole === "admin")
+    );
+    button.draggable = canDragEvent;
     button.dataset.eventId = event.id;
     if (event.service_color) button.style.setProperty("--event-colour", event.service_color);
     const range = visibleEventRange(event) || {
@@ -784,8 +792,10 @@
     button.style.setProperty("--event-offset", `${(offsetMinutes / 15) * 100}%`);
     const durationMinutes = Math.max(5, range.end - range.start);
     button.style.setProperty("--event-duration", `${(durationMinutes / 15) * 100}%`);
-    const isBusy = event.type === "busy";
-    const isSlot = event.type === "slot";
+    if (isSlot && currentRole !== "admin") {
+      button.setAttribute("aria-readonly", "true");
+      button.title = "Book an appointment in this admin-managed slot";
+    }
     if (!isBusy && !isSlot && Number.isFinite(event._calendarLeft)) {
       button.style.left = `calc(${event._calendarLeft}% + 2px)`;
       button.style.right = `calc(${event._calendarRight}% + 2px)`;
@@ -796,7 +806,7 @@
       <strong class="calendar-event-client"></strong>
       <span class="calendar-event-service"></span>
       <small class="calendar-event-status"></small>
-      ${!isBusy && event.can_edit ? `<span class="calendar-event-resize" title="Drag to change ${isSlot ? "slot" : "appointment"} duration" aria-label="Resize ${isSlot ? "booking slot" : "appointment"}"></span>` : ''}
+      ${canDragEvent ? `<span class="calendar-event-resize" title="Drag to change ${isSlot ? "slot" : "appointment"} duration" aria-label="Resize ${isSlot ? "booking slot" : "appointment"}"></span>` : ''}
     `;
     button.querySelector(".calendar-event-client").textContent =
       isBusy || isSlot ? (event.title || "Booking slot") : (event.student_name || "Client");
@@ -819,9 +829,21 @@
     );
     button.addEventListener("click", (clickEvent) => {
       clickEvent.stopPropagation();
+      if (isSlot && currentRole !== "admin") {
+        prepareNewEditor(
+          event.date,
+          event.instructor_id,
+          event.start_time,
+          button,
+          "appointment",
+          "",
+          event,
+        );
+        return;
+      }
       openEditorForEvent(event, button);
     });
-    if (!isBusy && event.can_edit) {
+    if (canDragEvent) {
       button.addEventListener("dragstart", (dragEvent) => {
         draggedEvent = event;
         calendarScroll?.classList.add("is-event-dragging");
@@ -889,7 +911,11 @@
   });
 
   const moveEvent = async (event, target) => {
-    if (!event?.can_edit || event.type === "busy") return;
+    if (
+      !event?.can_edit
+      || event.type === "busy"
+      || (event.type === "slot" && currentRole !== "admin")
+    ) return;
     message.hidden = false;
     message.classList.remove("is-error");
     message.textContent = "Checking the new time…";

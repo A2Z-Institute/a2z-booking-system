@@ -61,9 +61,11 @@ ACTIVE_BOOKING_STATUSES = (
 )
 STAFF_DAY_START_MINUTES = 6 * 60
 STAFF_DAY_END_MINUTES = (18 * 60) + 30
+STAFF_LUNCH_START_MINUTES = 13 * 60
+STAFF_LUNCH_END_MINUTES = 14 * 60
 FINAL_BOOKING_STATUSES = ("Rejected", "Cancelled", "Completed", "No-show")
 DAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-MANAGED_ROLES = ("student", "instructor", "admin")
+MANAGED_ROLES = ("student", "booking_agent", "instructor", "admin")
 BRANCH_TIMEZONE_OPTIONS = (
     ("Asia/Kolkata", "India (Asia/Kolkata)"),
     ("Europe/London", "United Kingdom (Europe/London)"),
@@ -289,7 +291,7 @@ def friendly_time(value):
 
 def _role_home():
     if (
-        current_user.role in {"admin", "instructor"}
+        current_user.role in {"admin", "booking_agent", "instructor"}
         and not app.config["A2Z_STUDENT_SELF_BOOKING"]
     ):
         return url_for("calendar_view")
@@ -297,6 +299,8 @@ def _role_home():
         return url_for("admin_dashboard")
     if current_user.role == "instructor":
         return url_for("instructor_dashboard")
+    if current_user.role == "booking_agent":
+        return url_for("calendar_view")
     return url_for("student_dashboard")
 
 
@@ -1477,7 +1481,7 @@ def _admin_users_context(conn, *, editing_user_id=None):
             LEFT JOIN branches br ON br.id = u.branch_id
             LEFT JOIN instructors i ON i.id = u.instructor_id
             ORDER BY u.is_active DESC,
-                     CASE u.role WHEN 'admin' THEN 0 WHEN 'instructor' THEN 1 ELSE 2 END,
+                     CASE u.role WHEN 'admin' THEN 0 WHEN 'booking_agent' THEN 1 WHEN 'instructor' THEN 2 ELSE 3 END,
                      lower(COALESCE(u.full_name, u.username))
             """
         ).fetchall()
@@ -1608,7 +1612,7 @@ def _admin_users_context(conn, *, editing_user_id=None):
         "roles": (
             MANAGED_ROLES
             if app.config["A2Z_STUDENT_SELF_BOOKING"]
-            else ("instructor", "admin")
+            else ("booking_agent", "instructor", "admin")
         ),
         "stats": {
             "total": len(account_users),
@@ -1618,6 +1622,10 @@ def _admin_users_context(conn, *, editing_user_id=None):
             ),
             "instructors": sum(
                 user["role"] == "instructor" and user["is_active"]
+                for user in account_users
+            ),
+            "booking_agents": sum(
+                user["role"] == "booking_agent" and user["is_active"]
                 for user in account_users
             ),
             "admins": sum(
@@ -1656,7 +1664,9 @@ def admin_users():
     generated_password = None
     try:
         if role not in MANAGED_ROLES:
-            raise ValueError("Choose student, instructor or administrator access.")
+            raise ValueError(
+                "Choose student, booking agent, instructor or administrator access."
+            )
         if role == "student" and not app.config["A2Z_STUDENT_SELF_BOOKING"]:
             raise ValueError(
                 "Add clients from the client database. Client records do not need sign-in details."
@@ -2637,7 +2647,7 @@ def _calendar_busy_event(row):
         "repeat_rule": row.get("repeat_rule") or "none",
         "series_position": row.get("series_position") or 1,
         "series_count": row.get("series_count") or 1,
-        "can_edit": True,
+        "can_edit": current_user.role in {"admin", "instructor"},
     }
 
 
@@ -2666,12 +2676,12 @@ def _calendar_slot_event(row):
         "repeat_rule": row.get("repeat_rule") or "none",
         "series_position": row.get("series_position") or 1,
         "series_count": row.get("series_count") or 1,
-        "can_edit": True,
+        "can_edit": current_user.role == "admin",
     }
 
 
 @app.get("/calendar")
-@role_required("instructor", "admin")
+@role_required("booking_agent", "instructor", "admin")
 def calendar_view():
     requested_date = request.args.get("date", "")
     try:
@@ -2752,7 +2762,7 @@ def calendar_view():
 
 
 @app.get("/api/calendar/events")
-@role_required("instructor", "admin")
+@role_required("booking_agent", "instructor", "admin")
 def api_calendar_events():
     try:
         start = date.fromisoformat(request.args.get("start", ""))
@@ -2922,6 +2932,56 @@ def _validate_staff_day_range(start_minutes, end_minutes, item_name="Booking"):
         raise ValueError(f"{item_name} must be between 6:00 am and 6:30 pm.")
     if start_minutes >= STAFF_DAY_END_MINUTES:
         raise ValueError(f"{item_name} must start before 6:30 pm.")
+
+
+def _assert_active_appointment_not_past(target, start_minutes, status, *, action):
+    """Prevent staff APIs and drag/drop from placing active work in elapsed time."""
+    if status not in ACTIVE_BOOKING_STATUSES:
+        return
+    now = datetime.now(IST)
+    if target < now.date() or (
+        target == now.date()
+        and start_minutes < (now.hour * 60 + now.minute)
+    ):
+        past_action = "created in" if action == "created" else "moved into"
+        raise ValueError(
+            f"Active appointments cannot be {past_action} the past."
+        )
+
+
+def _assert_appointment_outside_breaks(
+    conn, instructor_id, target, start_minutes, end_minutes
+):
+    """Breaks and recorded busy time are absolute, even for double bookings."""
+    if (
+        start_minutes < STAFF_LUNCH_END_MINUTES
+        and end_minutes > STAFF_LUNCH_START_MINUTES
+    ):
+        raise AppointmentConflictError(
+            "Appointments cannot overlap the lunch break from 1:00 pm to 2:00 pm."
+        )
+    busy = conn.execute(
+        """
+        SELECT reason, start_time, end_time
+        FROM instructor_time_off
+        WHERE instructor_id = ? AND target_date = ?
+          AND start_time < ? AND end_time > ?
+        ORDER BY start_time
+        LIMIT 1
+        """,
+        (
+            instructor_id,
+            target.isoformat(),
+            _minutes_to_time(end_minutes),
+            _minutes_to_time(start_minutes),
+        ),
+    ).fetchone()
+    if busy:
+        label = " ".join(str(busy["reason"] or "Staff break").split())
+        raise AppointmentConflictError(
+            f"Appointments cannot overlap {label} "
+            f"({busy['start_time']}–{busy['end_time']})."
+        )
 
 
 def _assert_busy_time_available(
@@ -3253,7 +3313,7 @@ def _slot_resource(conn, instructor_id, machine_id):
 
 
 @app.post("/api/calendar/booking-slots")
-@role_required("instructor", "admin")
+@role_required("admin")
 def api_calendar_create_booking_slot():
     payload = request.get_json(silent=True) or {}
     try:
@@ -3297,7 +3357,7 @@ def api_calendar_create_booking_slot():
 
 
 @app.patch("/api/calendar/booking-slots/<int:slot_id>")
-@role_required("instructor", "admin")
+@role_required("admin")
 def api_calendar_update_booking_slot(slot_id):
     payload = request.get_json(silent=True) or {}
     try:
@@ -3341,7 +3401,7 @@ def api_calendar_update_booking_slot(slot_id):
 
 
 @app.delete("/api/calendar/booking-slots/<int:slot_id>")
-@role_required("instructor", "admin")
+@role_required("admin")
 def api_calendar_delete_booking_slot(slot_id):
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -3356,7 +3416,7 @@ def api_calendar_delete_booking_slot(slot_id):
 
 
 @app.post("/api/calendar/appointments")
-@role_required("instructor", "admin")
+@role_required("booking_agent", "instructor", "admin")
 def api_calendar_create_appointment():
     payload = request.get_json(silent=True) or {}
     try:
@@ -3396,11 +3456,6 @@ def api_calendar_create_appointment():
         dates, repeat_rule = _repeat_dates(
             target, payload.get("repeat"), payload.get("repeat_count")
         )
-        if (
-            requested_status in ACTIVE_BOOKING_STATUSES
-            and any(item < datetime.now(IST).date() for item in dates)
-        ):
-            raise ValueError("Active appointments cannot be created in the past.")
         with get_db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             resource = _staff_booking_resources(
@@ -3432,6 +3487,21 @@ def api_calendar_create_appointment():
                 )
             _validate_staff_day_range(start_minutes, end_minutes, "Appointments")
             end_time = _minutes_to_time(end_minutes)
+            for occurrence_date in dates:
+                _assert_active_appointment_not_past(
+                    occurrence_date,
+                    start_minutes,
+                    requested_status,
+                    action="created",
+                )
+                if requested_status in ACTIVE_BOOKING_STATUSES:
+                    _assert_appointment_outside_breaks(
+                        conn,
+                        instructor_id,
+                        occurrence_date,
+                        start_minutes,
+                        end_minutes,
+                    )
             # A2Z operates on the visible appointment range only. Private
             # padding was removed because it made visibly free slots fail.
             buffer_before = 0
@@ -3588,7 +3658,7 @@ def api_calendar_create_appointment():
 
 
 @app.patch("/api/calendar/appointments/<int:booking_id>")
-@role_required("instructor", "admin")
+@role_required("booking_agent", "instructor", "admin")
 def api_calendar_reschedule_appointment(booking_id):
     payload = request.get_json(silent=True) or {}
     try:
@@ -3698,11 +3768,20 @@ def api_calendar_reschedule_appointment(booking_id):
                 raise ValueError(
                     "Instructors may update appointment status only to Pending or Completed."
                 )
-            if (
-                next_status in ACTIVE_BOOKING_STATUSES
-                and target < datetime.now(IST).date()
-            ):
-                raise ValueError("Active appointments cannot be moved into the past.")
+            _assert_active_appointment_not_past(
+                target,
+                start_minutes,
+                next_status,
+                action="moved",
+            )
+            if next_status in ACTIVE_BOOKING_STATUSES:
+                _assert_appointment_outside_breaks(
+                    conn,
+                    instructor_id,
+                    target,
+                    start_minutes,
+                    end_minutes,
+                )
             # Availability is based only on the visible appointment range.
             next_buffer_before = 0
             next_buffer_after = 0
@@ -3902,7 +3981,7 @@ def api_calendar_reschedule_appointment(booking_id):
 
 
 @app.delete("/api/calendar/appointments/<int:booking_id>")
-@role_required("instructor", "admin")
+@role_required("booking_agent", "instructor", "admin")
 def api_calendar_cancel_appointment(booking_id):
     payload = request.get_json(silent=True) or {}
     with get_db() as conn:
@@ -4177,7 +4256,7 @@ def _create_client_record(conn, payload):
 
 
 @app.post("/api/calendar/clients")
-@role_required("instructor", "admin")
+@role_required("booking_agent", "instructor", "admin")
 def api_calendar_create_client():
     payload = request.get_json(silent=True) if request.is_json else request.form
     payload = payload or {}
@@ -4207,7 +4286,7 @@ def api_calendar_create_client():
 
 
 @app.get("/api/calendar/clients/search")
-@role_required("instructor", "admin")
+@role_required("booking_agent", "instructor", "admin")
 def api_calendar_search_clients():
     query = " ".join((request.args.get("q") or "").split())[:100]
     if len(query) < 2:
@@ -4246,10 +4325,10 @@ def api_calendar_search_clients():
 
 
 @app.get("/clients/new")
-@role_required("instructor", "admin")
+@role_required("booking_agent", "instructor", "admin")
 def client_new():
     with get_db() as conn:
-        if current_user.role == "admin":
+        if current_user.role in {"admin", "booking_agent"}:
             branches = [
                 dict(row)
                 for row in conn.execute(
@@ -4266,7 +4345,7 @@ def client_new():
 
 
 @app.post("/clients")
-@role_required("instructor", "admin")
+@role_required("booking_agent", "instructor", "admin")
 def client_create():
     try:
         with get_db() as conn:
@@ -4284,7 +4363,7 @@ def client_create():
 
 
 def _client_access_row(conn, client_id):
-    if current_user.role == "admin":
+    if current_user.role in {"admin", "booking_agent"}:
         row = conn.execute(
             """
             SELECT u.*, br.name AS branch_name,
@@ -4333,7 +4412,7 @@ def _client_access_row(conn, client_id):
 
 
 @app.get("/clients")
-@role_required("instructor", "admin")
+@role_required("booking_agent", "instructor", "admin")
 def clients_directory():
     query = " ".join((request.args.get("q") or "").split())[:100]
     params = []
@@ -4399,7 +4478,7 @@ def clients_directory():
 
 
 @app.get("/clients/<int:client_id>")
-@role_required("instructor", "admin")
+@role_required("booking_agent", "instructor", "admin")
 def client_detail(client_id):
     with get_db() as conn:
         client = _client_access_row(conn, client_id)
@@ -4478,7 +4557,7 @@ def client_detail(client_id):
 
 
 @app.post("/clients/<int:client_id>/profile")
-@role_required("instructor", "admin")
+@role_required("booking_agent", "instructor", "admin")
 def client_profile_update(client_id):
     try:
         with get_db() as conn:

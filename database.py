@@ -719,7 +719,7 @@ def init_db() -> None:
             """
             UPDATE users
             SET role = CASE WHEN instructor_id IS NOT NULL THEN 'instructor' ELSE 'student' END
-            WHERE role NOT IN ('student', 'instructor', 'admin')
+            WHERE role NOT IN ('student', 'booking_agent', 'instructor', 'admin')
             """
         )
 
@@ -733,6 +733,8 @@ def init_db() -> None:
             DROP TRIGGER IF EXISTS prevent_approved_booking_overlap_update;
             DROP TRIGGER IF EXISTS validate_booking_status_insert;
             DROP TRIGGER IF EXISTS validate_booking_status_update;
+            DROP TRIGGER IF EXISTS validate_user_role_insert;
+            DROP TRIGGER IF EXISTS validate_user_role_update;
             """
         )
 
@@ -784,14 +786,14 @@ def init_db() -> None:
 
             CREATE TRIGGER IF NOT EXISTS validate_user_role_insert
             BEFORE INSERT ON users
-            WHEN NEW.role NOT IN ('student', 'instructor', 'admin')
+            WHEN NEW.role NOT IN ('student', 'booking_agent', 'instructor', 'admin')
             BEGIN
                 SELECT RAISE(ABORT, 'invalid user role');
             END;
 
             CREATE TRIGGER IF NOT EXISTS validate_user_role_update
             BEFORE UPDATE OF role ON users
-            WHEN NEW.role NOT IN ('student', 'instructor', 'admin')
+            WHEN NEW.role NOT IN ('student', 'booking_agent', 'instructor', 'admin')
             BEGIN
                 SELECT RAISE(ABORT, 'invalid user role');
             END;

@@ -15,7 +15,7 @@
   <div>
     <p class="eyebrow">Administration</p>
     <h1>{{ 'People & access' if student_self_booking_enabled else 'Staff & access' }}</h1>
-    <p class="lead">{% if student_self_booking_enabled %}Create institute-managed accounts, verify instructors, and keep student assignments current.{% else %}Create administrator and instructor accounts, verify teaching staff, and manage secure access.{% endif %}</p>
+    <p class="lead">{% if student_self_booking_enabled %}Create institute-managed accounts, verify instructors, and keep student assignments current.{% else %}Create booking-agent, administrator, and instructor accounts with the correct level of access.{% endif %}</p>
   </div>
   <div class="page-actions">
     <a class="button button-secondary" href="{{ url_for('admin_dashboard') }}">Booking register</a>
@@ -70,9 +70,9 @@
     <span class="stat-detail">Can sign in</span>
   </article>
   <article class="stat-card">
-    <span class="stat-label">{{ 'Students' if student_self_booking_enabled else 'Administrators' }}</span>
-    <strong class="stat-value">{{ summary.students|default(0) if student_self_booking_enabled else summary.admins|default(0) }}</strong>
-    <span class="stat-detail">{{ 'Active learners' if student_self_booking_enabled else 'Administrative accounts' }}</span>
+    <span class="stat-label">{{ 'Students' if student_self_booking_enabled else 'Scheduling access' }}</span>
+    <strong class="stat-value">{{ summary.students|default(0) if student_self_booking_enabled else (summary.admins|default(0)) + (summary.booking_agents|default(0)) }}</strong>
+    <span class="stat-detail">{{ 'Active learners' if student_self_booking_enabled else 'Booking agents and administrators' }}</span>
   </article>
   <article class="stat-card">
     <span class="stat-label">Instructors</span>
@@ -105,6 +105,7 @@
         <select id="user-role-filter" data-user-role-filter>
           <option value="">All roles</option>
           {% if student_self_booking_enabled %}<option value="student">Students</option>{% endif %}
+          <option value="booking_agent">Booking Agents</option>
           <option value="instructor">Instructors</option>
           <option value="admin">Administrators</option>
         </select>
@@ -145,7 +146,7 @@
                     {% if managed.phone %}<span class="cell-detail">{{ managed.phone }}</span>{% endif %}
                   </td>
                   <td>
-                    <span class="role-chip role-{{ managed.role }}">{{ managed.role|title }}</span>
+                    <span class="role-chip role-{{ managed.role }}">{{ managed.role|replace('_', ' ')|title }}</span>
                     {% if managed.role == 'instructor' %}
                       <span class="status-badge {{ 'status-approved' if managed.verification_status == 'verified' else 'status-pending' }}">{{ 'Verified' if managed.verification_status == 'verified' else 'Needs verification' }}</span>
                     {% endif %}
@@ -190,7 +191,7 @@
               <span class="status-badge {{ 'status-approved' if managed.is_active else 'status-cancelled' }}">{{ 'Active' if managed.is_active else 'Archived' }}</span>
             </div>
             <dl class="meta-grid">
-              <div><dt>Role</dt><dd>{{ managed.role|title }}</dd></div>
+              <div><dt>Role</dt><dd>{{ managed.role|replace('_', ' ')|title }}</dd></div>
               <div><dt>Branch</dt><dd>{{ managed.branch_name|default('Not assigned', true) }}</dd></div>
               {% if managed.role == 'instructor' %}
                 <div class="field-span-2"><dt>Verification</dt><dd>{{ 'Verified' if managed.verification_status == 'verified' else 'Needs verification' }}</dd></div>
@@ -297,6 +298,7 @@
             <select id="new-role" name="role" data-role-select required>
               <option value="">Choose a role</option>
               {% if student_self_booking_enabled %}<option value="student" {% if selected_role == 'student' %}selected{% endif %}>Student</option>{% endif %}
+              <option value="booking_agent" {% if selected_role == 'booking_agent' %}selected{% endif %}>Booking Agent</option>
               <option value="instructor" {% if selected_role == 'instructor' %}selected{% endif %}>Instructor</option>
               <option value="admin" {% if selected_role == 'admin' %}selected{% endif %}>Administrator</option>
             </select>
@@ -315,7 +317,7 @@
             <input id="new-email" name="email" type="email" value="{{ request.form.get('email', '') }}" autocomplete="off" required>
           </div>
           <div class="field">
-            <label for="new-phone">Mobile number <span class="text-muted" data-phone-optional>(optional for administrators)</span></label>
+            <label for="new-phone">Mobile number <span class="text-muted" data-phone-optional>(optional for booking agents and administrators)</span></label>
             <input id="new-phone" name="phone" type="tel" value="{{ request.form.get('phone', '') }}" inputmode="tel" autocomplete="off" data-role-phone>
           </div>
           <div class="field">

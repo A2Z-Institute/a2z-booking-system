@@ -5,7 +5,7 @@
 {% block body_class %}calendar-page{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260814-2') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260814-3') }}">
 {% endblock %}
 
 {% block content %}
@@ -83,7 +83,7 @@
       <label class="calendar-staff-control" for="calendar-instructor">
         <span class="sr-only">Instructor</span>
         <select id="calendar-instructor" data-calendar-instructor>
-          {% if current_user.role == 'admin' %}<option value="">All instructors</option>{% endif %}
+          {% if current_user.role in ['admin', 'booking_agent'] %}<option value="">All instructors</option>{% endif %}
           {% for instructor in instructors %}
             <option
               value="{{ instructor.id }}"
@@ -108,7 +108,7 @@
       <span><i class="legend-dot status-approved"></i>Confirmed</span>
       <span><i class="legend-dot status-pending"></i>Pending</span>
       <span><i class="legend-dot non-working-dot"></i>Unavailable</span>
-      <span><i class="legend-padding" aria-hidden="true"></i>Private padding</span>
+      <span><i class="legend-slot" aria-hidden="true"></i>Slots managed by admin</span>
     </div>
   </div>
 
@@ -127,8 +127,8 @@
     <header class="appointment-editor-header">
       <div class="appointment-editor-tabs" role="tablist" aria-label="Schedule item type">
         <button class="appointment-editor-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="appointment-panel" data-editor-tab="appointment">Appointment</button>
-        <button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="booking-slot-panel" data-editor-tab="slot">Booking Slot</button>
-        <button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="busy-time-panel" data-editor-tab="busy">Event / Busy Time</button>
+        {% if current_user.role == 'admin' %}<button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="booking-slot-panel" data-editor-tab="slot">Booking Slot</button>{% endif %}
+        {% if current_user.role != 'booking_agent' %}<button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="busy-time-panel" data-editor-tab="busy">Event / Busy Time</button>{% endif %}
       </div>
       <button class="icon-button editor-close-button" type="button" aria-label="Close appointment editor" data-editor-close>×</button>
     </header>
@@ -152,7 +152,6 @@
           <div><dt>Service</dt><dd data-editor-summary-service>—</dd></div>
           <div><dt>Status</dt><dd data-editor-summary-status>—</dd></div>
           <div><dt>Phone</dt><dd><a data-editor-summary-phone href="#">—</a></dd></div>
-          <div><dt>Private padding</dt><dd data-editor-summary-padding>—</dd></div>
         </dl>
 
         <fieldset class="editor-section smart-service-section service-picker" data-editor-services-field>
@@ -315,18 +314,6 @@
                   {% endif %}
                 </select>
                 {% if current_user.role == 'instructor' %}<span class="field-hint">Update your appointment to Pending or Completed.</span>{% endif %}
-              </div>
-              <div class="field">
-                <label for="editor-buffer-before">Padding before</label>
-                <select id="editor-buffer-before" name="buffer_before_minutes" data-editor-buffer-before>
-                  {% for value in range(0, 121, 5) %}<option value="{{ value }}">{{ 'None' if value == 0 else value ~ ' min' }}</option>{% endfor %}
-                </select>
-              </div>
-              <div class="field">
-                <label for="editor-buffer-after">Padding after</label>
-                <select id="editor-buffer-after" name="buffer_after_minutes" data-editor-buffer-after>
-                  {% for value in range(0, 121, 5) %}<option value="{{ value }}">{{ 'None' if value == 0 else value ~ ' min' }}</option>{% endfor %}
-                </select>
               </div>
               <div class="field">
                 <label for="editor-repeat">Repeat</label>
@@ -502,5 +489,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('static', filename='js/calendar.js', v='20260814-2') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/calendar.js', v='20260814-3') }}" defer></script>
 {% endblock %}

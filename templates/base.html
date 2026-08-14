@@ -12,7 +12,7 @@
 </head>
 {% set signed_in = current_user.is_authenticated %}
 {% set user_role = current_user.role|default('student') if signed_in else 'guest' %}
-{% if user_role == 'admin' %}
+{% if user_role in ['admin', 'booking_agent'] %}
   {% set dashboard_endpoint = 'calendar_view' %}
 {% elif user_role == 'instructor' %}
   {% set dashboard_endpoint = 'calendar_view' %}
@@ -48,6 +48,9 @@
               <a href="{{ url_for('calendar_view') }}" {% if request.endpoint == 'calendar_view' %}aria-current="page"{% endif %}>Calendar</a>
               <a href="{{ url_for('clients_directory') }}" {% if request.endpoint in ['clients_directory', 'client_detail'] %}aria-current="page"{% endif %}>Clients</a>
               <a href="{{ url_for('instructor_availability') }}" {% if request.endpoint and (request.endpoint.startswith('instructor_availability') or request.endpoint.startswith('instructor_time_off')) %}aria-current="page"{% endif %}>Availability</a>
+            {% elif user_role == 'booking_agent' %}
+              <a href="{{ url_for('calendar_view') }}" {% if request.endpoint == 'calendar_view' %}aria-current="page"{% endif %}>Calendar</a>
+              <a href="{{ url_for('clients_directory') }}" {% if request.endpoint in ['clients_directory', 'client_detail', 'client_new'] %}aria-current="page"{% endif %}>Clients</a>
             {% elif user_role == 'admin' %}
               <a href="{{ url_for('calendar_view') }}" {% if request.endpoint == 'calendar_view' %}aria-current="page"{% endif %}>Calendar</a>
               <a href="{{ url_for('clients_directory') }}" {% if request.endpoint in ['clients_directory', 'client_detail'] %}aria-current="page"{% endif %}>Clients</a>
@@ -73,7 +76,7 @@
           <div class="account-menu">
             <div class="account-copy">
               <span class="account-name">{{ current_user.full_name|default(current_user.username|default('Your account')) }}</span>
-              <span class="role-badge">{{ user_role|title }}</span>
+              <span class="role-badge">{{ user_role|replace('_', ' ')|title }}</span>
             </div>
             <details class="account-dropdown">
               <summary aria-label="Open account menu">{{ current_user.full_name[:1]|default('A')|upper }}</summary>
