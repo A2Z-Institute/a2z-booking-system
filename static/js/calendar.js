@@ -824,6 +824,7 @@
     if (!isBusy && event.can_edit) {
       button.addEventListener("dragstart", (dragEvent) => {
         draggedEvent = event;
+        calendarScroll?.classList.add("is-event-dragging");
         dragEvent.dataTransfer.effectAllowed = "move";
         dragEvent.dataTransfer.setData("text/plain", String(event.id));
         button.classList.add("is-dragging");
@@ -834,6 +835,7 @@
       });
       button.addEventListener("dragend", () => {
         draggedEvent = null;
+        calendarScroll?.classList.remove("is-event-dragging");
         button.classList.remove("is-dragging");
         dragTimePreview?.remove();
         dragTimePreview = null;
@@ -874,6 +876,17 @@
     }
     return button;
   };
+
+  calendarScroll?.addEventListener("dragover", (event) => {
+    if (!draggedEvent) return;
+    const bounds = calendarScroll.getBoundingClientRect();
+    const edgeSize = Math.min(110, bounds.width * 0.12);
+    if (event.clientX < bounds.left + edgeSize) {
+      calendarScroll.scrollLeft -= 18;
+    } else if (event.clientX > bounds.right - edgeSize) {
+      calendarScroll.scrollLeft += 18;
+    }
+  });
 
   const moveEvent = async (event, target) => {
     if (!event?.can_edit || event.type === "busy") return;
@@ -991,6 +1004,9 @@
   };
 
   const renderCalendar = () => {
+    const preservedScrollLeft = resetHorizontalScroll
+      ? 0
+      : Math.max(0, calendarScroll?.scrollLeft || 0);
     grid.replaceChildren();
     const columns = columnsForView();
     const slots = timeSlots();
@@ -1064,6 +1080,7 @@
       });
       grid.append(section);
     });
+    if (calendarScroll) calendarScroll.scrollLeft = preservedScrollLeft;
   };
 
   async function loadEvents() {
