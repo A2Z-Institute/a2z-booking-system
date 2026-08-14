@@ -1064,6 +1064,21 @@ class AppointmentConflictError(ValueError):
     pass
 
 
+def _appointment_conflict_message(buffer_before=0, buffer_after=0):
+    """Return an actionable staff-calendar conflict explanation."""
+    padding = []
+    if int(buffer_before or 0):
+        padding.append(f"{int(buffer_before)} minutes before")
+    if int(buffer_after or 0):
+        padding.append(f"{int(buffer_after)} minutes after")
+    if padding:
+        return (
+            "The visible appointment time is free, but its private padding "
+            f"({ ' and '.join(padding) }) overlaps another appointment."
+        )
+    return "This time conflicts with the client, instructor, or equipment schedule."
+
+
 def _matching_contact_record(
     conn, *, emails=(), phones=(), exclude_user_id=None
 ):
@@ -3417,18 +3432,10 @@ def api_calendar_create_appointment():
                 )
             _validate_staff_day_range(start_minutes, end_minutes, "Appointments")
             end_time = _minutes_to_time(end_minutes)
-            buffer_before = int(
-                payload.get(
-                    "buffer_before_minutes",
-                    services[0]["buffer_before_minutes"] or 0,
-                )
-            )
-            buffer_after = int(
-                payload.get(
-                    "buffer_after_minutes",
-                    services[-1]["buffer_after_minutes"] or 0,
-                )
-            )
+            # A2Z operates on the visible appointment range only. Private
+            # padding was removed because it made visibly free slots fail.
+            buffer_before = 0
+            buffer_after = 0
             allow_double_booking = bool(payload.get("allow_double_booking")) if current_user.role == "admin" else False
             if (
                 buffer_before < 0
@@ -3457,7 +3464,10 @@ def api_calendar_create_appointment():
                     )
                     if {"start": start_time, "end": end_time} not in slots:
                         raise AppointmentConflictError(
-                            f"{occurrence_date.isoformat()} at {start_time} is no longer available."
+                            f"{occurrence_date.isoformat()} at {start_time}: "
+                            + _appointment_conflict_message(
+                                buffer_before, buffer_after
+                            )
                         )
             service_name = ", ".join(service["name"] for service in services)
             price_cents = sum(int(service["price_cents"]) for service in services)
@@ -3564,7 +3574,13 @@ def api_calendar_create_appointment():
             }
         ), 201
     except AppointmentConflictError as exc:
-        return jsonify({"error": str(exc)}), 409
+        return jsonify(
+            {
+                "error": str(exc),
+                "conflict_type": "schedule",
+                "can_override": current_user.role == "admin",
+            }
+        ), 409
     except (TypeError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
     except sqlite3.IntegrityError:
@@ -3687,18 +3703,9 @@ def api_calendar_reschedule_appointment(booking_id):
                 and target < datetime.now(IST).date()
             ):
                 raise ValueError("Active appointments cannot be moved into the past.")
-            next_buffer_before = int(
-                payload.get(
-                    "buffer_before_minutes",
-                    booking["buffer_before_minutes"] or 0,
-                )
-            )
-            next_buffer_after = int(
-                payload.get(
-                    "buffer_after_minutes",
-                    booking["buffer_after_minutes"] or 0,
-                )
-            )
+            # Availability is based only on the visible appointment range.
+            next_buffer_before = 0
+            next_buffer_after = 0
             allow_double_booking = (
                 bool(payload.get("allow_double_booking", booking["allow_double_booking"]))
                 if current_user.role == "admin"
@@ -3731,7 +3738,9 @@ def api_calendar_reschedule_appointment(booking_id):
                 )
                 if {"start": start_time, "end": end_time} not in slots:
                     raise AppointmentConflictError(
-                        "That time conflicts with live availability."
+                        _appointment_conflict_message(
+                            next_buffer_before, next_buffer_after
+                        )
                     )
             if services:
                 primary_service_id = services[0]["id"]
@@ -3879,7 +3888,13 @@ def api_calendar_reschedule_appointment(booking_id):
         event["service_ids"] = service_ids
         return jsonify({"success": True, "event": event})
     except AppointmentConflictError as exc:
-        return jsonify({"error": str(exc)}), 409
+        return jsonify(
+            {
+                "error": str(exc),
+                "conflict_type": "schedule",
+                "can_override": current_user.role == "admin",
+            }
+        ), 409
     except (TypeError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
     except sqlite3.IntegrityError:

@@ -341,6 +341,11 @@ def init_db() -> None:
                 UNIQUE (branch_id, name)
             );
 
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                migration_key TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS service_machines (
                 service_id INTEGER NOT NULL,
                 machine_id INTEGER NOT NULL,
@@ -597,6 +602,23 @@ def init_db() -> None:
                 "next_attempt_at": "TEXT",
             },
         )
+        padding_migration = "20260814_remove_all_private_padding"
+        if not conn.execute(
+            "SELECT 1 FROM schema_migrations WHERE migration_key = ?",
+            (padding_migration,),
+        ).fetchone():
+            conn.execute(
+                "UPDATE services SET buffer_before_minutes = 0, "
+                "buffer_after_minutes = 0, updated_at = CURRENT_TIMESTAMP"
+            )
+            conn.execute(
+                "UPDATE bookings SET buffer_before_minutes = 0, "
+                "buffer_after_minutes = 0, updated_at = CURRENT_TIMESTAMP"
+            )
+            conn.execute(
+                "INSERT INTO schema_migrations (migration_key) VALUES (?)",
+                (padding_migration,),
+            )
         _ensure_columns(
             conn,
             "client_profiles",
@@ -1087,7 +1109,7 @@ def seed_reference_data() -> None:
                      price_cents, currency, buffer_before_minutes,
                      buffer_after_minutes, color, available_weekdays,
                      requires_approval)
-                VALUES (?, ?, ?, ?, 60, 0, 'INR', 15, 15, ?, '0,1,2,3,4,5', 0)
+                VALUES (?, ?, ?, ?, 60, 0, 'INR', 0, 0, ?, '0,1,2,3,4,5', 0)
                 """,
                 (
                     branch_id,
@@ -1149,91 +1171,15 @@ def seed_reference_data() -> None:
 
         demo_instructor_ids = []
         if os.environ.get("A2Z_SEED_DEMO_DATA", "0") == "1":
-            # Normalise names used by earlier disposable builds to the exact
-            # A2Z staff roster supplied by the institute. Historical bookings
-            # stay linked because the instructor row itself is retained.
-            cur.execute(
-                """
-                UPDATE instructors SET name = 'ADHITHYAN SAJEEV'
-                WHERE branch_id = ? AND name = 'ADHITHYAN SAJEEV (HRT)'
-                  AND NOT EXISTS (
-                    SELECT 1 FROM instructors current
-                    WHERE current.branch_id = ?
-                      AND current.name = 'ADHITHYAN SAJEEV'
-                  )
-                """,
-                (branch_id, branch_id),
-            )
-            cur.execute(
-                """
-                UPDATE instructors SET name = 'ROSHAN(FIXED TOWER )'
-                WHERE branch_id = ? AND name = 'ROSHAN (FIXED TOWER)'
-                  AND NOT EXISTS (
-                    SELECT 1 FROM instructors current
-                    WHERE current.branch_id = ?
-                      AND current.name = 'ROSHAN(FIXED TOWER )'
-                  )
-                """,
-                (branch_id, branch_id),
-            )
-            cur.execute(
-                """
-                UPDATE instructors SET name = 'AJAY KUNJUMON ( 20 TRAILER )'
-                WHERE branch_id = ? AND name = 'AJAY KUNJUMON (20 TRAILER)'
-                  AND NOT EXISTS (
-                    SELECT 1 FROM instructors current
-                    WHERE current.branch_id = ?
-                      AND current.name = 'AJAY KUNJUMON ( 20 TRAILER )'
-                  )
-                """,
-                (branch_id, branch_id),
-            )
-            cur.execute(
-                "UPDATE instructors SET is_active = 0 WHERE branch_id = ? AND name = 'AKHIL A'",
-                (branch_id,),
-            )
-            cur.execute(
-                "UPDATE users SET is_active = 0, login_enabled = 0 WHERE username = 'AKHIL_A'",
-            )
-            legacy_usernames = (
-                ("ADHITHYAN_SAJEEV_HRT", "ADHITHYAN_SAJEEV"),
-                ("ROSHAN_FIXED_TOWER", "ROSHAN_FIXED_TOWER"),
-                ("AJAY_KUNJUMON_20_TRAILER", "AJAY_KUNJUMON_20_TRAILER"),
-            )
-            for old_username, new_username in legacy_usernames:
-                if old_username != new_username and not cur.execute(
-                    "SELECT 1 FROM users WHERE username = ?", (new_username,)
-                ).fetchone():
-                    cur.execute(
-                        "UPDATE users SET username = ? WHERE username = ?",
-                        (new_username, old_username),
-                    )
             instructors = [
-                "JASMIN",
-                "ASHWIN TM",
-                "MUHAMMAD ANFAL",
-                "ALBIN THOMAS",
-                "THAHA HUSSAIN M A",
-                "JITHU PRAKASH",
-                "SHARHABIL",
-                "ABHISHEK P P",
-                "ASWANTH M P",
-                "AJAY KRISHNA",
-                "GOKUL BABU",
-                "ABHINANTH S K",
-                "AJAY KUNJUMON ( 20 TRAILER )",
-                "ANU AASHAN",
-                "ABHINAND BIJU",
-                "ADHITHYAN SAJEEV",
-                "REYNOLD FORKLIFT",
-                "ROSHAN(FIXED TOWER )",
-                "SARATH K U",
-                "ASHISH",
-                "JAYAKRISHNAN",
+                "Demo Instructor One",
+                "Demo Instructor Two",
             ]
-            instructor_password = os.environ.get(
-                "A2Z_INSTRUCTOR_PASSWORD", "instructor123"
-            )
+            instructor_password = os.environ.get("A2Z_INSTRUCTOR_PASSWORD")
+            if not instructor_password:
+                raise RuntimeError(
+                    "A2Z_INSTRUCTOR_PASSWORD is required when demo data is enabled."
+                )
             for name in instructors:
                 cur.execute(
                     """
@@ -1273,15 +1219,11 @@ def seed_reference_data() -> None:
                     """,
                     (name.title(), branch_id, instructor_id, username),
                 )
-            cur.execute(
-                "UPDATE instructors SET specialty = 'SERVICE MANAGER' "
-                "WHERE branch_id = ? AND name = 'JAYAKRISHNAN'",
-                (branch_id,),
-            )
-
         configured_admin_password = os.environ.get("A2Z_ADMIN_PASSWORD")
-        admin_password = configured_admin_password or "change-me-now"
-        admin_must_change = 0 if configured_admin_password else 1
+        if not configured_admin_password:
+            raise RuntimeError("A2Z_ADMIN_PASSWORD must be configured before startup.")
+        admin_password = configured_admin_password
+        admin_must_change = 0
         cur.execute(
             """
             INSERT OR IGNORE INTO users
@@ -1309,14 +1251,18 @@ def seed_reference_data() -> None:
             )
 
         if os.environ.get("A2Z_SEED_DEMO_STUDENT", "0") == "1":
-            student_password = os.environ.get("A2Z_STUDENT_PASSWORD", "student123")
+            student_password = os.environ.get("A2Z_STUDENT_PASSWORD")
+            if not student_password:
+                raise RuntimeError(
+                    "A2Z_STUDENT_PASSWORD is required when the demo student is enabled."
+                )
             cur.execute(
                 """
                 INSERT OR IGNORE INTO users
                     (username, password_hash, role, full_name, email, phone,
                      branch_id, login_enabled, must_change_password)
                 VALUES ('student', ?, 'student', 'Demo Student',
-                        'student@a2z.local', '9876543210', ?, ?, 0)
+                        'student@example.invalid', '0000000000', ?, ?, 0)
                 """,
                 (
                     generate_password_hash(student_password),

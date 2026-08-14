@@ -1083,6 +1083,7 @@
       const response = await fetch(`${calendar.dataset.eventsUrl}?${query}`, {
         headers: { Accept: "application/json" },
         credentials: "same-origin",
+        cache: "no-store",
         signal: loadRequest.signal,
       });
       const data = await parseJson(response);
@@ -1176,8 +1177,8 @@
       start_time: editorStart.value,
       end_time: editorEnd?.value || "",
       status: editorStatus?.value || "Approved",
-      buffer_before_minutes: Number(bufferBefore?.value || 0),
-      buffer_after_minutes: Number(bufferAfter?.value || 0),
+      buffer_before_minutes: 0,
+      buffer_after_minutes: 0,
       repeat,
       repeat_count: repeat === "none" ? 1 : Math.max(2, Number(repeatCount?.value || 2)),
       allow_double_booking: Boolean(allowDoubleBooking?.checked),
@@ -1204,23 +1205,44 @@
     const url = editing
       ? replaceId(calendar.dataset.updateUrlTemplate, bookingIdInput.value)
       : calendar.dataset.createUrl;
-    const response = await fetch(url, {
-      method: editing ? "PATCH" : "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "X-CSRF-Token": csrf,
-      },
-      credentials: "same-origin",
-      body: JSON.stringify(payload),
-    });
-    const data = await parseJson(response);
+    const submit = async (body) => {
+      const response = await fetch(url, {
+        method: editing ? "PATCH" : "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrf,
+        },
+        credentials: "same-origin",
+        body: JSON.stringify(body),
+      });
+      return { response, data: await parseJson(response) };
+    };
+    let { response, data } = await submit(payload);
+    if (
+      response.status === 409
+      && data.conflict_type === "schedule"
+      && data.can_override
+      && !payload.allow_double_booking
+    ) {
+      const approved = window.confirm(
+        `${data.error}\n\nBook anyway and record this as an allowed double booking?`
+      );
+      if (approved) {
+        if (allowDoubleBooking) allowDoubleBooking.checked = true;
+        payload = { ...payload, allow_double_booking: true };
+        ({ response, data } = await submit(payload));
+      }
+    }
     if (!response.ok) throw new Error(data.error || "The appointment could not be saved.");
-    return editing ? "Appointment updated." : (
-      Number(data.created_count || 1) > 1
-        ? `${data.created_count} appointments created.`
-        : "Appointment added."
-    );
+    return {
+      message: editing ? "Appointment updated." : (
+        Number(data.created_count || 1) > 1
+          ? `${data.created_count} appointments created.`
+          : "Appointment added."
+      ),
+      savedEvents: data.events || (data.event ? [data.event] : []),
+    };
   };
 
   const saveBusyTime = async () => {
@@ -1312,9 +1334,19 @@
     }
     try {
       const result = editorType === "busy" ? await saveBusyTime() : editorType === "slot" ? await saveBookingSlot() : await saveAppointment();
+      if (result?.savedEvents?.length) {
+        const savedIds = new Set(result.savedEvents.map((item) => String(item.id)));
+        events = events.filter((item) => !savedIds.has(String(item.id)));
+        events.push(...result.savedEvents);
+        events.sort((a, b) => (
+          `${a.date || ""}-${a.start_time || ""}`
+            .localeCompare(`${b.date || ""}-${b.start_time || ""}`)
+        ));
+        renderCalendar();
+      }
       dialog.close();
-      announce(result);
-      await loadEvents();
+      announce(result?.message || result);
+      void loadEvents();
     } catch (error) {
       showError(error.message || "The schedule item could not be saved.");
     } finally {
