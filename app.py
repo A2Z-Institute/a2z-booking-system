@@ -1811,6 +1811,32 @@ def admin_user_edit(user_id):
             user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
             if not user:
                 abort(404)
+            requested_role = (request.form.get("role") or user["role"]).strip().lower()
+            scheduling_roles = {"admin", "booking_agent"}
+            if user["role"] in scheduling_roles:
+                if requested_role not in scheduling_roles:
+                    raise ValueError(
+                        "Scheduling accounts can be Administrator or Booking Agent."
+                    )
+                if user["role"] == "admin" and requested_role == "booking_agent":
+                    other_admin = conn.execute(
+                        """
+                        SELECT 1 FROM users
+                        WHERE id != ? AND role = 'admin' AND is_active = 1
+                          AND login_enabled = 1
+                        LIMIT 1
+                        """,
+                        (user_id,),
+                    ).fetchone()
+                    if not other_admin:
+                        raise ValueError(
+                            "Create or activate another administrator before changing "
+                            "the last administrator to Booking Agent."
+                        )
+            elif requested_role != user["role"]:
+                raise ValueError(
+                    "Instructor and student roles cannot be changed after creation."
+                )
             full_name = _validate_full_name(request.form.get("full_name"))
             username = _validate_username(request.form.get("username"))
             email = _validate_email(request.form.get("email"))
@@ -1838,9 +1864,17 @@ def admin_user_edit(user_id):
             conn.execute(
                 """
                 UPDATE users SET username = ?, full_name = ?, email = ?, phone = ?,
-                    branch_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+                    branch_id = ?, role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
                 """,
-                (username, full_name, email, phone or None, branch_id, user_id),
+                (
+                    username,
+                    full_name,
+                    email,
+                    phone or None,
+                    branch_id,
+                    requested_role,
+                    user_id,
+                ),
             )
             if user["role"] == "instructor":
                 verification_status = (
@@ -1914,7 +1948,15 @@ def admin_user_edit(user_id):
                     """,
                     (user_id, branch_id),
                 )
-            _audit(conn, "user_updated", details={"target_user_id": user_id})
+            _audit(
+                conn,
+                "user_updated",
+                details={
+                    "target_user_id": user_id,
+                    "old_role": user["role"],
+                    "new_role": requested_role,
+                },
+            )
         flash(f"{full_name}'s details have been updated.", "success")
         return redirect(url_for("admin_users"))
     except sqlite3.IntegrityError:

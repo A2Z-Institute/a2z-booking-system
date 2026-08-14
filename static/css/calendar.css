@@ -275,8 +275,8 @@
 
 .calendar-event {
   --event-colour: #c8141b;
-  --event-offset: 0%;
-  --event-duration: 100%;
+  --event-offset: 0px;
+  --event-duration: var(--calendar-quarter-height);
   position: absolute;
   z-index: 10;
   top: var(--event-offset);

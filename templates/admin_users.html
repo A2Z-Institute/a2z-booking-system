@@ -230,9 +230,9 @@
   <aside class="form-card sticky-card" id="account-form" aria-labelledby="account-form-title">
     {% if editing_user %}
       <div class="form-section-heading">
-        <p class="eyebrow">{{ editing_user.role|title }} account</p>
+        <p class="eyebrow">{{ editing_user.role|replace('_', ' ')|title }} account</p>
         <h2 id="account-form-title">Edit {{ editing_user.full_name }}</h2>
-        <p>The assigned role cannot be changed after creation.</p>
+        <p>{% if editing_user.role in ['admin', 'booking_agent'] %}Choose whether this login has full administrator access or appointment-only Booking Agent access.{% else %}The assigned role cannot be changed after creation.{% endif %}</p>
       </div>
       {% if error %}
         <div class="alert alert-error" role="alert" id="account-form-error"><span class="alert-icon" aria-hidden="true"></span><div>{{ error }}</div></div>
@@ -240,6 +240,16 @@
       <form action="{{ url_for('admin_user_edit', user_id=editing_user.id) }}" method="post" {% if error %}aria-describedby="account-form-error"{% endif %}>
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-grid">
+          {% if editing_user.role in ['admin', 'booking_agent'] %}
+          <div class="field">
+            <label for="edit-role">Access role</label>
+            <select id="edit-role" name="role" required>
+              <option value="booking_agent" {% if request.form.get('role', editing_user.role) == 'booking_agent' %}selected{% endif %}>Booking Agent</option>
+              <option value="admin" {% if request.form.get('role', editing_user.role) == 'admin' %}selected{% endif %}>Administrator</option>
+            </select>
+            <span class="field-hint">Booking Agents can manage appointments but cannot create, edit, resize, or drag blue booking slots.</span>
+          </div>
+          {% endif %}
           <div class="field">
             <label for="edit-full-name">Full name</label>
             <input id="edit-full-name" name="full_name" type="text" value="{{ request.form.get('full_name', editing_user.full_name) }}" maxlength="100" required>
@@ -253,8 +263,8 @@
             <input id="edit-email" name="email" type="email" value="{{ request.form.get('email', editing_user.email) }}" required>
           </div>
           <div class="field">
-            <label for="edit-phone">Mobile number{% if editing_user.role == 'admin' %} <span class="text-muted">(optional)</span>{% endif %}</label>
-            <input id="edit-phone" name="phone" type="tel" value="{{ request.form.get('phone', editing_user.phone|default('', true)) }}" inputmode="tel" {% if editing_user.role != 'admin' %}required{% endif %}>
+            <label for="edit-phone">Mobile number{% if editing_user.role in ['admin', 'booking_agent'] %} <span class="text-muted">(optional)</span>{% endif %}</label>
+            <input id="edit-phone" name="phone" type="tel" value="{{ request.form.get('phone', editing_user.phone|default('', true)) }}" inputmode="tel" {% if editing_user.role not in ['admin', 'booking_agent'] %}required{% endif %}>
           </div>
           <div class="field">
             <label for="edit-branch">Branch</label>

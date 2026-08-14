@@ -789,9 +789,15 @@
       end: minutes(event.end_time),
     };
     const offsetMinutes = ((range.start % 15) + 15) % 15;
-    button.style.setProperty("--event-offset", `${(offsetMinutes / 15) * 100}%`);
+    button.style.setProperty(
+      "--event-offset",
+      `calc(${offsetMinutes / 15} * var(--calendar-quarter-height))`,
+    );
     const durationMinutes = Math.max(5, range.end - range.start);
-    button.style.setProperty("--event-duration", `${(durationMinutes / 15) * 100}%`);
+    button.style.setProperty(
+      "--event-duration",
+      `calc(${durationMinutes / 15} * var(--calendar-quarter-height))`,
+    );
     if (isSlot && currentRole !== "admin") {
       button.setAttribute("aria-readonly", "true");
       button.title = "Book an appointment in this admin-managed slot";
@@ -875,7 +881,10 @@
           const steps = Math.round((moveEvent.clientY - originY) / slotHeight);
           nextEnd = Math.max(minutes(event.start_time) + 15, Math.min(STAFF_DAY_END, originalEnd + (steps * 15)));
           const nextDuration = nextEnd - minutes(event.start_time);
-          button.style.setProperty("--event-duration", `${(nextDuration / 15) * 100}%`);
+          button.style.setProperty(
+            "--event-duration",
+            `calc(${nextDuration / 15} * var(--calendar-quarter-height))`,
+          );
           button.querySelector(".calendar-event-time").textContent = `${formatClock(event.start_time)} – ${formatClock(timeValue(nextEnd))}`;
           button.classList.add("is-resizing");
         };
