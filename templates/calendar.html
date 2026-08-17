@@ -5,7 +5,7 @@
 {% block body_class %}calendar-page{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260817-6') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260817-7') }}">
 {% endblock %}
 
 {% block content %}
@@ -487,7 +487,7 @@
         <summary class="button button-quiet">Actions</summary>
         <div class="editor-booking-popover">
           <button type="button" data-editor-cancel>Delete</button>
-          <a href="#" data-editor-client-details>Client Details</a>
+          <a href="#" data-editor-client-details {% if current_user.role == 'booking_agent' %}target="_blank" rel="noopener"{% endif %}>Client Details</a>
           <a href="#" data-editor-client-notes>Client Notes</a>
         </div>
       </details>
@@ -504,5 +504,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('static', filename='js/calendar.js', v='20260817-6') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/calendar.js', v='20260817-7') }}" defer></script>
 {% endblock %}

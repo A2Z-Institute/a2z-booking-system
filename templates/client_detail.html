@@ -4,6 +4,8 @@
 
 {% block content %}
 {% set booking_list = bookings|default([], true) %}
+{% set upcoming_list = upcoming_bookings|default([], true) %}
+{% set past_list = past_bookings|default([], true) %}
 <nav class="breadcrumb" aria-label="Breadcrumb">
   <a href="{{ url_for('clients_directory') }}">Clients</a>
   <span aria-hidden="true">›</span>
@@ -163,10 +165,8 @@
         <p>Future training arranged for this client.</p>
       </div>
     </header>
-    {% set upcoming_count = namespace(value=0) %}
     <div class="client-timeline">
-      {% for booking in booking_list if booking.target_date >= today %}
-        {% set upcoming_count.value = upcoming_count.value + 1 %}
+      {% for booking in upcoming_list %}
         {% set status_key = booking.validation_status|lower|replace(' ', '-') %}
         <article class="timeline-record">
           <div class="timeline-date">
@@ -183,7 +183,7 @@
           </div>
         </article>
       {% endfor %}
-      {% if not upcoming_count.value %}<div class="empty-state compact-empty"><p>No upcoming appointments.</p></div>{% endif %}
+      {% if not upcoming_list %}<div class="empty-state compact-empty"><p>No upcoming appointments.</p></div>{% endif %}
     </div>
   </section>
 
@@ -194,10 +194,8 @@
         <p>Retained attendance and scheduling history.</p>
       </div>
     </header>
-    {% set past_count = namespace(value=0) %}
     <div class="client-timeline">
-      {% for booking in booking_list if booking.target_date < today %}
-        {% set past_count.value = past_count.value + 1 %}
+      {% for booking in past_list %}
         {% set status_key = booking.validation_status|lower|replace(' ', '-') %}
         <article class="timeline-record">
           <div class="timeline-date">
@@ -214,7 +212,7 @@
           </div>
         </article>
       {% endfor %}
-      {% if not past_count.value %}<div class="empty-state compact-empty"><p>No past appointments.</p></div>{% endif %}
+      {% if not past_list %}<div class="empty-state compact-empty"><p>No past appointments.</p></div>{% endif %}
     </div>
   </section>
 </div>

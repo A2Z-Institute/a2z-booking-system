@@ -588,7 +588,7 @@
       serviceTotal.textContent = `Total: ₹${(Number(event.service_price_cents || 0) / 100).toFixed(2)}`;
     }
     const clientUrl = replaceId(calendar.dataset.clientUrlTemplate || "", event.student_user_id || event.client_id || 0);
-    if (clientDetailsLink) clientDetailsLink.href = clientUrl;
+    if (clientDetailsLink) clientDetailsLink.href = `${clientUrl}#upcoming-title`;
     if (clientNotesLink) clientNotesLink.href = `${clientUrl}#client-notes`;
     syncRepeatCount(repeatInput, repeatCount);
 

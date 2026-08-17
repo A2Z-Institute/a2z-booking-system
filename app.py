@@ -4998,15 +4998,25 @@ def client_detail(client_id):
     if not current_user.has_permission("client_notes"):
         client_record["internal_notes"] = ""
         client_record["tags"] = ""
+    today = datetime.now(IST).date().isoformat()
+    upcoming_bookings = sorted(
+        (booking for booking in bookings if booking["target_date"] >= today),
+        key=lambda booking: (booking["target_date"], booking["start_time"]),
+    )
+    past_bookings = [
+        booking for booking in bookings if booking["target_date"] < today
+    ]
     return render_template(
         "client_detail.html",
         client=client_record,
         bookings=bookings,
+        upcoming_bookings=upcoming_bookings,
+        past_bookings=past_bookings,
         intake_values=intake_values,
         branches=branches,
         available_instructors=available_instructors,
         assigned_instructor_ids=assigned_instructor_ids,
-        today=datetime.now(IST).date().isoformat(),
+        today=today,
     )
 
 
