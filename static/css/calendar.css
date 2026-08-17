@@ -1023,6 +1023,32 @@
 }
 .client-typeahead-empty { padding: 0.75rem; color: var(--ink-600); }
 
+.selected-client-summary {
+  overflow: hidden;
+  border: 1px solid #b9cbd5;
+  border-radius: 5px;
+  background: #f7fbfd;
+}
+
+.selected-client-summary > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border-bottom: 1px solid #d7e2e8;
+}
+
+.selected-client-summary > header div { display: grid; }
+.selected-client-summary > header span { color: var(--ink-600); font-size: 0.78rem; }
+.selected-client-summary > header a { font-size: 0.78rem; font-weight: 750; }
+.selected-client-summary > div { padding: 0.7rem 0.8rem; }
+.selected-client-upcoming-heading { font-size: 0.76rem; text-transform: uppercase; }
+.selected-client-summary p { margin: 0.35rem 0 0; color: var(--ink-600); font-size: 0.8rem; }
+.selected-client-summary ul { display: grid; gap: 0.4rem; padding: 0; margin: 0.5rem 0 0; list-style: none; }
+.selected-client-summary li { display: grid; padding-top: 0.4rem; border-top: 1px solid #dce6eb; font-size: 0.78rem; }
+.selected-client-summary li span { color: var(--ink-600); }
+
 @media (max-width: 620px) {
   .client-typeahead-option {
     grid-template-columns: minmax(0, 1.55fr) minmax(6rem, 0.85fr);

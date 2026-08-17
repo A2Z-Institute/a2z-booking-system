@@ -46,6 +46,11 @@
   const clientEmail = editor.querySelector("[data-new-client-email]");
   const clientTypeahead = editor.querySelector("[data-client-typeahead]");
   const clientTypeaheadResults = editor.querySelector("[data-client-typeahead-results]");
+  const selectedClientSummary = editor.querySelector("[data-selected-client-summary]");
+  const selectedClientName = editor.querySelector("[data-selected-client-name]");
+  const selectedClientPhone = editor.querySelector("[data-selected-client-phone]");
+  const selectedClientUpcoming = editor.querySelector("[data-selected-client-upcoming]");
+  const selectedClientDetails = editor.querySelector("[data-selected-client-details]");
   const clientContactInputs = [clientFirstName, clientLastName, clientPhone, clientEmail]
     .filter((input) => input instanceof HTMLInputElement);
 
@@ -133,6 +138,58 @@
     if (clientTypeaheadResults) clientTypeaheadResults.replaceChildren();
   };
 
+  const hideSelectedClientSummary = () => {
+    if (selectedClientSummary) selectedClientSummary.hidden = true;
+    selectedClientUpcoming?.replaceChildren();
+  };
+
+  const loadClientBookingSummary = async (clientId) => {
+    if (!clientId || !selectedClientSummary || !selectedClientUpcoming) {
+      hideSelectedClientSummary();
+      return;
+    }
+    try {
+      const url = replaceId(calendar.dataset.clientSummaryUrlTemplate || "", clientId);
+      const response = await fetch(url, {
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      const data = await parseJson(response);
+      if (!response.ok) throw new Error(data.error || "Client details could not be loaded.");
+      if (selectedClientName) selectedClientName.textContent = data.client?.full_name || "Selected client";
+      if (selectedClientPhone) selectedClientPhone.textContent = data.client?.phone || "No phone on file";
+      if (selectedClientDetails) {
+        selectedClientDetails.href = `${replaceId(calendar.dataset.clientUrlTemplate || "", clientId)}#upcoming-title`;
+      }
+      selectedClientUpcoming.replaceChildren();
+      const heading = document.createElement("strong");
+      heading.className = "selected-client-upcoming-heading";
+      heading.textContent = "Upcoming appointments";
+      selectedClientUpcoming.append(heading);
+      if (!(data.upcoming || []).length) {
+        const empty = document.createElement("p");
+        empty.textContent = "No upcoming appointments.";
+        selectedClientUpcoming.append(empty);
+      } else {
+        const list = document.createElement("ul");
+        (data.upcoming || []).forEach((booking) => {
+          const item = document.createElement("li");
+          const when = document.createElement("strong");
+          when.textContent = `${booking.date} · ${formatClock(booking.start_time)}–${formatClock(booking.end_time)}`;
+          const details = document.createElement("span");
+          details.textContent = `${booking.service_name || "Appointment"} · ${booking.instructor_name || "Staff"} · ${displayStatus(booking.status)}`;
+          item.append(when, details);
+          list.append(item);
+        });
+        selectedClientUpcoming.append(list);
+      }
+      selectedClientSummary.hidden = false;
+    } catch {
+      hideSelectedClientSummary();
+    }
+  };
+
   const selectClientMatch = (client) => {
     fillingClient = true;
     if (clientFirstName) clientFirstName.value = client.first_name || "";
@@ -153,6 +210,7 @@
     fillingClient = false;
     hideClientMatches();
     syncEditorOptions();
+    void loadClientBookingSummary(client.id);
     announce(`${client.full_name || "Client"} selected.`);
   };
 
@@ -630,6 +688,7 @@
     revisionInput.value = "";
     updateSeriesSummary(null);
     if (existingSummary) existingSummary.hidden = true;
+    hideSelectedClientSummary();
     setServiceSelection([]);
     instructorInput.value = String(instructorId || instructorFilter.value || instructors[0]?.id || "");
     clientInput.value = String(selectedClientId || "");

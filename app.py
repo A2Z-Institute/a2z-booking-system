@@ -4773,6 +4773,43 @@ def api_calendar_search_clients():
     return jsonify({"clients": clients})
 
 
+@app.get("/api/calendar/clients/<int:client_id>/booking-summary")
+@permission_required("client_database")
+def api_calendar_client_booking_summary(client_id):
+    today = datetime.now(IST).date().isoformat()
+    with get_db() as conn:
+        client = _client_access_row(conn, client_id)
+        if not client:
+            abort(404)
+        rows = _booking_rows(
+            conn,
+            "b.student_user_id = ? AND b.target_date >= ? "
+            "AND b.validation_status NOT IN ('Cancelled', 'Rejected')",
+            (client_id, today),
+            "b.target_date ASC, b.start_time ASC",
+        )[:5]
+    phone = client["phone"] or ""
+    if not current_user.has_permission("contact_details"):
+        phone = ("•" * max(0, len(phone) - 3)) + phone[-3:] if phone else ""
+    return jsonify(
+        {
+            "client": {"id": client_id, "full_name": client["full_name"], "phone": phone},
+            "upcoming": [
+                {
+                    "id": row["id"],
+                    "date": row["target_date"],
+                    "start_time": row["start_time"],
+                    "end_time": row["end_time"],
+                    "service_name": row["service_name"],
+                    "instructor_name": row["instructor_name"],
+                    "status": row["validation_status"],
+                }
+                for row in rows
+            ],
+        }
+    )
+
+
 @app.get("/clients/new")
 @permission_required("client_database", "write_access")
 def client_new():

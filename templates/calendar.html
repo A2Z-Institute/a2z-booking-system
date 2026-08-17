@@ -5,7 +5,7 @@
 {% block body_class %}calendar-page{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260817-8') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260817-9') }}">
 {% endblock %}
 
 {% block content %}
@@ -30,6 +30,7 @@
   data-update-url-template="{{ url_for('api_calendar_reschedule_appointment', booking_id=0) }}"
   data-client-create-url="{{ url_for('api_calendar_create_client') }}"
   data-client-search-url="{{ url_for('api_calendar_search_clients') }}"
+  data-client-summary-url-template="{{ url_for('api_calendar_client_booking_summary', client_id=0) }}"
   data-cancel-url-template="{{ url_for('api_calendar_cancel_appointment', booking_id=0) }}"
   data-delete-url-template="{{ url_for('api_calendar_delete_appointment', booking_id=0) }}"
   data-instructor-status-url-template="{{ url_for('api_calendar_instructor_status', booking_id=0) }}"
@@ -238,6 +239,16 @@
               <div class="client-typeahead-heading">Existing clients</div>
               <div data-client-typeahead-results></div>
             </div>
+            <section class="selected-client-summary field-span-all" data-selected-client-summary hidden aria-live="polite">
+              <header>
+                <div>
+                  <strong data-selected-client-name>Selected client</strong>
+                  <span data-selected-client-phone></span>
+                </div>
+                <a href="#" data-selected-client-details {% if current_user.role == 'booking_agent' %}target="_blank" rel="noopener"{% endif %}>Full client details</a>
+              </header>
+              <div data-selected-client-upcoming></div>
+            </section>
             <div class="field">
               <label for="editor-date">Date</label>
               <input id="editor-date" name="target_date" type="date" value="{{ calendar_date }}" data-editor-date required>
@@ -504,5 +515,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('static', filename='js/calendar.js', v='20260817-8') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/calendar.js', v='20260817-9') }}" defer></script>
 {% endblock %}
