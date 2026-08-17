@@ -5,7 +5,7 @@
 {% block body_class %}calendar-page{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260817-11') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260817-12') }}">
 {% endblock %}
 
 {% block content %}
@@ -231,8 +231,17 @@
               <input id="new-client-phone" name="new_client_phone" maxlength="30" autocomplete="tel" data-new-client-phone required>
             </div>
             <div class="field">
+              {% if current_user.role == 'instructor' %}
+              <label for="editor-status">Status</label>
+              <select id="editor-status" name="status" data-editor-status>
+                <option value="No Action">No Action</option>
+                <option value="Pending">Pending</option>
+                <option value="Completed">Completed</option>
+              </select>
+              {% else %}
               <label for="new-client-email">Email <span class="text-muted">(optional)</span></label>
               <input id="new-client-email" name="new_client_email" type="email" maxlength="160" autocomplete="email" data-new-client-email>
+              {% endif %}
             </div>
             <div class="client-typeahead field-span-all" data-client-typeahead hidden>
               <div class="client-typeahead-heading">Existing clients</div>
@@ -297,14 +306,10 @@
                   {% endfor %}
                 </select>
               </div>
+              {% if current_user.role != 'instructor' %}
               <div class="field">
                 <label for="editor-status">Status</label>
                 <select id="editor-status" name="status" data-editor-status>
-                  {% if current_user.role == 'instructor' %}
-                  <option value="No Action">No Action</option>
-                  <option value="Pending">Pending</option>
-                  <option value="Completed">Completed</option>
-                  {% else %}
                   <option value="Approved">Confirmed</option>
                   <option value="Pending">Pending</option>
                   <option value="Not Confirmed">Not Confirmed</option>
@@ -316,10 +321,9 @@
                   <option value="Rescheduled">Rescheduled</option>
                   <option value="Cancelled">Cancelled</option>
                   <option value="No Action">No Action</option>
-                  {% endif %}
                 </select>
-                {% if current_user.role == 'instructor' %}<span class="field-hint">Update your appointment to Pending or Completed.</span>{% endif %}
               </div>
+              {% endif %}
               <div class="field">
                 <label for="editor-repeat">Repeat</label>
                 <select id="editor-repeat" name="repeat" data-editor-repeat>
@@ -504,5 +508,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('static', filename='js/calendar.js', v='20260817-11') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/calendar.js', v='20260817-12') }}" defer></script>
 {% endblock %}
