@@ -141,6 +141,7 @@ def _rebuild_legacy_account_tables(conn: sqlite3.Connection) -> None:
                 is_active INTEGER NOT NULL DEFAULT 1,
                 login_enabled INTEGER NOT NULL DEFAULT 1,
                 must_change_password INTEGER NOT NULL DEFAULT 1,
+                permission_mask INTEGER,
                 deactivated_at TEXT,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -578,6 +579,7 @@ def init_db() -> None:
                 "is_active": "INTEGER NOT NULL DEFAULT 1",
                 "login_enabled": "INTEGER NOT NULL DEFAULT 1",
                 "must_change_password": "INTEGER NOT NULL DEFAULT 1",
+                "permission_mask": "INTEGER",
                 "deactivated_at": "TEXT",
                 "updated_at": "TEXT",
                 # SQLite only permits constant defaults on ALTER TABLE. These

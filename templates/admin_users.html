@@ -243,7 +243,7 @@
           {% if editing_user.role in ['admin', 'booking_agent'] %}
           <div class="field">
             <label for="edit-role">Access role</label>
-            <select id="edit-role" name="role" required>
+            <select id="edit-role" name="role" data-permission-role required>
               <option value="booking_agent" {% if request.form.get('role', editing_user.role) == 'booking_agent' %}selected{% endif %}>Booking</option>
               <option value="admin" {% if request.form.get('role', editing_user.role) == 'admin' %}selected{% endif %}>Administrator</option>
             </select>
@@ -285,6 +285,23 @@
               <label for="edit-verify-instructor"><strong>Instructor details verified</strong><br><span class="text-muted">I checked this person’s identity and employment record. Clearing this closes active assignments and future bookings.</span></label>
             </div>
           {% endif %}
+          <fieldset class="choice-field field-span-2" data-permission-fieldset data-current-role="{{ request.form.get('role', editing_user.role) }}">
+            <legend>Permissions</legend>
+            <p class="field-hint">Choose exactly what this staff login may see or change.</p>
+            <div class="choice-list">
+              {% set submitted_permissions = request.form.getlist('permissions') %}
+              {% for permission_key, permission_label, permission_help in permission_options %}
+                <label class="choice-option">
+                  <input name="permissions" type="checkbox" value="{{ permission_key }}" data-permission-key="{{ permission_key }}" data-permission-bit="{{ permission_bits[permission_key] }}" {% if (request.form and permission_key in submitted_permissions) or (not request.form and permission_key in editing_user.effective_permissions) %}checked{% endif %}>
+                  <span><strong>{{ permission_label }}</strong><small>{{ permission_help }}</small></span>
+                </label>
+              {% endfor %}
+              <label class="choice-option">
+                <input type="checkbox" data-administrator-permission {% if request.form.get('role', editing_user.role) == 'admin' %}checked{% endif %} disabled>
+                <span><strong>Administrator</strong><small>Controlled by the Access role above. Administrators always receive every permission.</small></span>
+              </label>
+            </div>
+          </fieldset>
         </div>
         <div class="form-actions">
           <button class="button button-primary" type="submit">Save changes</button>
@@ -305,7 +322,7 @@
         <div class="form-grid">
           <div class="field">
             <label for="new-role">Role</label>
-            <select id="new-role" name="role" data-role-select required>
+            <select id="new-role" name="role" data-role-select data-permission-role required>
               <option value="">Choose a role</option>
               {% if student_self_booking_enabled %}<option value="student" {% if selected_role == 'student' %}selected{% endif %}>Student</option>{% endif %}
               <option value="booking_agent" {% if selected_role == 'booking_agent' %}selected{% endif %}>Booking</option>
@@ -352,6 +369,23 @@
             <input id="verify-instructor" name="verify_instructor" type="checkbox" value="1" {% if request.form.get('verify_instructor') == '1' or (linking and not request.form) %}checked{% endif %} required>
             <label for="verify-instructor"><strong>Instructor details verified</strong><br><span class="text-muted">I checked this person’s identity and employment record.</span></label>
           </div>
+          <fieldset class="choice-field field-span-2" data-permission-fieldset data-current-role="{{ selected_role }}">
+            <legend>Permissions</legend>
+            <p class="field-hint">Smart Scheduling-style access controls. These can be changed later by an administrator.</p>
+            <div class="choice-list">
+              {% set submitted_permissions = request.form.getlist('permissions') %}
+              {% for permission_key, permission_label, permission_help in permission_options %}
+                <label class="choice-option">
+                  <input name="permissions" type="checkbox" value="{{ permission_key }}" data-permission-key="{{ permission_key }}" data-permission-bit="{{ permission_bits[permission_key] }}" {% if request.form and permission_key in submitted_permissions %}checked{% endif %}>
+                  <span><strong>{{ permission_label }}</strong><small>{{ permission_help }}</small></span>
+                </label>
+              {% endfor %}
+              <label class="choice-option">
+                <input type="checkbox" data-administrator-permission {% if selected_role == 'admin' %}checked{% endif %} disabled>
+                <span><strong>Administrator</strong><small>Controlled by the Role field. Administrators always receive every permission.</small></span>
+              </label>
+            </div>
+          </fieldset>
           <fieldset class="choice-field" data-student-only {% if selected_role != 'student' %}hidden{% endif %}>
             <legend>Assign instructors <span class="text-muted">(optional)</span></legend>
             <p class="field-hint">Only verified instructors in the selected branch can be assigned.</p>

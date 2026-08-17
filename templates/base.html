@@ -46,10 +46,10 @@
               <a href="{{ url_for('student_dashboard') }}" {% if request.endpoint == 'student_dashboard' %}aria-current="page"{% endif %}>My timetable</a>
             {% elif user_role == 'instructor' %}
               <a href="{{ url_for('calendar_view') }}" {% if request.endpoint == 'calendar_view' %}aria-current="page"{% endif %}>Calendar</a>
-              <a href="{{ url_for('clients_directory') }}" {% if request.endpoint in ['clients_directory', 'client_detail'] %}aria-current="page"{% endif %}>Clients</a>
+              {% if current_user.has_permission('client_database') %}<a href="{{ url_for('clients_directory') }}" {% if request.endpoint in ['clients_directory', 'client_detail'] %}aria-current="page"{% endif %}>Clients</a>{% endif %}
             {% elif user_role == 'booking_agent' %}
               <a href="{{ url_for('calendar_view') }}" {% if request.endpoint == 'calendar_view' %}aria-current="page"{% endif %}>Calendar</a>
-              <a href="{{ url_for('clients_directory') }}" {% if request.endpoint in ['clients_directory', 'client_detail', 'client_new'] %}aria-current="page"{% endif %}>Clients</a>
+              {% if current_user.has_permission('client_database') %}<a href="{{ url_for('clients_directory') }}" {% if request.endpoint in ['clients_directory', 'client_detail', 'client_new'] %}aria-current="page"{% endif %}>Clients</a>{% endif %}
             {% elif user_role == 'admin' %}
               <a href="{{ url_for('calendar_view') }}" {% if request.endpoint == 'calendar_view' %}aria-current="page"{% endif %}>Calendar</a>
               <a href="{{ url_for('clients_directory') }}" {% if request.endpoint in ['clients_directory', 'client_detail'] %}aria-current="page"{% endif %}>Clients</a>
@@ -121,7 +121,7 @@
   </footer>
 
   <div class="sr-only" aria-live="polite" aria-atomic="true" id="app-announcer"></div>
-  <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/app.js', v='20260817-2') }}" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

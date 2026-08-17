@@ -14,7 +14,7 @@
     <h1>Calendar</h1>
     <p>Staff scheduling in 15-minute intervals</p>
   </div>
-  {% if current_user.role in ['admin', 'booking_agent'] %}
+  {% if current_user.has_permission('write_access') %}
     <button class="button button-primary calendar-add-button" type="button" data-add-appointment>
       <span aria-hidden="true">+</span>
       Add appointment
@@ -78,7 +78,7 @@
             </div>
           </div>
         </details>
-        {% if current_user.role == 'admin' %}
+        {% if current_user.has_permission('export_appointments') %}
           <a class="icon-button" href="{{ url_for('export_appointments_csv') }}" aria-label="Export appointments" title="Export appointments">⇩</a>
         {% endif %}
         <button class="icon-button" type="button" aria-label="Print calendar" title="Print calendar" data-calendar-print>Print</button>
@@ -87,7 +87,7 @@
       <label class="calendar-staff-control" for="calendar-instructor">
         <span class="sr-only">Instructor</span>
         <select id="calendar-instructor" data-calendar-instructor>
-          {% if current_user.role in ['admin', 'booking_agent'] %}<option value="">All instructors</option>{% endif %}
+          {% if current_user.has_permission('everyone_schedule') %}<option value="">All instructors</option>{% endif %}
           {% for instructor in instructors %}
             <option
               value="{{ instructor.id }}"

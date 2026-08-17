@@ -20,9 +20,9 @@
     </div>
   </div>
   <div class="management-panel-actions">
-    {% if client.phone %}<a class="button button-secondary button-small" href="tel:{{ client.phone|replace(' ', '') }}">Call client</a>{% endif %}
-    {% if client.email %}<a class="button button-secondary button-small" href="mailto:{{ client.email }}">Email client</a>{% endif %}
-    {% if client.is_active and current_user.role in ['admin', 'booking_agent'] %}
+    {% if current_user.has_permission('contact_details') and client.phone %}<a class="button button-secondary button-small" href="tel:{{ client.phone|replace(' ', '') }}">Call client</a>{% endif %}
+    {% if current_user.has_permission('contact_details') and client.email %}<a class="button button-secondary button-small" href="mailto:{{ client.email }}">Email client</a>{% endif %}
+    {% if client.is_active and current_user.has_permission('write_access') %}
       <a class="button button-primary button-small" href="{{ url_for('calendar_view') }}?client={{ client.id }}">+ Add appointment</a>
     {% endif %}
     {% if current_user.role == 'admin' %}
@@ -48,7 +48,7 @@
 
   <form class="client-profile-form" method="post" action="{{ url_for('client_profile_update', client_id=client.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <fieldset class="plain-fieldset" {% if current_user.role == 'instructor' %}disabled{% endif %}>
+    <fieldset class="plain-fieldset" {% if not current_user.has_permission('write_access') %}disabled{% endif %}>
     <div class="form-grid client-details-grid">
       <div class="field field-span-2">
         <label for="client-full-name">Full name</label>
@@ -147,7 +147,7 @@
     </div>
 
     </fieldset>
-    {% if current_user.role in ['admin', 'booking_agent'] %}
+    {% if current_user.has_permission('write_access') %}
       <footer class="management-panel-footer">
         <button class="button button-primary" type="submit">Save client details</button>
       </footer>

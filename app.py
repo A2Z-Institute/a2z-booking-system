@@ -69,6 +69,42 @@ FINAL_BOOKING_STATUSES = ("Rejected", "Cancelled", "Completed", "No-show")
 MIN_PASSWORD_LENGTH = 5
 DAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 MANAGED_ROLES = ("student", "booking_agent", "instructor", "admin")
+PERMISSION_BITS = {
+    "everyone_schedule": 1,
+    "write_access": 2,
+    "client_database": 4,
+    "export_clients": 8,
+    "export_appointments": 16,
+    "contact_details": 32,
+    "client_notes": 64,
+}
+PERMISSION_OPTIONS = (
+    ("everyone_schedule", "Everyone's Schedule", "View schedules for every instructor instead of only the linked schedule."),
+    ("write_access", "Write Access", "Create and save appointments and other permitted records."),
+    ("client_database", "Client Database", "Open and search the client database."),
+    ("export_clients", "Export Clients", "Download client data as a CSV file."),
+    ("export_appointments", "Export Appointments", "Download appointment data as a CSV file."),
+    ("contact_details", "Contact Details", "See client email addresses and phone numbers."),
+    ("client_notes", "Client Notes", "See private client notes in staff views."),
+)
+ALL_STAFF_PERMISSIONS = sum(PERMISSION_BITS.values())
+DEFAULT_ROLE_PERMISSIONS = {
+    "admin": ALL_STAFF_PERMISSIONS,
+    "booking_agent": (
+        PERMISSION_BITS["everyone_schedule"]
+        | PERMISSION_BITS["write_access"]
+        | PERMISSION_BITS["client_database"]
+        | PERMISSION_BITS["export_clients"]
+        | PERMISSION_BITS["contact_details"]
+        | PERMISSION_BITS["client_notes"]
+    ),
+    "instructor": (
+        PERMISSION_BITS["client_database"]
+        | PERMISSION_BITS["contact_details"]
+        | PERMISSION_BITS["client_notes"]
+    ),
+    "student": 0,
+}
 BRANCH_TIMEZONE_OPTIONS = (
     ("Asia/Kolkata", "India (Asia/Kolkata)"),
     ("Europe/London", "United Kingdom (Europe/London)"),
@@ -155,10 +191,26 @@ class User(UserMixin):
         self.branch_id = row["branch_id"]
         self._active = bool(row["is_active"] and row["login_enabled"])
         self.must_change_password = bool(row["must_change_password"])
+        raw_permissions = (
+            row["permission_mask"] if "permission_mask" in row.keys() else None
+        )
+        self.permission_mask = (
+            DEFAULT_ROLE_PERMISSIONS.get(self.role, 0)
+            if raw_permissions is None
+            else int(raw_permissions)
+        )
 
     @property
     def is_active(self):
         return self._active
+
+    def has_permission(self, permission):
+        if permission == "administrator":
+            return self.role == "admin"
+        if self.role == "admin":
+            return True
+        bit = PERMISSION_BITS.get(permission)
+        return bool(bit and self.permission_mask & bit)
 
 
 @login_manager.user_loader
@@ -204,6 +256,29 @@ def role_required(*roles):
         return wrapped
 
     return decorator
+
+
+def permission_required(*permissions):
+    def decorator(view):
+        @wraps(view)
+        @login_required
+        def wrapped(*args, **kwargs):
+            if not all(current_user.has_permission(item) for item in permissions):
+                abort(403)
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+def _permission_mask_from_form(role):
+    if role == "admin":
+        return ALL_STAFF_PERMISSIONS
+    selected = set(request.form.getlist("permissions"))
+    return sum(
+        bit for permission, bit in PERMISSION_BITS.items() if permission in selected
+    )
 
 
 def _require_student_self_booking():
@@ -1489,6 +1564,17 @@ def _admin_users_context(conn, *, editing_user_id=None):
             """
         ).fetchall()
     ]
+    for managed_user in all_users:
+        managed_user["effective_permission_mask"] = (
+            DEFAULT_ROLE_PERMISSIONS.get(managed_user["role"], 0)
+            if managed_user.get("permission_mask") is None
+            else int(managed_user["permission_mask"])
+        )
+        managed_user["effective_permissions"] = [
+            permission
+            for permission, bit in PERMISSION_BITS.items()
+            if managed_user["effective_permission_mask"] & bit
+        ]
     query = " ".join((request.args.get("q") or "").split()).lower()[:100]
     role_filter = (request.args.get("role") or "").lower()
     status_filter = (request.args.get("status") or "").lower()
@@ -1617,6 +1703,9 @@ def _admin_users_context(conn, *, editing_user_id=None):
             if app.config["A2Z_STUDENT_SELF_BOOKING"]
             else ("booking_agent", "instructor", "admin")
         ),
+        "permission_options": PERMISSION_OPTIONS,
+        "permission_bits": PERMISSION_BITS,
+        "default_permission_masks": DEFAULT_ROLE_PERMISSIONS,
         "stats": {
             "total": len(account_users),
             "students": sum(
@@ -1695,6 +1784,7 @@ def admin_users():
             branch_id = _validate_branch(conn, request.form.get("branch_id"))
             _ensure_identity_available(conn, username, email)
             instructor_id = None
+            permission_mask = _permission_mask_from_form(role)
             if role == "instructor":
                 if request.form.get("verify_instructor") != "1":
                     raise ValueError(
@@ -1738,8 +1828,8 @@ def admin_users():
                 INSERT INTO users
                     (username, password_hash, role, instructor_id, full_name,
                      email, phone, branch_id, login_enabled,
-                     must_change_password)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                     must_change_password, permission_mask)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
                 """,
                 (
                     username,
@@ -1756,6 +1846,7 @@ def admin_users():
                         or app.config["A2Z_STUDENT_SELF_BOOKING"]
                         else 0
                     ),
+                    permission_mask,
                 ),
             )
             user_id = cursor.lastrowid
@@ -1817,6 +1908,7 @@ def admin_user_edit(user_id):
             if not user:
                 abort(404)
             requested_role = (request.form.get("role") or user["role"]).strip().lower()
+            permission_mask = _permission_mask_from_form(requested_role)
             scheduling_roles = {"admin", "booking_agent"}
             if user["role"] in scheduling_roles:
                 if requested_role not in scheduling_roles:
@@ -1869,7 +1961,8 @@ def admin_user_edit(user_id):
             conn.execute(
                 """
                 UPDATE users SET username = ?, full_name = ?, email = ?, phone = ?,
-                    branch_id = ?, role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+                    branch_id = ?, role = ?, permission_mask = ?,
+                    updated_at = CURRENT_TIMESTAMP WHERE id = ?
                 """,
                 (
                     username,
@@ -1878,6 +1971,7 @@ def admin_user_edit(user_id):
                     phone or None,
                     branch_id,
                     requested_role,
+                    permission_mask,
                     user_id,
                 ),
             )
@@ -1960,6 +2054,7 @@ def admin_user_edit(user_id):
                     "target_user_id": user_id,
                     "old_role": user["role"],
                     "new_role": requested_role,
+                    "permission_mask": permission_mask,
                 },
             )
         flash(f"{full_name}'s details have been updated.", "success")
@@ -2609,7 +2704,9 @@ def cancel_booking(booking_id):
 
 
 def _calendar_instructors(conn):
-    if current_user.role == "instructor":
+    if current_user.role == "instructor" and not current_user.has_permission(
+        "everyone_schedule"
+    ):
         params = (current_user.instructor_id,)
         where = "i.id = ?"
     else:
@@ -2633,6 +2730,15 @@ def _calendar_instructors(conn):
 
 
 def _calendar_event(row):
+    can_view_contacts = current_user.has_permission("contact_details")
+    can_view_notes = current_user.has_permission("client_notes")
+    phone = row["mobile_number"] or ""
+    email = row["student_email"] or ""
+    if not can_view_contacts:
+        phone = ("•" * max(0, len(phone) - 3)) + phone[-3:] if phone else ""
+        if email and "@" in email:
+            local, domain = email.split("@", 1)
+            email = (local[:1] + "•••@" + domain) if local else "•••@" + domain
     return {
         "type": "appointment",
         "id": row["id"],
@@ -2640,8 +2746,8 @@ def _calendar_event(row):
         "client_id": row["student_user_id"],
         "student_user_id": row["student_user_id"],
         "student_name": row["student_name"],
-        "student_phone": row["mobile_number"] or "",
-        "student_email": row["student_email"] or "",
+        "student_phone": phone,
+        "student_email": email,
         "service_name": row["service_name"] or row["machine_category"],
         "service_price_cents": int(row["service_price_cents"] or 0),
         "currency": row["currency"] or "INR",
@@ -2660,7 +2766,7 @@ def _calendar_event(row):
         "start_time": row["start_time"],
         "end_time": row["end_time"],
         "status": row["validation_status"],
-        "notes": row["notes"] or "",
+        "notes": (row["notes"] or "") if can_view_notes else "",
         "revision": row["calendar_revision"],
         "buffer_before_minutes": row["buffer_before_minutes"],
         "buffer_after_minutes": row["buffer_after_minutes"],
@@ -2670,7 +2776,7 @@ def _calendar_event(row):
         "series_position": row.get("series_position") or 1,
         "series_count": row.get("series_count") or 1,
         "can_edit": (
-            current_user.role in {"admin", "booking_agent"}
+            current_user.has_permission("write_access")
             and row["validation_status"] != "Cancelled"
         ),
     }
@@ -2851,7 +2957,9 @@ def calendar_view():
         requested_client_id = None
     with get_db() as conn:
         instructors = _calendar_instructors(conn)
-        if current_user.role == "instructor":
+        if current_user.role == "instructor" and not current_user.has_permission(
+            "everyone_schedule"
+        ):
             branch_ids = [current_user.branch_id]
         else:
             branch_ids = sorted({item["branch_id"] for item in instructors})
@@ -2904,6 +3012,7 @@ def calendar_view():
     selected_instructor = (
         current_user.instructor_id
         if current_user.role == "instructor"
+        and not current_user.has_permission("everyone_schedule")
         else (instructors[0]["id"] if len(instructors) == 1 else None)
     )
     return render_template(
@@ -2932,7 +3041,9 @@ def api_calendar_events():
     params = [start.isoformat(), end.isoformat()]
     selected_instructor_id = None
     selected_branch_id = None
-    if current_user.role == "instructor":
+    if current_user.role == "instructor" and not current_user.has_permission(
+        "everyone_schedule"
+    ):
         selected_instructor_id = current_user.instructor_id
         clauses.append("b.instructor_id = ?")
         params.append(selected_instructor_id)
@@ -3605,7 +3716,7 @@ def api_calendar_delete_booking_slot(slot_id):
 
 
 @app.post("/api/calendar/appointments")
-@role_required("booking_agent", "admin")
+@permission_required("write_access")
 def api_calendar_create_appointment():
     payload = request.get_json(silent=True) or {}
     try:
@@ -3848,7 +3959,7 @@ def api_calendar_create_appointment():
 
 
 @app.patch("/api/calendar/appointments/<int:booking_id>")
-@role_required("booking_agent", "admin")
+@permission_required("write_access")
 def api_calendar_reschedule_appointment(booking_id):
     payload = request.get_json(silent=True) or {}
     try:
@@ -4172,7 +4283,7 @@ def api_calendar_reschedule_appointment(booking_id):
 
 
 @app.delete("/api/calendar/appointments/<int:booking_id>")
-@role_required("booking_agent", "admin")
+@permission_required("write_access")
 def api_calendar_cancel_appointment(booking_id):
     payload = request.get_json(silent=True) or {}
     with get_db() as conn:
@@ -4498,7 +4609,7 @@ def _create_client_record(conn, payload):
 
 
 @app.post("/api/calendar/clients")
-@role_required("booking_agent", "admin")
+@permission_required("client_database", "write_access")
 def api_calendar_create_client():
     payload = request.get_json(silent=True) if request.is_json else request.form
     payload = payload or {}
@@ -4528,7 +4639,7 @@ def api_calendar_create_client():
 
 
 @app.get("/api/calendar/clients/search")
-@role_required("booking_agent", "admin")
+@permission_required("client_database")
 def api_calendar_search_clients():
     query = " ".join((request.args.get("q") or "").split())[:100]
     if len(query) < 2:
@@ -4559,6 +4670,13 @@ def api_calendar_search_clients():
     clients = []
     for row in rows:
         record = dict(row)
+        if not current_user.has_permission("contact_details"):
+            phone = record.get("phone") or ""
+            email = record.get("email") or ""
+            record["phone"] = ("•" * max(0, len(phone) - 3)) + phone[-3:] if phone else ""
+            if email and "@" in email:
+                local, domain = email.split("@", 1)
+                record["email"] = (local[:1] + "•••@" + domain) if local else "•••@" + domain
         parts = (record["full_name"] or "").strip().split(None, 1)
         record["first_name"] = parts[0] if parts else ""
         record["last_name"] = parts[1] if len(parts) > 1 else ""
@@ -4567,7 +4685,7 @@ def api_calendar_search_clients():
 
 
 @app.get("/clients/new")
-@role_required("booking_agent", "admin")
+@permission_required("client_database", "write_access")
 def client_new():
     with get_db() as conn:
         if current_user.role in {"admin", "booking_agent"}:
@@ -4587,7 +4705,7 @@ def client_new():
 
 
 @app.post("/clients")
-@role_required("booking_agent", "admin")
+@permission_required("client_database", "write_access")
 def client_create():
     try:
         with get_db() as conn:
@@ -4654,7 +4772,7 @@ def _client_access_row(conn, client_id):
 
 
 @app.get("/clients")
-@role_required("booking_agent", "instructor", "admin")
+@permission_required("client_database")
 def clients_directory():
     query = " ".join((request.args.get("q") or "").split())[:100]
     params = []
@@ -4715,13 +4833,21 @@ def clients_directory():
                 params,
             ).fetchall()
         ]
+    if not current_user.has_permission("contact_details"):
+        for client in clients:
+            phone = client.get("phone") or ""
+            email = client.get("email") or ""
+            client["phone"] = ("•" * max(0, len(phone) - 3)) + phone[-3:] if phone else ""
+            if email and "@" in email:
+                local, domain = email.split("@", 1)
+                client["email"] = (local[:1] + "•••@" + domain) if local else "•••@" + domain
     return render_template(
         "clients.html", clients=clients, search_query=query
     )
 
 
 @app.get("/clients/<int:client_id>")
-@role_required("booking_agent", "instructor", "admin")
+@permission_required("client_database")
 def client_detail(client_id):
     with get_db() as conn:
         client = _client_access_row(conn, client_id)
@@ -4787,9 +4913,22 @@ def client_detail(client_id):
                     (client_id,),
                 ).fetchall()
             ]
+    client_record = dict(client)
+    if not current_user.has_permission("contact_details"):
+        for field in ("phone", "secondary_phone"):
+            value = client_record.get(field) or ""
+            client_record[field] = ("•" * max(0, len(value) - 3)) + value[-3:] if value else ""
+        for field in ("email", "secondary_email"):
+            value = client_record.get(field) or ""
+            if value and "@" in value:
+                local, domain = value.split("@", 1)
+                client_record[field] = (local[:1] + "•••@" + domain) if local else "•••@" + domain
+    if not current_user.has_permission("client_notes"):
+        client_record["internal_notes"] = ""
+        client_record["tags"] = ""
     return render_template(
         "client_detail.html",
-        client=dict(client),
+        client=client_record,
         bookings=bookings,
         intake_values=intake_values,
         branches=branches,
@@ -4800,7 +4939,7 @@ def client_detail(client_id):
 
 
 @app.post("/clients/<int:client_id>/profile")
-@role_required("booking_agent", "admin")
+@permission_required("client_database", "write_access")
 def client_profile_update(client_id):
     try:
         with get_db() as conn:
@@ -5174,7 +5313,7 @@ def _csv_response(filename, headers, rows):
 
 
 @app.get("/exports/appointments.csv")
-@role_required("admin")
+@permission_required("export_appointments")
 def export_appointments_csv():
     clauses = []
     params = []
@@ -5231,7 +5370,7 @@ def export_appointments_csv():
 
 
 @app.get("/exports/clients.csv")
-@role_required("booking_agent", "admin")
+@permission_required("export_clients")
 def export_clients_csv():
     params = []
     scope = ""

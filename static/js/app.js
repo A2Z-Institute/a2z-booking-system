@@ -198,6 +198,31 @@
     syncRoleFields();
   });
 
+  document.querySelectorAll("[data-permission-fieldset]").forEach((fieldset) => {
+    const form = fieldset.closest("form");
+    const roleSelect = form?.querySelector("[data-permission-role]");
+    const permissionInputs = fieldset.querySelectorAll("[data-permission-bit]");
+    const administrator = fieldset.querySelector("[data-administrator-permission]");
+    const defaults = { admin: 127, booking_agent: 111, instructor: 100, student: 0 };
+
+    const syncPermissions = (applyDefaults = false) => {
+      const role = roleSelect?.value || fieldset.dataset.currentRole || "";
+      const administratorSelected = role === "admin";
+      if (administrator) administrator.checked = administratorSelected;
+      permissionInputs.forEach((input) => {
+        if (applyDefaults || administratorSelected) {
+          const bit = Number(input.dataset.permissionBit || 0);
+          input.checked = Boolean((defaults[role] || 0) & bit);
+        }
+        input.disabled = administratorSelected || role === "student";
+      });
+      fieldset.dataset.currentRole = role;
+    };
+
+    roleSelect?.addEventListener("change", () => syncPermissions(true));
+    syncPermissions(false);
+  });
+
   const userFilters = document.querySelector("[data-user-filters]");
   if (userFilters) {
     const search = userFilters.querySelector("[data-user-search]");
