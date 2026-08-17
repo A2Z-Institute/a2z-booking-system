@@ -169,9 +169,15 @@
         const button = document.createElement("button");
         button.type = "button";
         button.className = "client-typeahead-option";
-        [client.full_name || "—", client.phone || "No phone", client.email || "No email"].forEach((value) => {
+        [
+          ["name", client.full_name || "—"],
+          ["phone", client.phone || "No phone"],
+          ["email", client.email || "No email"],
+        ].forEach(([field, value]) => {
           const span = document.createElement("span");
+          span.className = `client-typeahead-${field}`;
           span.textContent = value;
+          span.title = value;
           button.append(span);
         });
         button.addEventListener("click", () => selectClientMatch(client));

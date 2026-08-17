@@ -996,7 +996,7 @@
 .client-typeahead-option {
   display: grid;
   width: 100%;
-  grid-template-columns: minmax(9rem, 1.2fr) minmax(7rem, 1fr) minmax(9rem, 1.2fr);
+  grid-template-columns: minmax(0, 1.45fr) minmax(6.5rem, 0.9fr) minmax(5.5rem, 0.9fr);
   gap: 0.65rem;
   padding: 0.65rem 0.75rem;
   border: 0;
@@ -1009,11 +1009,28 @@
 
 .client-typeahead-option:hover,
 .client-typeahead-option:focus-visible { background: #eaf7fb; }
-.client-typeahead-option span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.client-typeahead-option span { min-width: 0; }
+.client-typeahead-name {
+  overflow-wrap: anywhere;
+  font-weight: 650;
+  white-space: normal;
+}
+.client-typeahead-phone,
+.client-typeahead-email {
+  overflow: hidden;
+  align-self: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .client-typeahead-empty { padding: 0.75rem; color: var(--ink-600); }
 
 @media (max-width: 620px) {
-  .client-typeahead-option { grid-template-columns: 1fr; gap: 0.2rem; }
+  .client-typeahead-option {
+    grid-template-columns: minmax(0, 1.35fr) minmax(5.8rem, 0.9fr) minmax(4.8rem, 0.8fr);
+    gap: 0.35rem;
+    padding-inline: 0.45rem;
+    font-size: 0.78rem;
+  }
 }
 
 .smart-service-trigger:hover,
