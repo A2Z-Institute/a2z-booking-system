@@ -833,7 +833,8 @@
     const canDragEvent = Boolean(event.can_edit) && (
       event.type === "appointment" || (isSlot && currentRole === "admin")
     );
-    button.draggable = canDragEvent;
+    button.draggable = false;
+    button.classList.toggle("is-movable", canDragEvent);
     button.dataset.eventId = event.id;
     if (event.service_color) button.style.setProperty("--event-colour", event.service_color);
     const range = visibleEventRange(event) || {
@@ -904,20 +905,115 @@
       openEditorForEvent(event, button);
     });
     if (canDragEvent) {
+      button.addEventListener("pointerdown", (pointerEvent) => {
+        if (
+          pointerEvent.button !== 0
+          || moveInFlight
+          || resizingEventId !== null
+          || pointerEvent.target.closest(".calendar-event-resize")
+        ) return;
+        const originX = pointerEvent.clientX;
+        const originY = pointerEvent.clientY;
+        const duration = Math.max(15, minutes(event.end_time) - minutes(event.start_time));
+        let started = false;
+        let targetSlot = null;
+        button.setPointerCapture?.(pointerEvent.pointerId);
+
+        const clearTarget = () => {
+          targetSlot?.classList.remove("is-drop-target");
+          targetSlot = null;
+        };
+        const cleanup = (finalEvent) => {
+          button.removeEventListener("pointermove", movePointer);
+          button.removeEventListener("pointerup", finishPointer);
+          button.removeEventListener("pointercancel", cancelPointer);
+          if (button.hasPointerCapture?.(finalEvent.pointerId)) {
+            button.releasePointerCapture(finalEvent.pointerId);
+          }
+          clearTarget();
+          draggedEvent = null;
+          calendarScroll?.classList.remove("is-event-dragging");
+          button.classList.remove("is-dragging");
+          dragTimePreview?.remove();
+          dragTimePreview = null;
+        };
+        const movePointer = (moveEvent) => {
+          if (!started && Math.hypot(moveEvent.clientX - originX, moveEvent.clientY - originY) < 7) return;
+          if (!started) {
+            started = true;
+            draggedEvent = event;
+            calendarScroll?.classList.add("is-event-dragging");
+            button.classList.add("is-dragging");
+            dragTimePreview = document.createElement("div");
+            dragTimePreview.className = "calendar-drag-time-preview";
+            document.body.append(dragTimePreview);
+          }
+          moveEvent.preventDefault();
+          const bounds = calendarScroll?.getBoundingClientRect();
+          if (bounds && calendarScroll) {
+            const horizontalEdge = Math.min(90, bounds.width * 0.1);
+            const verticalEdge = Math.min(70, bounds.height * 0.1);
+            if (moveEvent.clientX < bounds.left + horizontalEdge) calendarScroll.scrollLeft -= 22;
+            else if (moveEvent.clientX > bounds.right - horizontalEdge) calendarScroll.scrollLeft += 22;
+            if (moveEvent.clientY < bounds.top + verticalEdge) calendarScroll.scrollTop -= 18;
+            else if (moveEvent.clientY > bounds.bottom - verticalEdge) calendarScroll.scrollTop += 18;
+          }
+          const candidate = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest(".calendar-slot");
+          const candidateStart = candidate?.dataset.dropStart || "";
+          const valid = Boolean(
+            candidate
+            && !candidate.classList.contains("is-non-working")
+            && candidate.dataset.dropDate
+            && candidate.dataset.dropInstructorId
+            && minutes(candidateStart) + duration <= STAFF_DAY_END
+          );
+          if (candidate !== targetSlot) clearTarget();
+          if (valid) {
+            targetSlot = candidate;
+            targetSlot.classList.add("is-drop-target");
+            const finish = timeValue(minutes(candidateStart) + duration);
+            if (dragTimePreview) {
+              dragTimePreview.textContent = `${formatClock(candidateStart)} – ${formatClock(finish)}`;
+              dragTimePreview.style.left = `${moveEvent.clientX + 14}px`;
+              dragTimePreview.style.top = `${moveEvent.clientY + 14}px`;
+            }
+          }
+        };
+        const finishPointer = (finishEvent) => {
+          const destination = targetSlot;
+          const wasStarted = started;
+          cleanup(finishEvent);
+          if (!wasStarted) return;
+          suppressEventClickUntil = Date.now() + 400;
+          if (!destination) return;
+          const targetDate = destination.dataset.dropDate;
+          const targetInstructorId = destination.dataset.dropInstructorId;
+          const targetStart = destination.dataset.dropStart;
+          const destinationBookingSlot = events.find((item) => (
+            item.type === "slot"
+            && item.date === targetDate
+            && String(item.instructor_id) === String(targetInstructorId)
+            && minutes(item.start_time) <= minutes(targetStart)
+            && minutes(item.end_time) > minutes(targetStart)
+          ));
+          void moveEvent(event, {
+            date: targetDate,
+            instructorId: targetInstructorId,
+            start: targetStart,
+            ...(event.type === "appointment" && destinationBookingSlot
+              ? { machineId: destinationBookingSlot.machine_id }
+              : {}),
+            ...(event.type === "slot" ? { end: timeValue(minutes(targetStart) + duration) } : {}),
+          });
+        };
+        const cancelPointer = (cancelEvent) => cleanup(cancelEvent);
+        button.addEventListener("pointermove", movePointer);
+        button.addEventListener("pointerup", finishPointer, { once: true });
+        button.addEventListener("pointercancel", cancelPointer, { once: true });
+      });
       button.addEventListener("dragstart", (dragEvent) => {
-        if (resizingEventId !== null) {
-          dragEvent.preventDefault();
-          return;
-        }
-        draggedEvent = event;
-        calendarScroll?.classList.add("is-event-dragging");
-        dragEvent.dataTransfer.effectAllowed = "move";
-        dragEvent.dataTransfer.setData("text/plain", String(event.id));
-        button.classList.add("is-dragging");
-        dragTimePreview = document.createElement("div");
-        dragTimePreview.className = "calendar-drag-time-preview";
-        dragTimePreview.textContent = `${formatClock(event.start_time)} – ${formatClock(event.end_time)}`;
-        document.body.append(dragTimePreview);
+        // Native HTML dragging behaves inconsistently across Chromium builds.
+        dragEvent.preventDefault();
       });
       button.addEventListener("dragend", () => {
         draggedEvent = null;
@@ -933,7 +1029,6 @@
         pointerEvent.stopPropagation();
         if (moveInFlight || resizingEventId !== null) return;
         resizingEventId = event.id;
-        button.draggable = false;
         const originY = pointerEvent.clientY;
         const originalEnd = minutes(event.end_time);
         const slotHeight = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--calendar-quarter-height")) || 21;
@@ -962,7 +1057,6 @@
           if (resizeHandle.hasPointerCapture?.(finishEvent.pointerId)) {
             resizeHandle.releasePointerCapture(finishEvent.pointerId);
           }
-          button.draggable = true;
           button.classList.remove("is-resizing");
           resizingEventId = null;
           if (!didResize || nextEnd === originalEnd) return;
@@ -981,7 +1075,6 @@
           if (resizeHandle.hasPointerCapture?.(cancelEvent.pointerId)) {
             resizeHandle.releasePointerCapture(cancelEvent.pointerId);
           }
-          button.draggable = true;
           button.classList.remove("is-resizing");
           resizingEventId = null;
           renderCalendar();
@@ -1085,6 +1178,9 @@
       && minutes(item.start_time) <= minutes(start)
       && minutes(item.end_time) > minutes(start)
     ));
+    slot.dataset.dropDate = column.date;
+    slot.dataset.dropInstructorId = String(column.instructorId);
+    slot.dataset.dropStart = start;
     slot.classList.toggle("is-non-working", disabled);
     slot.classList.toggle("is-occupied", occupied);
     slot.setAttribute("aria-disabled", String(disabled || occupied));

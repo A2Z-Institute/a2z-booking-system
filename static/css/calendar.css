@@ -304,8 +304,12 @@
 }
 
 .calendar-event.is-dragging {
+  z-index: 30;
   opacity: 0.55;
 }
+
+.calendar-event.is-movable { cursor: grab; touch-action: none; }
+.calendar-event.is-movable:active { cursor: grabbing; }
 
 .calendar-event strong,
 .calendar-event span,
