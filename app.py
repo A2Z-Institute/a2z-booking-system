@@ -62,6 +62,9 @@ ACTIVE_BOOKING_STATUSES = (
 )
 STAFF_DAY_START_MINUTES = 6 * 60
 STAFF_DAY_END_MINUTES = (18 * 60) + 30
+DEFAULT_LUNCH_START = "13:00"
+DEFAULT_LUNCH_END = "14:00"
+DEFAULT_LUNCH_SOURCE_PREFIX = "default-lunch"
 FINAL_BOOKING_STATUSES = ("Rejected", "Cancelled", "Completed", "No-show")
 MIN_PASSWORD_LENGTH = 5
 DAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
@@ -2705,6 +2708,106 @@ def _calendar_busy_event(row):
     }
 
 
+def _default_lunch_source(instructor_id, target):
+    return f"{DEFAULT_LUNCH_SOURCE_PREFIX}:{instructor_id}:{target.isoformat()}"
+
+
+def _ensure_default_lunch_breaks(
+    conn, start, end, *, instructor_id=None, branch_id=None
+):
+    """Create editable 1–2 pm lunch breaks when a calendar date is first viewed."""
+    instructor_clauses = [
+        "is_active = 1",
+        "verification_status = 'verified'",
+    ]
+    instructor_params = []
+    if instructor_id:
+        instructor_clauses.append("id = ?")
+        instructor_params.append(instructor_id)
+    if branch_id:
+        instructor_clauses.append("branch_id = ?")
+        instructor_params.append(branch_id)
+    instructor_ids = [
+        row["id"]
+        for row in conn.execute(
+            f"SELECT id FROM instructors WHERE {' AND '.join(instructor_clauses)}",
+            instructor_params,
+        ).fetchall()
+    ]
+    if not instructor_ids:
+        return
+
+    lunch_start_minutes = _time_to_minutes(DEFAULT_LUNCH_START)
+    lunch_end_minutes = _time_to_minutes(DEFAULT_LUNCH_END)
+    active_placeholders = ",".join("?" for _ in ACTIVE_BOOKING_STATUSES)
+    target = start
+    while target <= end:
+        target_text = target.isoformat()
+        for current_instructor_id in instructor_ids:
+            source_reference = _default_lunch_source(current_instructor_id, target)
+            if conn.execute(
+                """
+                SELECT 1 FROM default_lunch_exceptions
+                WHERE instructor_id = ? AND target_date = ?
+                """,
+                (current_instructor_id, target_text),
+            ).fetchone():
+                continue
+            if conn.execute(
+                """
+                SELECT 1 FROM instructor_time_off
+                WHERE source_reference = ?
+                   OR (instructor_id = ? AND target_date = ?
+                       AND (lower(trim(reason)) = 'lunch'
+                            OR (start_time < ? AND end_time > ?)))
+                LIMIT 1
+                """,
+                (
+                    source_reference,
+                    current_instructor_id,
+                    target_text,
+                    DEFAULT_LUNCH_END,
+                    DEFAULT_LUNCH_START,
+                ),
+            ).fetchone():
+                continue
+            if conn.execute(
+                f"""
+                SELECT 1 FROM bookings
+                WHERE instructor_id = ? AND target_date = ?
+                  AND validation_status IN ({active_placeholders})
+                  AND start_time < ? AND end_time > ?
+                LIMIT 1
+                """,
+                (
+                    current_instructor_id,
+                    target_text,
+                    *ACTIVE_BOOKING_STATUSES,
+                    _minutes_to_time(lunch_end_minutes),
+                    _minutes_to_time(lunch_start_minutes),
+                ),
+            ).fetchone():
+                continue
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO instructor_time_off
+                    (instructor_id, target_date, start_time, end_time, reason,
+                     notes, calendar_revision, source_reference, updated_at)
+                VALUES (?, ?, ?, ?, 'Lunch',
+                        'Default lunch break; administrators can edit this slot.',
+                        1, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    current_instructor_id,
+                    target_text,
+                    DEFAULT_LUNCH_START,
+                    DEFAULT_LUNCH_END,
+                    source_reference,
+                ),
+            )
+        target += timedelta(days=1)
+
+
 def _calendar_slot_event(row):
     machine_name = (row["machine_code"] or row["machine_category"] or "Slot").replace("-", " ")
     return {
@@ -2869,6 +2972,13 @@ def api_calendar_events():
         clauses.append("b.validation_status = ?")
         params.append(selected_status)
     with get_db() as conn:
+        _ensure_default_lunch_breaks(
+            conn,
+            start,
+            end,
+            instructor_id=selected_instructor_id,
+            branch_id=selected_branch_id,
+        )
         rows = _booking_rows(
             conn,
             " AND ".join(clauses),
@@ -3349,6 +3459,17 @@ def api_calendar_delete_busy_time(time_off_id):
             and row["instructor_id"] != current_user.instructor_id
         ):
             abort(404)
+        if str(row["source_reference"] or "").startswith(
+            f"{DEFAULT_LUNCH_SOURCE_PREFIX}:"
+        ):
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO default_lunch_exceptions
+                    (instructor_id, target_date)
+                VALUES (?, ?)
+                """,
+                (row["instructor_id"], row["target_date"]),
+            )
         conn.execute("DELETE FROM instructor_time_off WHERE id = ?", (time_off_id,))
         _audit(
             conn,
