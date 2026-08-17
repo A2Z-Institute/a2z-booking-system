@@ -1161,6 +1161,51 @@ def _appointment_conflict_message(buffer_before=0, buffer_after=0):
     return "This time conflicts with the client, instructor, or equipment schedule."
 
 
+def _appointment_conflict_for_range(
+    conn,
+    *,
+    target,
+    start_time,
+    end_time,
+    student_id,
+    instructor_id,
+    machine_id,
+    exclude_booking_id=None,
+):
+    """Explain the first visible resource conflict for a staff calendar move."""
+    active_placeholders = ",".join("?" for _ in ACTIVE_BOOKING_STATUSES)
+    exclude_clause = ""
+    base_params = [target.isoformat(), end_time, start_time, *ACTIVE_BOOKING_STATUSES]
+    if exclude_booking_id is not None:
+        exclude_clause = " AND b.id != ?"
+        base_params.append(exclude_booking_id)
+
+    checks = (
+        ("b.instructor_id = ?", instructor_id, "The destination instructor already has an appointment during this time."),
+        ("b.machine_id = ?", machine_id, "The selected equipment is already booked during this time."),
+        ("b.student_user_id = ?", student_id, "This client already has another appointment during this time."),
+    )
+    for resource_clause, resource_id, message in checks:
+        row = conn.execute(
+            f"""
+            SELECT b.id
+            FROM bookings b
+            WHERE b.target_date = ?
+              AND b.start_time < ? AND b.end_time > ?
+              AND b.validation_status IN ({active_placeholders})
+              AND {resource_clause}
+              {exclude_clause}
+            LIMIT 1
+            """,
+            (*base_params[:-1], resource_id, base_params[-1])
+            if exclude_booking_id is not None
+            else (*base_params, resource_id),
+        ).fetchone()
+        if row:
+            return message
+    return _appointment_conflict_message()
+
+
 def _matching_contact_record(
     conn, *, emails=(), phones=(), exclude_user_id=None
 ):
@@ -3836,8 +3881,14 @@ def api_calendar_create_appointment():
                     if {"start": start_time, "end": end_time} not in slots:
                         raise AppointmentConflictError(
                             f"{occurrence_date.isoformat()} at {start_time}: "
-                            + _appointment_conflict_message(
-                                buffer_before, buffer_after
+                            + _appointment_conflict_for_range(
+                                conn,
+                                target=occurrence_date,
+                                start_time=start_time,
+                                end_time=end_time,
+                                student_id=student_id,
+                                instructor_id=instructor_id,
+                                machine_id=machine_id,
                             )
                         )
             service_name = ", ".join(service["name"] for service in services)
@@ -4119,8 +4170,15 @@ def api_calendar_reschedule_appointment(booking_id):
                 )
                 if {"start": start_time, "end": end_time} not in slots:
                     raise AppointmentConflictError(
-                        _appointment_conflict_message(
-                            next_buffer_before, next_buffer_after
+                        _appointment_conflict_for_range(
+                            conn,
+                            target=target,
+                            start_time=start_time,
+                            end_time=end_time,
+                            student_id=student_id,
+                            instructor_id=instructor_id,
+                            machine_id=machine_id,
+                            exclude_booking_id=booking_id,
                         )
                     )
             if services:

@@ -114,6 +114,8 @@
   let fillingClient = false;
   let servicePickerSnapshot = [];
   let resetHorizontalScroll = true;
+  let saveInFlight = false;
+  let moveInFlight = false;
 
   const parseJson = async (response) => {
     try {
@@ -257,6 +259,18 @@
   };
   const clearError = () => {
     if (errorBox) errorBox.hidden = true;
+  };
+
+  const mergeSavedEvents = (savedEvents = []) => {
+    if (!savedEvents.length) return;
+    const savedIds = new Set(savedEvents.map((item) => `${item.type || "appointment"}:${item.id}`));
+    events = events.filter((item) => !savedIds.has(`${item.type || "appointment"}:${item.id}`));
+    events.push(...savedEvents);
+    events.sort((a, b) => (
+      `${a.date || ""}-${a.start_time || ""}`
+        .localeCompare(`${b.date || ""}-${b.start_time || ""}`)
+    ));
+    renderCalendar();
   };
   // Route templates may end at the ID (`.../0`) or continue with an action
   // (`.../0/permanent`). Replace the placeholder in both forms.
@@ -948,7 +962,9 @@
       !event?.can_edit
       || event.type === "busy"
       || (event.type === "slot" && currentRole !== "admin")
+      || moveInFlight
     ) return;
+    moveInFlight = true;
     message.hidden = false;
     message.classList.remove("is-error");
     message.textContent = "Checking the new time…";
@@ -976,13 +992,20 @@
       });
       const data = await parseJson(response);
       if (!response.ok) throw new Error(data.error || `The ${isBookingSlot ? "booking slot" : "appointment"} could not be moved.`);
+      if (data.event) mergeSavedEvents([data.event]);
       announce(isBookingSlot ? "Booking slot moved." : "Appointment moved.");
-      await loadEvents();
+      message.hidden = true;
+      // Reconcile in the background in case another user changed the same day.
+      void loadEvents();
     } catch (error) {
+      // Restore the server-backed size and position after a rejected resize/drop.
+      renderCalendar();
       message.hidden = false;
       message.classList.add("is-error");
       message.textContent = error.message || `The ${event.type === "slot" ? "booking slot" : "appointment"} could not be moved.`;
       announce(message.textContent);
+    } finally {
+      moveInFlight = false;
     }
   };
 
@@ -995,7 +1018,9 @@
       if (!draggedEvent) return false;
       const duration = Math.max(15, minutes(draggedEvent.end_time) - minutes(draggedEvent.start_time));
       if (minutes(start) + duration > STAFF_DAY_END) return false;
-      return draggedEvent.type === "slot" || (!disabled && !occupied);
+      // Let the server validate occupied destinations so the user receives the
+      // exact conflict reason instead of a silent failed drop.
+      return !disabled;
     };
     slot.addEventListener("dragover", (event) => {
       if (!canReceiveDraggedEvent()) return;
@@ -1382,10 +1407,14 @@
     });
     const data = await parseJson(response);
     if (!response.ok) throw new Error(data.error || "The busy time could not be saved.");
-    if (editing) return "Busy time updated.";
-    return Number(data.created_count || 1) > 1
-      ? `${data.created_count} busy periods added.`
-      : "Busy time added.";
+    return {
+      message: editing ? "Busy time updated." : (
+        Number(data.created_count || 1) > 1
+          ? `${data.created_count} busy periods added.`
+          : "Busy time added."
+      ),
+      savedEvents: data.events || (data.event ? [data.event] : []),
+    };
   };
 
   const saveBookingSlot = async () => {
@@ -1420,17 +1449,25 @@
     });
     const data = await parseJson(response);
     if (!response.ok) throw new Error(data.error || "The booking slot could not be saved.");
-    if (editing) return "Booking slot updated.";
-    return Number(data.created_count || 1) > 1 ? `${data.created_count} booking slots added.` : "Booking slot added.";
+    return {
+      message: editing ? "Booking slot updated." : (
+        Number(data.created_count || 1) > 1
+          ? `${data.created_count} booking slots added.`
+          : "Booking slot added."
+      ),
+      savedEvents: data.events || (data.event ? [data.event] : []),
+    };
   };
 
   editor.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (saveInFlight) return;
     clearError();
     if (!editor.checkValidity()) {
       editor.reportValidity();
       return;
     }
+    saveInFlight = true;
     editor.setAttribute("aria-busy", "true");
     if (saveButton) {
       saveButton.disabled = true;
@@ -1442,22 +1479,14 @@
         : editorType === "busy" ? await saveBusyTime()
         : editorType === "slot" ? await saveBookingSlot()
         : await saveAppointment();
-      if (result?.savedEvents?.length) {
-        const savedIds = new Set(result.savedEvents.map((item) => String(item.id)));
-        events = events.filter((item) => !savedIds.has(String(item.id)));
-        events.push(...result.savedEvents);
-        events.sort((a, b) => (
-          `${a.date || ""}-${a.start_time || ""}`
-            .localeCompare(`${b.date || ""}-${b.start_time || ""}`)
-        ));
-        renderCalendar();
-      }
+      mergeSavedEvents(result?.savedEvents || []);
       dialog.close();
       announce(result?.message || result);
       void loadEvents();
     } catch (error) {
       showError(error.message || "The schedule item could not be saved.");
     } finally {
+      saveInFlight = false;
       editor.removeAttribute("aria-busy");
       if (saveButton) {
         saveButton.disabled = false;
