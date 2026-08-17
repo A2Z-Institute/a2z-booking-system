@@ -5,7 +5,7 @@
 {% block body_class %}calendar-page{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260817-7') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260817-8') }}">
 {% endblock %}
 
 {% block content %}
@@ -216,19 +216,19 @@
             </div>
             <div class="field field-span-all">
               <label for="editor-notes">Notes</label>
-              <input id="editor-notes" name="notes" maxlength="500" data-editor-notes>
+              <input id="editor-notes" name="notes" maxlength="500" data-editor-notes required>
             </div>
             <div class="field">
               <label for="new-client-first-name">First Name</label>
-              <input id="new-client-first-name" name="new_client_first_name" maxlength="80" autocomplete="given-name" data-new-client-first-name>
+              <input id="new-client-first-name" name="new_client_first_name" maxlength="80" autocomplete="given-name" data-new-client-first-name required>
             </div>
             <div class="field">
               <label for="new-client-last-name">Last Name</label>
-              <input id="new-client-last-name" name="new_client_last_name" maxlength="80" autocomplete="family-name" data-new-client-last-name>
+              <input id="new-client-last-name" name="new_client_last_name" maxlength="80" autocomplete="family-name" data-new-client-last-name required>
             </div>
             <div class="field">
               <label for="new-client-phone">Phone</label>
-              <input id="new-client-phone" name="new_client_phone" maxlength="30" autocomplete="tel" data-new-client-phone>
+              <input id="new-client-phone" name="new_client_phone" maxlength="30" autocomplete="tel" data-new-client-phone required>
             </div>
             <div class="field">
               <label for="new-client-email">Email <span class="text-muted">(optional)</span></label>
@@ -504,5 +504,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('static', filename='js/calendar.js', v='20260817-7') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/calendar.js', v='20260817-8') }}" defer></script>
 {% endblock %}

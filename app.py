@@ -3779,6 +3779,9 @@ def api_calendar_delete_booking_slot(slot_id):
 def api_calendar_create_appointment():
     payload = request.get_json(silent=True) or {}
     try:
+        note = str(payload.get("notes") or "").strip()[:500]
+        if not note:
+            raise ValueError("Appointment notes are required.")
         student_id = int(payload.get("student_id"))
         machine_id, instructor_id = _parse_resource_ids(
             payload.get("machine_id"), payload.get("instructor_id")
@@ -3821,6 +3824,12 @@ def api_calendar_create_appointment():
             resource = _staff_booking_resources(
                 conn, student_id, instructor_id, machine_id
             )
+            if not str(resource["full_name"] or "").strip():
+                raise ValueError("Client name is required.")
+            if not str(resource["phone"] or "").strip():
+                raise ValueError(
+                    "Client phone number is required. Update Client Details before booking."
+                )
             services = _selected_services(
                 conn,
                 resource["branch_id"],
@@ -3908,7 +3917,6 @@ def api_calendar_create_appointment():
             service_name = ", ".join(service["name"] for service in services)
             price_cents = sum(int(service["price_cents"]) for service in services)
             series_id = secrets.token_urlsafe(12) if len(dates) > 1 else None
-            note = str(payload.get("notes") or "").strip()[:500] or None
             created_rows = []
             for series_position, occurrence_date in enumerate(dates, start=1):
                 cursor = conn.execute(
@@ -4066,6 +4074,15 @@ def api_calendar_reschedule_appointment(booking_id):
                 instructor_id,
                 machine_id,
             )
+            if "notes" in payload:
+                if not str(resource["full_name"] or "").strip():
+                    raise ValueError("Client name is required.")
+                if not str(resource["phone"] or "").strip():
+                    raise ValueError(
+                        "Client phone number is required. Update Client Details before saving."
+                    )
+                if not str(payload.get("notes") or "").strip():
+                    raise ValueError("Appointment notes are required.")
             existing_service_ids = [
                 row["service_id"]
                 for row in conn.execute(

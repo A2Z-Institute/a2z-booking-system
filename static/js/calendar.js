@@ -1282,8 +1282,8 @@
     const phone = editor.querySelector("[data-new-client-phone]")?.value.trim() || "";
     const email = editor.querySelector("[data-new-client-email]")?.value.trim() || "";
     const branchId = instructorInput.selectedOptions[0]?.dataset.branchId || "";
-    if (!firstName || !lastName || (!phone && !email)) {
-      showError("Enter the client's first and last name, plus a phone number or email.");
+    if (!firstName || !lastName || !phone) {
+      showError("Enter the client's first name, last name, and phone number.");
       return;
     }
     if (!branchId) {
@@ -1361,6 +1361,12 @@
 
   const saveAppointment = async () => {
     let payload = appointmentPayload();
+    const firstName = clientFirstName?.value.trim() || "";
+    const lastName = clientLastName?.value.trim() || "";
+    const phone = clientPhone?.value.trim() || "";
+    if (!firstName || !lastName) throw new Error("Client first name and last name are required.");
+    if (!phone) throw new Error("Client phone number is required.");
+    if (!payload.notes.trim()) throw new Error("Appointment notes are required.");
     if (!payload.student_id) {
       const created = await createClient();
       if (!created) throw new Error("Enter the client details to continue.");
