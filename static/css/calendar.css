@@ -310,6 +310,10 @@
 
 .calendar-event.is-movable { cursor: grab; touch-action: none; }
 .calendar-event.is-movable:active { cursor: grabbing; }
+.calendar-scroll.is-event-dragging,
+.calendar-scroll.is-event-dragging * {
+  user-select: none;
+}
 
 .calendar-event strong,
 .calendar-event span,

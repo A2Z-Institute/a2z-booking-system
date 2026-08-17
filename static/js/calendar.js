@@ -912,24 +912,21 @@
           || resizingEventId !== null
           || pointerEvent.target.closest(".calendar-event-resize")
         ) return;
+        pointerEvent.preventDefault();
         const originX = pointerEvent.clientX;
         const originY = pointerEvent.clientY;
         const duration = Math.max(15, minutes(event.end_time) - minutes(event.start_time));
         let started = false;
         let targetSlot = null;
-        button.setPointerCapture?.(pointerEvent.pointerId);
 
         const clearTarget = () => {
           targetSlot?.classList.remove("is-drop-target");
           targetSlot = null;
         };
         const cleanup = (finalEvent) => {
-          button.removeEventListener("pointermove", movePointer);
-          button.removeEventListener("pointerup", finishPointer);
-          button.removeEventListener("pointercancel", cancelPointer);
-          if (button.hasPointerCapture?.(finalEvent.pointerId)) {
-            button.releasePointerCapture(finalEvent.pointerId);
-          }
+          window.removeEventListener("pointermove", movePointer);
+          window.removeEventListener("pointerup", finishPointer);
+          window.removeEventListener("pointercancel", cancelPointer);
           clearTarget();
           draggedEvent = null;
           calendarScroll?.classList.remove("is-event-dragging");
@@ -1007,9 +1004,9 @@
           });
         };
         const cancelPointer = (cancelEvent) => cleanup(cancelEvent);
-        button.addEventListener("pointermove", movePointer);
-        button.addEventListener("pointerup", finishPointer, { once: true });
-        button.addEventListener("pointercancel", cancelPointer, { once: true });
+        window.addEventListener("pointermove", movePointer, { passive: false });
+        window.addEventListener("pointerup", finishPointer, { once: true });
+        window.addEventListener("pointercancel", cancelPointer, { once: true });
       });
       button.addEventListener("dragstart", (dragEvent) => {
         // Native HTML dragging behaves inconsistently across Chromium builds.
