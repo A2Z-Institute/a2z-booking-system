@@ -2817,6 +2817,7 @@ def _calendar_event(row):
         "service_color": row["service_color"] or "#C8141B",
         "machine_id": row["machine_id"],
         "machine_name": row["machine_code"],
+        "machine_category": row["machine_category"],
         "instructor_id": row["instructor_id"],
         "instructor_name": row["instructor_name"],
         "branch_id": row["branch_id"],

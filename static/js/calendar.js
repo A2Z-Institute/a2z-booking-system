@@ -875,15 +875,15 @@
     ) ? "All day" : `${formatClock(event.start_time)} – ${formatClock(event.end_time)}`;
     button.querySelector(".calendar-event-service").textContent = isSlot ? "Available for booking" : isBusy
       ? (event.instructor_name || "Unavailable")
-      : (event.service_name || "Appointment");
+      : (event.machine_category || event.machine_name || event.service_name || "Equipment");
     button.querySelector(".calendar-event-status").textContent = isSlot ? "" : isBusy
       ? "Unavailable"
-      : displayStatus(event.status);
+      : (event.student_phone || "No phone");
     button.setAttribute(
       "aria-label",
       isBusy || isSlot
         ? `${event.title || "Busy time"}, ${event.start_time} to ${event.end_time}`
-        : `${event.service_name} with ${event.student_name}, ${event.start_time} to ${event.end_time}, ${displayStatus(event.status)}`,
+        : `${event.student_name}, ${event.machine_category || event.machine_name || event.service_name || "equipment"}, ${event.student_phone || "no phone"}, ${event.start_time} to ${event.end_time}`,
     );
     button.addEventListener("click", (clickEvent) => {
       clickEvent.stopPropagation();
