@@ -514,6 +514,15 @@ def init_db() -> None:
                 FOREIGN KEY (instructor_id) REFERENCES instructors(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS default_break_exceptions (
+                instructor_id INTEGER NOT NULL,
+                target_date TEXT NOT NULL,
+                break_kind TEXT NOT NULL CHECK (break_kind IN ('breakfast', 'lunch', 'tea')),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (instructor_id, target_date, break_kind),
+                FOREIGN KEY (instructor_id) REFERENCES instructors(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS booking_slots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 instructor_id INTEGER NOT NULL,
@@ -777,6 +786,8 @@ def init_db() -> None:
                 ON instructor_time_off(series_id, series_position);
             CREATE INDEX IF NOT EXISTS idx_default_lunch_exceptions_date
                 ON default_lunch_exceptions(target_date, instructor_id);
+            CREATE INDEX IF NOT EXISTS idx_default_break_exceptions_date
+                ON default_break_exceptions(target_date, instructor_id, break_kind);
             CREATE INDEX IF NOT EXISTS idx_services_branch_active
                 ON services(branch_id, is_active, name);
             CREATE INDEX IF NOT EXISTS idx_booking_services_booking
