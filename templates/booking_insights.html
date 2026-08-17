@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Booking Insights{% endblock %}
+
+{% block content %}
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">Administration</p>
+    <h1>Booking insights</h1>
+    <p class="lead">Understand training demand from anonymous booking totals. Gemini can explain these statistics but cannot see client details or change appointments.</p>
+  </div>
+  <form class="page-actions" method="get" action="{{ url_for('admin_booking_insights') }}">
+    <label class="field compact-field" for="insights-period">
+      <span>Analysis period</span>
+      <select id="insights-period" name="days" onchange="this.form.submit()">
+        {% for value, label in [(30, 'Last 30 days'), (90, 'Last 90 days'), (180, 'Last 6 months'), (365, 'Last 12 months')] %}
+          <option value="{{ value }}" {% if selected_days == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+</header>
+
+{% if not gemini_ready %}
+  <div class="alert alert-warning" role="status">
+    <span class="alert-icon" aria-hidden="true"></span>
+    <div><strong>Gemini is not connected yet.</strong> The local statistics below are live. Add the Gemini environment variables in Coolify to enable AI recommendations.</div>
+  </div>
+{% endif %}
+
+<section class="stats-grid" aria-label="Booking summary">
+  <article class="stat-card">
+    <span class="stat-label">Bookings</span>
+    <strong class="stat-value">{{ insights.totals.bookings }}</strong>
+    <span class="stat-detail">{{ booking_change|abs }} {{ 'more' if booking_change > 0 else 'fewer' if booking_change < 0 else 'change' }} than the previous period</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Clients served</span>
+    <strong class="stat-value">{{ insights.totals.unique_clients }}</strong>
+    <span class="stat-detail">Unique anonymous client count</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Completed</span>
+    <strong class="stat-value">{{ insights.totals.completed }}</strong>
+    <span class="stat-detail">Recorded completed sessions</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Cancellation rate</span>
+    <strong class="stat-value stat-value-word">{{ cancellation_rate }}%</strong>
+    <span class="stat-detail">{{ insights.totals.cancelled }} cancelled</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">No-show rate</span>
+    <strong class="stat-value stat-value-word">{{ no_show_rate }}%</strong>
+    <span class="stat-detail">{{ insights.totals.no_show }} no-shows</span>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Currently approved</span>
+    <strong class="stat-value">{{ insights.totals.approved }}</strong>
+    <span class="stat-detail">{{ insights.totals.pending }} awaiting action</span>
+  </article>
+</section>
+
+<div class="content-grid">
+  <section class="management-panel" aria-labelledby="service-demand-title">
+    <div class="section-header">
+      <div>
+        <h2 id="service-demand-title">Most selected services</h2>
+        <p>Active bookings from {{ insights.period.start }} to {{ insights.period.end }}.</p>
+      </div>
+    </div>
+    {% if insights.services %}
+      <div class="section-body flush">
+        <table class="data-table">
+          <thead><tr><th scope="col">Service</th><th scope="col">Bookings</th></tr></thead>
+          <tbody>
+            {% for item in insights.services %}<tr><td>{{ item.name }}</td><td><strong>{{ item.bookings }}</strong></td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state"><h3>No booking data</h3><p>Create appointments to begin measuring service demand.</p></div>
+    {% endif %}
+  </section>
+
+  <section class="management-panel" aria-labelledby="demand-pattern-title">
+    <div class="section-header">
+      <div>
+        <h2 id="demand-pattern-title">Demand patterns</h2>
+        <p>Popular equipment, days, and starting times.</p>
+      </div>
+    </div>
+    <div class="section-body">
+      <h3>Equipment</h3>
+      <ol class="activity-list">
+        {% for item in insights.equipment[:5] %}<li><div><strong>{{ item.name }}</strong><span>{{ item.bookings }} bookings</span></div></li>{% endfor %}
+      </ol>
+      <h3>Weekdays</h3>
+      <ol class="activity-list">
+        {% for item in insights.weekdays[:4] %}<li><div><strong>{{ item.name }}</strong><span>{{ item.bookings }} bookings</span></div></li>{% endfor %}
+      </ol>
+      <h3>Starting times</h3>
+      <ol class="activity-list">
+        {% for item in insights.start_hours[:4] %}<li><div><strong>{{ item.name }}</strong><span>{{ item.bookings }} bookings</span></div></li>{% endfor %}
+      </ol>
+    </div>
+  </section>
+</div>
+
+<section class="management-panel" aria-labelledby="gemini-analysis-title">
+  <div class="section-header">
+    <div>
+      <p class="eyebrow">Gemini</p>
+      <h2 id="gemini-analysis-title">Service improvement analysis</h2>
+      <p>Only the totals displayed on this page are sent. Names, phone numbers, emails, notes, and documents are excluded.</p>
+    </div>
+    <form method="post" action="{{ url_for('admin_booking_insights') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="days" value="{{ selected_days }}">
+      <button class="button button-primary" type="submit" {% if not gemini_ready or not insights.totals.bookings %}disabled{% endif %}>Generate Gemini analysis</button>
+    </form>
+  </div>
+  {% if analysis %}
+    <div class="section-body content-stack">
+      <div class="alert alert-success" role="status"><div><strong>Executive summary</strong><br>{{ analysis.executive_summary }}</div></div>
+      {% if analysis.observations %}
+        <div><h3>Key observations</h3><ul>{% for item in analysis.observations %}<li>{{ item }}</li>{% endfor %}</ul></div>
+      {% endif %}
+      <div>
+        <h3>Recommended improvements</h3>
+        <div class="stats-grid">
+          {% for item in analysis.recommendations %}
+            <article class="stat-card">
+              <span class="status-badge status-{{ 'rejected' if item.priority == 'High' else 'pending' if item.priority == 'Medium' else 'approved' }}">{{ item.priority }}</span>
+              <h4>{{ item.title }}</h4>
+              <p>{{ item.reason }}</p>
+              <p><strong>Action:</strong> {{ item.action }}</p>
+            </article>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <h3>{{ 'Ready for analysis' if gemini_ready else 'Connect Gemini to continue' }}</h3>
+      <p>{{ 'Generate recommendations whenever you want; Gemini never changes the schedule.' if gemini_ready else 'Your local booking statistics remain available without AI.' }}</p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -792,21 +792,21 @@
 
 .calendar-event-resize {
   position: absolute;
-  right: 0;
-  bottom: -2px;
+  right: 3px;
+  bottom: 1px;
   left: auto;
   z-index: 3;
-  width: 28px;
-  height: 8px;
+  width: 20px;
+  height: 6px;
   cursor: ns-resize;
   touch-action: none;
 }
 
 .calendar-event-resize::after {
   position: absolute;
-  right: 5px;
-  bottom: 2px;
-  width: 18px;
+  right: 1px;
+  bottom: 1px;
+  width: 16px;
   height: 2px;
   border-radius: 2px;
   background: currentColor;

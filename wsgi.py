@@ -12,6 +12,16 @@ load_dotenv()
 from app import app  # noqa: E402
 
 
+if os.environ.get("A2Z_ENABLE_BACKUPS", "1") == "1":
+    from backup_database import run_backup_worker  # noqa: E402
+
+    threading.Thread(
+        target=run_backup_worker,
+        name="a2z-backup-worker",
+        daemon=True,
+    ).start()
+
+
 if os.environ.get("A2Z_ENABLE_NOTIFICATIONS", "0") == "1":
     from notifications import run_notification_worker  # noqa: E402
 

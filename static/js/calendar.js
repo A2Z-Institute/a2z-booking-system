@@ -103,8 +103,11 @@
 
   let events = [];
   let loadRequest;
+  let loadInFlight = false;
   let draggedEvent = null;
   let dragTimePreview = null;
+  let resizingEventId = null;
+  let suppressEventClickUntil = 0;
   let editingEvent = null;
   let editorType = "appointment";
   let lastFocused = null;
@@ -872,6 +875,7 @@
     );
     button.addEventListener("click", (clickEvent) => {
       clickEvent.stopPropagation();
+      if (Date.now() < suppressEventClickUntil) return;
       if (isSlot && currentRole === "booking_agent") {
         prepareNewEditor(
           event.date,
@@ -889,6 +893,10 @@
     });
     if (canDragEvent) {
       button.addEventListener("dragstart", (dragEvent) => {
+        if (resizingEventId !== null) {
+          dragEvent.preventDefault();
+          return;
+        }
         draggedEvent = event;
         calendarScroll?.classList.add("is-event-dragging");
         dragEvent.dataTransfer.effectAllowed = "move";
@@ -907,15 +915,24 @@
         dragTimePreview = null;
       });
       const resizeHandle = button.querySelector(".calendar-event-resize");
+      resizeHandle?.setAttribute("draggable", "false");
       resizeHandle?.addEventListener("pointerdown", (pointerEvent) => {
         pointerEvent.preventDefault();
         pointerEvent.stopPropagation();
+        if (moveInFlight || resizingEventId !== null) return;
+        resizingEventId = event.id;
         button.draggable = false;
         const originY = pointerEvent.clientY;
         const originalEnd = minutes(event.end_time);
         const slotHeight = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--calendar-quarter-height")) || 21;
         let nextEnd = originalEnd;
+        let didResize = false;
+        resizeHandle.setPointerCapture?.(pointerEvent.pointerId);
         const move = (moveEvent) => {
+          // Ignore normal clicks and tiny hand movements on the grip. A resize
+          // begins only after a deliberate vertical movement.
+          if (!didResize && Math.abs(moveEvent.clientY - originY) < 6) return;
+          didResize = true;
           const steps = Math.round((moveEvent.clientY - originY) / slotHeight);
           nextEnd = Math.max(minutes(event.start_time) + 15, Math.min(STAFF_DAY_END, originalEnd + (steps * 15)));
           const nextDuration = nextEnd - minutes(event.start_time);
@@ -926,12 +943,18 @@
           button.querySelector(".calendar-event-time").textContent = `${formatClock(event.start_time)} – ${formatClock(timeValue(nextEnd))}`;
           button.classList.add("is-resizing");
         };
-        const finish = async () => {
-          window.removeEventListener("pointermove", move);
-          window.removeEventListener("pointerup", finish);
+        const finish = async (finishEvent) => {
+          resizeHandle.removeEventListener("pointermove", move);
+          resizeHandle.removeEventListener("pointerup", finish);
+          resizeHandle.removeEventListener("pointercancel", cancel);
+          if (resizeHandle.hasPointerCapture?.(finishEvent.pointerId)) {
+            resizeHandle.releasePointerCapture(finishEvent.pointerId);
+          }
           button.draggable = true;
           button.classList.remove("is-resizing");
-          if (nextEnd === originalEnd) return;
+          resizingEventId = null;
+          if (!didResize || nextEnd === originalEnd) return;
+          suppressEventClickUntil = Date.now() + 350;
           await moveEvent(event, {
             date: event.date,
             instructorId: event.instructor_id,
@@ -939,8 +962,21 @@
             end: timeValue(nextEnd),
           });
         };
-        window.addEventListener("pointermove", move);
-        window.addEventListener("pointerup", finish, { once: true });
+        const cancel = (cancelEvent) => {
+          resizeHandle.removeEventListener("pointermove", move);
+          resizeHandle.removeEventListener("pointerup", finish);
+          resizeHandle.removeEventListener("pointercancel", cancel);
+          if (resizeHandle.hasPointerCapture?.(cancelEvent.pointerId)) {
+            resizeHandle.releasePointerCapture(cancelEvent.pointerId);
+          }
+          button.draggable = true;
+          button.classList.remove("is-resizing");
+          resizingEventId = null;
+          renderCalendar();
+        };
+        resizeHandle.addEventListener("pointermove", move);
+        resizeHandle.addEventListener("pointerup", finish, { once: true });
+        resizeHandle.addEventListener("pointercancel", cancel, { once: true });
       });
     }
     return button;
@@ -973,24 +1009,43 @@
       const updateUrl = isBookingSlot
         ? replaceId(calendar.dataset.slotUpdateUrlTemplate, event.id)
         : replaceId(calendar.dataset.updateUrlTemplate, event.id);
-      const response = await fetch(updateUrl, {
-        method: "PATCH",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrf,
-        },
-        credentials: "same-origin",
-        body: JSON.stringify({
-          revision: event.revision,
-          target_date: target.date,
-          start_time: target.start,
-          ...(target.end ? { end_time: target.end } : {}),
-          instructor_id: Number(target.instructorId),
-          machine_id: Number(event.machine_id),
-        }),
-      });
-      const data = await parseJson(response);
+      let currentEvent = event;
+      let response;
+      let data;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        response = await fetch(updateUrl, {
+          method: "PATCH",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrf,
+          },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            revision: currentEvent.revision,
+            target_date: target.date,
+            start_time: target.start,
+            ...(target.end ? { end_time: target.end } : {}),
+            instructor_id: Number(target.instructorId),
+            machine_id: Number(currentEvent.machine_id),
+          }),
+        });
+        data = await parseJson(response);
+        const revisionConflict = response.status === 409
+          && /changed in another window|refresh and try again/i.test(data.error || "");
+        if (!revisionConflict || attempt > 0) break;
+
+        // Another browser saved first. Pull its current revision immediately,
+        // then retry this explicit drag once without asking for a page refresh.
+        await loadEvents({ silent: true, force: true });
+        const freshEvent = events.find((item) => (
+          String(item.id) === String(event.id) && item.type === event.type
+        ));
+        if (!freshEvent) {
+          throw new Error(`This ${isBookingSlot ? "booking slot" : "appointment"} no longer exists.`);
+        }
+        currentEvent = freshEvent;
+      }
       if (!response.ok) throw new Error(data.error || `The ${isBookingSlot ? "booking slot" : "appointment"} could not be moved.`);
       if (data.event) mergeSavedEvents([data.event]);
       announce(isBookingSlot ? "Booking slot moved." : "Appointment moved.");
@@ -1166,16 +1221,20 @@
     if (calendarScroll) calendarScroll.scrollLeft = preservedScrollLeft;
   };
 
-  async function loadEvents() {
+  async function loadEvents({ silent = false, force = false } = {}) {
+    if (loadInFlight && !force) return false;
     if (loadRequest) loadRequest.abort();
     loadRequest = new AbortController();
+    loadInFlight = true;
     const selectedPeriod = period();
     const start = toInputDate(selectedPeriod.start);
     const end = toInputDate(selectedPeriod.end);
     if (rangeLabel) rangeLabel.textContent = formatRange(selectedPeriod.start, selectedPeriod.end);
-    message.hidden = false;
-    message.classList.remove("is-error");
-    message.textContent = "Loading appointments…";
+    if (!silent) {
+      message.hidden = false;
+      message.classList.remove("is-error");
+      message.textContent = "Loading appointments…";
+    }
     const query = new URLSearchParams({ start, end });
     if (instructorFilter.value) query.set("instructor_id", instructorFilter.value);
     if (statusFilter.value) query.set("status", statusFilter.value);
@@ -1189,18 +1248,26 @@
       const data = await parseJson(response);
       if (!response.ok) throw new Error(data.error || "The calendar could not be loaded.");
       events = data.events || [];
-      message.hidden = true;
+      if (!silent) message.hidden = true;
       renderCalendar();
       if (resetHorizontalScroll && calendarScroll) {
         calendarScroll.scrollLeft = 0;
         resetHorizontalScroll = false;
       }
       openInitialClientEditor();
+      return true;
     } catch (error) {
-      if (error.name === "AbortError") return;
+      if (error.name === "AbortError") return false;
+      if (silent) {
+        console.warn("Calendar auto-sync failed:", error);
+        return false;
+      }
       message.hidden = false;
       message.classList.add("is-error");
       message.textContent = error.message || "The calendar could not be loaded.";
+      return false;
+    } finally {
+      loadInFlight = false;
     }
   }
 
@@ -1730,4 +1797,26 @@
 
   if (compactScreen()) viewFilter.value = "day";
   loadEvents();
+
+  // Keep all open calendar screens aligned without requiring a page refresh.
+  // Local saves are still merged immediately; this short poll covers changes
+  // made by other users or browser tabs.
+  window.setInterval(() => {
+    if (
+      document.visibilityState === "visible"
+      && !dialog.open
+      && !moveInFlight
+      && !saveInFlight
+    ) void loadEvents({ silent: true });
+  }, 2000);
+  window.addEventListener("focus", () => {
+    if (!dialog.open && !moveInFlight && !saveInFlight) {
+      void loadEvents({ silent: true });
+    }
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && !dialog.open) {
+      void loadEvents({ silent: true });
+    }
+  });
 })();

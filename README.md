@@ -135,6 +135,9 @@ Plain HTTP is acceptable only on a trusted local network for a small pilot. A VP
 | --- | --- |
 | `A2Z_SECRET_KEY` | Signs session cookies. Use a stable random value of at least 32 bytes; changing it signs everyone out. |
 | `A2Z_DATABASE` | SQLite database path. An absolute path outside a synced folder is best on an always-on PC. |
+| `A2Z_BACKUP_DIR` | Persistent directory for verified SQLite backups. Use `/data/backups` in Coolify. |
+| `A2Z_BACKUP_RETENTION` | Number of daily backups retained; defaults to `30`. |
+| `A2Z_ENABLE_BACKUPS` | Starts the hourly backup monitor, which creates at most one verified backup per day. Keep `1` in production. |
 | `A2Z_ADMIN_PASSWORD` | Initial password used only when the built-in administrator is first created. |
 | `A2Z_SEED_REFERENCE_DATA` | Creates the initial branch and equipment catalogue when set to `1`. |
 | `A2Z_SEED_DEMO_DATA` | Creates sample instructor profiles when set to `1`; leave `0` for real use. |
@@ -146,7 +149,18 @@ Plain HTTP is acceptable only on a trusted local network for a small pilot. A VP
 | `A2Z_ENABLE_NOTIFICATIONS` | Set to `1` only after configuring an email or SMS provider. Confirmations plus 24-hour and 2-hour reminders are otherwise kept safely queued. |
 | `A2Z_SMTP_HOST`, `A2Z_SMTP_PORT`, `A2Z_SMTP_USERNAME`, `A2Z_SMTP_PASSWORD`, `A2Z_SMTP_FROM`, `A2Z_SMTP_TLS` | SMTP provider settings used when a branch sends email. |
 | `A2Z_SMS_WEBHOOK_URL`, `A2Z_SMS_WEBHOOK_TOKEN`, `A2Z_SMS_SENDER` | HTTPS webhook settings used when a branch sends SMS. |
+| `A2Z_GEMINI_API_KEY` | Optional Gemini API key for the admin-only Booking Insights page. Never commit this key. |
+| `A2Z_GEMINI_MODEL` | Gemini model used for aggregate analysis; defaults to `gemini-2.5-flash`. |
 | `A2Z_HOST`, `PORT`, `A2Z_DEBUG` | Apply only when directly running `wsgi.py`; the provided launcher uses Waitress on port 8080. Keep debug at `0`. |
+
+### Gemini booking insights
+
+- Administrators can open **Insights** from the main navigation.
+- Booking totals, service demand, equipment demand, busy weekdays, and popular start times are calculated locally and work without Gemini.
+- Selecting **Generate Gemini analysis** sends only the aggregate figures visible on that page.
+- Client names, phone numbers, emails, notes, and uploaded documents are never included in the Gemini request.
+- Gemini recommendations are advisory and cannot create, move, cancel, or edit appointments.
+- Add `A2Z_GEMINI_API_KEY` in Coolify's environment variables, save, and redeploy to enable the button.
 
 Changing a seed password after the database exists does not reset an account. Use the administrator's **Reset password** action, which issues a temporary password and requires the user to change it at the next sign-in.
 

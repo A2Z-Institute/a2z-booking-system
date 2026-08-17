@@ -56,6 +56,7 @@
               <a href="{{ url_for('admin_services') }}" {% if request.endpoint and request.endpoint.startswith('admin_service') %}aria-current="page"{% endif %}>Courses</a>
               <a href="{{ url_for('admin_resources') }}" {% if request.endpoint and (request.endpoint == 'admin_resources' or request.endpoint.startswith('admin_branch') or request.endpoint.startswith('admin_equipment')) %}aria-current="page"{% endif %}>Resources</a>
               <a href="{{ url_for('admin_users') }}" {% if request.endpoint in ['admin_users', 'admin_user_edit'] %}aria-current="page"{% endif %}>Staff</a>
+              <a href="{{ url_for('admin_booking_insights') }}" {% if request.endpoint == 'admin_booking_insights' %}aria-current="page"{% endif %}>Insights</a>
               <details class="nav-dropdown" {% if request.endpoint == 'admin_dashboard' or request.endpoint and (request.endpoint.startswith('admin_reminder') or request.endpoint.startswith('instructor_availability') or request.endpoint.startswith('instructor_time_off')) %}data-current="true"{% endif %}>
                 <summary>Settings</summary>
                 <div class="nav-dropdown-menu">

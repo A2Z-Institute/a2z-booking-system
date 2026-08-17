@@ -45,8 +45,14 @@ from flask_login import (
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
+from backup_database import backup_directory, verify_database
 from database import database_path, get_db, init_db, seed_reference_data
 from free_slots import WORK_WINDOWS, compute_free_slots, intersect_free_slots
+from gemini_insights import (
+    GeminiInsightsError,
+    gemini_configured,
+    generate_booking_insights,
+)
 from import_clients_xlsx import import_clients
 
 
@@ -329,6 +335,10 @@ def add_security_headers(response):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+    )
+    response.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; img-src 'self' data:; style-src 'self'; "
         "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; "
@@ -336,6 +346,10 @@ def add_security_headers(response):
     )
     if current_user.is_authenticated:
         response.headers.setdefault("Cache-Control", "private, no-store")
+    if app.config["SESSION_COOKIE_SECURE"]:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
     return response
 
 
@@ -5370,6 +5384,174 @@ def _csv_response(filename, headers, rows):
     return response
 
 
+def _booking_insights_data(conn, days):
+    """Build anonymous booking statistics; no client fields leave this function."""
+    today = datetime.now(IST).date()
+    start = today - timedelta(days=days - 1)
+    previous_start = start - timedelta(days=days)
+    statuses = {
+        row["validation_status"]: row["total"]
+        for row in conn.execute(
+            """
+            SELECT validation_status, count(*) AS total
+            FROM bookings WHERE target_date BETWEEN ? AND ?
+            GROUP BY validation_status
+            """,
+            (start.isoformat(), today.isoformat()),
+        ).fetchall()
+    }
+    total = sum(statuses.values())
+    previous_total = conn.execute(
+        """
+        SELECT count(*) FROM bookings
+        WHERE target_date BETWEEN ? AND ?
+        """,
+        (previous_start.isoformat(), (start - timedelta(days=1)).isoformat()),
+    ).fetchone()[0]
+    services = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT COALESCE(NULLIF(bs.service_name, ''), NULLIF(b.service_name, ''),
+                            'Unspecified service') AS name,
+                   count(DISTINCT b.id) AS bookings
+            FROM bookings b
+            LEFT JOIN booking_services bs ON bs.booking_id = b.id
+            WHERE b.target_date BETWEEN ? AND ?
+              AND b.validation_status NOT IN ('Cancelled', 'Rejected')
+            GROUP BY COALESCE(NULLIF(bs.service_name, ''), NULLIF(b.service_name, ''),
+                              'Unspecified service')
+            ORDER BY bookings DESC, name
+            LIMIT 12
+            """,
+            (start.isoformat(), today.isoformat()),
+        ).fetchall()
+    ]
+    equipment = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT COALESCE(NULLIF(m.category, ''), m.machine_code) AS name,
+                   count(*) AS bookings
+            FROM bookings b JOIN machines m ON m.id = b.machine_id
+            WHERE b.target_date BETWEEN ? AND ?
+              AND b.validation_status NOT IN ('Cancelled', 'Rejected')
+            GROUP BY COALESCE(NULLIF(m.category, ''), m.machine_code)
+            ORDER BY bookings DESC, name
+            LIMIT 10
+            """,
+            (start.isoformat(), today.isoformat()),
+        ).fetchall()
+    ]
+    instructors = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT i.name, count(*) AS bookings
+            FROM bookings b JOIN instructors i ON i.id = b.instructor_id
+            WHERE b.target_date BETWEEN ? AND ?
+              AND b.validation_status NOT IN ('Cancelled', 'Rejected')
+            GROUP BY i.id, i.name ORDER BY bookings DESC, i.name LIMIT 10
+            """,
+            (start.isoformat(), today.isoformat()),
+        ).fetchall()
+    ]
+    weekday_rows = conn.execute(
+        """
+        SELECT CAST(strftime('%w', target_date) AS INTEGER) AS weekday,
+               count(*) AS bookings
+        FROM bookings WHERE target_date BETWEEN ? AND ?
+          AND validation_status NOT IN ('Cancelled', 'Rejected')
+        GROUP BY weekday ORDER BY bookings DESC
+        """,
+        (start.isoformat(), today.isoformat()),
+    ).fetchall()
+    sqlite_day_names = ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+    weekdays = [
+        {"name": sqlite_day_names[int(row["weekday"])], "bookings": row["bookings"]}
+        for row in weekday_rows
+    ]
+    time_rows = conn.execute(
+        """
+        SELECT CAST(substr(start_time, 1, 2) AS INTEGER) AS hour,
+               count(*) AS bookings
+        FROM bookings WHERE target_date BETWEEN ? AND ?
+          AND validation_status NOT IN ('Cancelled', 'Rejected')
+        GROUP BY hour ORDER BY bookings DESC, hour LIMIT 8
+        """,
+        (start.isoformat(), today.isoformat()),
+    ).fetchall()
+    hours = [
+        {"name": f"{(int(row['hour']) % 12) or 12}:00 {'am' if int(row['hour']) < 12 else 'pm'}", "bookings": row["bookings"]}
+        for row in time_rows
+    ]
+    unique_clients = conn.execute(
+        """
+        SELECT count(DISTINCT student_user_id) FROM bookings
+        WHERE target_date BETWEEN ? AND ?
+        """,
+        (start.isoformat(), today.isoformat()),
+    ).fetchone()[0]
+    return {
+        "period": {
+            "days": days,
+            "start": start.isoformat(),
+            "end": today.isoformat(),
+        },
+        "totals": {
+            "bookings": total,
+            "previous_period_bookings": previous_total,
+            "unique_clients": unique_clients,
+            "completed": statuses.get("Completed", 0),
+            "cancelled": statuses.get("Cancelled", 0),
+            "no_show": statuses.get("No-show", 0),
+            "approved": statuses.get("Approved", 0),
+            "pending": statuses.get("Pending", 0),
+        },
+        "services": services,
+        "equipment": equipment,
+        "instructors": instructors,
+        "weekdays": weekdays,
+        "start_hours": hours,
+    }
+
+
+@app.route("/admin/booking-insights", methods=["GET", "POST"])
+@role_required("admin")
+def admin_booking_insights():
+    try:
+        days = int(request.values.get("days", 90))
+    except (TypeError, ValueError):
+        days = 90
+    if days not in {30, 90, 180, 365}:
+        days = 90
+    analysis = None
+    with get_db() as conn:
+        insights = _booking_insights_data(conn, days)
+        if request.method == "POST":
+            try:
+                analysis = generate_booking_insights(insights)
+                _audit(
+                    conn,
+                    "gemini_booking_insights_generated",
+                    details={"days": days, "aggregate_only": True},
+                )
+            except GeminiInsightsError as exc:
+                flash(str(exc), "error")
+    total = max(1, int(insights["totals"]["bookings"] or 0))
+    change = insights["totals"]["bookings"] - insights["totals"]["previous_period_bookings"]
+    return render_template(
+        "booking_insights.html",
+        insights=insights,
+        analysis=analysis,
+        gemini_ready=gemini_configured(),
+        selected_days=days,
+        booking_change=change,
+        cancellation_rate=round(insights["totals"]["cancelled"] * 100 / total, 1),
+        no_show_rate=round(insights["totals"]["no_show"] * 100 / total, 1),
+    )
+
+
 @app.get("/exports/appointments.csv")
 @permission_required("export_appointments")
 def export_appointments_csv():
@@ -5532,7 +5714,7 @@ def import_clients_view():
 @app.get("/admin/backups/download")
 @role_required("admin")
 def download_database_backup():
-    backup_dir = Path(app.instance_path) / "backups"
+    backup_dir = backup_directory()
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(IST).strftime("%Y%m%d-%H%M%S")
     target = backup_dir / f"a2z-scheduler-backup-{stamp}.db"
@@ -5543,6 +5725,7 @@ def download_database_backup():
     finally:
         target_conn.close()
         source_conn.close()
+    verify_database(target)
     with get_db() as conn:
         _audit(conn, "database_backup_downloaded", details={"file": target.name})
     return send_file(target, as_attachment=True, download_name=target.name)
@@ -7429,7 +7612,9 @@ def admin_dashboard():
 def health():
     try:
         with get_db() as conn:
-            conn.execute("SELECT 1").fetchone()
+            result = conn.execute("PRAGMA quick_check(1)").fetchone()[0]
+            if result != "ok":
+                raise sqlite3.DatabaseError(result)
         return jsonify({"status": "ok"})
     except sqlite3.Error:
         return jsonify({"status": "unavailable"}), 503
