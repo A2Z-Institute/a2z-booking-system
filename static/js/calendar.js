@@ -1039,7 +1039,7 @@
             start_time: target.start,
             ...(target.end ? { end_time: target.end } : {}),
             instructor_id: Number(target.instructorId),
-            machine_id: Number(currentEvent.machine_id),
+            machine_id: Number(target.machineId || currentEvent.machine_id),
           }),
         });
         data = await parseJson(response);
@@ -1078,6 +1078,13 @@
 
   const wireSlot = (slot, column, start, occupied = false) => {
     const disabled = column.nonWorking;
+    const bookingSlot = events.find((item) => (
+      item.type === "slot"
+      && item.date === column.date
+      && String(item.instructor_id) === String(column.instructorId)
+      && minutes(item.start_time) <= minutes(start)
+      && minutes(item.end_time) > minutes(start)
+    ));
     slot.classList.toggle("is-non-working", disabled);
     slot.classList.toggle("is-occupied", occupied);
     slot.setAttribute("aria-disabled", String(disabled || occupied));
@@ -1114,17 +1121,13 @@
         date: column.date,
         instructorId: column.instructorId,
         start,
+        ...(draggedEvent.type === "appointment" && bookingSlot
+          ? { machineId: bookingSlot.machine_id }
+          : {}),
         ...(draggedEvent.type === "slot" ? { end: timeValue(minutes(start) + duration) } : {}),
       });
     });
     if (disabled || occupied) return;
-    const bookingSlot = events.find((item) => (
-      item.type === "slot"
-      && item.date === column.date
-      && String(item.instructor_id) === String(column.instructorId)
-      && minutes(item.start_time) <= minutes(start)
-      && minutes(item.end_time) > minutes(start)
-    ));
     slot.dataset.bookLabel = `Book ${formatClock(start)}`;
     let longPressTimer;
     let longPressed = false;
