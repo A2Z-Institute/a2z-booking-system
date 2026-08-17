@@ -106,6 +106,7 @@
   let loadInFlight = false;
   let draggedEvent = null;
   let dragTimePreview = null;
+  let activePointerDragCleanup = null;
   let resizingEventId = null;
   let suppressEventClickUntil = 0;
   let editingEvent = null;
@@ -912,6 +913,7 @@
           || resizingEventId !== null
           || pointerEvent.target.closest(".calendar-event-resize")
         ) return;
+        activePointerDragCleanup?.();
         pointerEvent.preventDefault();
         const originX = pointerEvent.clientX;
         const originY = pointerEvent.clientY;
@@ -923,7 +925,7 @@
           targetSlot?.classList.remove("is-drop-target");
           targetSlot = null;
         };
-        const cleanup = (finalEvent) => {
+        const cleanup = () => {
           window.removeEventListener("pointermove", movePointer);
           window.removeEventListener("pointerup", finishPointer);
           window.removeEventListener("pointercancel", cancelPointer);
@@ -933,6 +935,7 @@
           button.classList.remove("is-dragging");
           dragTimePreview?.remove();
           dragTimePreview = null;
+          if (activePointerDragCleanup === cleanup) activePointerDragCleanup = null;
         };
         const movePointer = (moveEvent) => {
           if (!started && Math.hypot(moveEvent.clientX - originX, moveEvent.clientY - originY) < 7) return;
@@ -1004,6 +1007,7 @@
           });
         };
         const cancelPointer = (cancelEvent) => cleanup(cancelEvent);
+        activePointerDragCleanup = cleanup;
         window.addEventListener("pointermove", movePointer, { passive: false });
         window.addEventListener("pointerup", finishPointer, { once: true });
         window.addEventListener("pointercancel", cancelPointer, { once: true });
@@ -1355,6 +1359,11 @@
       });
       const data = await parseJson(response);
       if (!response.ok) throw new Error(data.error || "The calendar could not be loaded.");
+      // A silent background refresh must never rebuild the calendar while a
+      // pointer drag or resize is active; doing so creates duplicate trackers.
+      if (silent && (activePointerDragCleanup || draggedEvent || resizingEventId !== null)) {
+        return false;
+      }
       events = data.events || [];
       if (!silent) message.hidden = true;
       renderCalendar();
@@ -1921,15 +1930,18 @@
       && !dialog.open
       && !moveInFlight
       && !saveInFlight
+      && !activePointerDragCleanup
+      && !draggedEvent
+      && resizingEventId === null
     ) void loadEvents({ silent: true });
   }, 2000);
   window.addEventListener("focus", () => {
-    if (!dialog.open && !moveInFlight && !saveInFlight) {
+    if (!dialog.open && !moveInFlight && !saveInFlight && !activePointerDragCleanup && resizingEventId === null) {
       void loadEvents({ silent: true });
     }
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && !dialog.open) {
+    if (document.visibilityState === "visible" && !dialog.open && !activePointerDragCleanup && resizingEventId === null) {
       void loadEvents({ silent: true });
     }
   });
