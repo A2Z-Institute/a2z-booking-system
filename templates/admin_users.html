@@ -105,7 +105,7 @@
         <select id="user-role-filter" data-user-role-filter>
           <option value="">All roles</option>
           {% if student_self_booking_enabled %}<option value="student">Students</option>{% endif %}
-          <option value="booking_agent">Booking Agents</option>
+          <option value="booking_agent">Booking</option>
           <option value="instructor">Instructors</option>
           <option value="admin">Administrators</option>
         </select>
@@ -146,7 +146,7 @@
                     {% if managed.phone %}<span class="cell-detail">{{ managed.phone }}</span>{% endif %}
                   </td>
                   <td>
-                    <span class="role-chip role-{{ managed.role }}">{{ managed.role|replace('_', ' ')|title }}</span>
+                    <span class="role-chip role-{{ managed.role }}">{{ 'Booking' if managed.role == 'booking_agent' else managed.role|replace('_', ' ')|title }}</span>
                     {% if managed.role == 'instructor' %}
                       <span class="status-badge {{ 'status-approved' if managed.verification_status == 'verified' else 'status-pending' }}">{{ 'Verified' if managed.verification_status == 'verified' else 'Needs verification' }}</span>
                     {% endif %}
@@ -191,7 +191,7 @@
               <span class="status-badge {{ 'status-approved' if managed.is_active else 'status-cancelled' }}">{{ 'Active' if managed.is_active else 'Archived' }}</span>
             </div>
             <dl class="meta-grid">
-              <div><dt>Role</dt><dd>{{ managed.role|replace('_', ' ')|title }}</dd></div>
+              <div><dt>Role</dt><dd>{{ 'Booking' if managed.role == 'booking_agent' else managed.role|replace('_', ' ')|title }}</dd></div>
               <div><dt>Branch</dt><dd>{{ managed.branch_name|default('Not assigned', true) }}</dd></div>
               {% if managed.role == 'instructor' %}
                 <div class="field-span-2"><dt>Verification</dt><dd>{{ 'Verified' if managed.verification_status == 'verified' else 'Needs verification' }}</dd></div>
@@ -230,9 +230,9 @@
   <aside class="form-card sticky-card" id="account-form" aria-labelledby="account-form-title">
     {% if editing_user %}
       <div class="form-section-heading">
-        <p class="eyebrow">{{ editing_user.role|replace('_', ' ')|title }} account</p>
+        <p class="eyebrow">{{ 'Booking' if editing_user.role == 'booking_agent' else editing_user.role|replace('_', ' ')|title }} account</p>
         <h2 id="account-form-title">Edit {{ editing_user.full_name }}</h2>
-        <p>{% if editing_user.role in ['admin', 'booking_agent'] %}Choose whether this login has full administrator access or appointment-only Booking Agent access.{% else %}The assigned role cannot be changed after creation.{% endif %}</p>
+        <p>{% if editing_user.role in ['admin', 'booking_agent'] %}Choose whether this login has full administrator access or appointment-only Booking access.{% else %}The assigned role cannot be changed after creation.{% endif %}</p>
       </div>
       {% if error %}
         <div class="alert alert-error" role="alert" id="account-form-error"><span class="alert-icon" aria-hidden="true"></span><div>{{ error }}</div></div>
@@ -244,10 +244,10 @@
           <div class="field">
             <label for="edit-role">Access role</label>
             <select id="edit-role" name="role" required>
-              <option value="booking_agent" {% if request.form.get('role', editing_user.role) == 'booking_agent' %}selected{% endif %}>Booking Agent</option>
+              <option value="booking_agent" {% if request.form.get('role', editing_user.role) == 'booking_agent' %}selected{% endif %}>Booking</option>
               <option value="admin" {% if request.form.get('role', editing_user.role) == 'admin' %}selected{% endif %}>Administrator</option>
             </select>
-            <span class="field-hint">Booking Agents can manage appointments but cannot create, edit, resize, or drag blue booking slots.</span>
+            <span class="field-hint">Booking can manage appointments and clients but cannot create, edit, resize, or drag blue booking slots.</span>
           </div>
           {% endif %}
           <div class="field">
@@ -308,7 +308,7 @@
             <select id="new-role" name="role" data-role-select required>
               <option value="">Choose a role</option>
               {% if student_self_booking_enabled %}<option value="student" {% if selected_role == 'student' %}selected{% endif %}>Student</option>{% endif %}
-              <option value="booking_agent" {% if selected_role == 'booking_agent' %}selected{% endif %}>Booking Agent</option>
+              <option value="booking_agent" {% if selected_role == 'booking_agent' %}selected{% endif %}>Booking</option>
               <option value="instructor" {% if selected_role == 'instructor' %}selected{% endif %}>Instructor</option>
               <option value="admin" {% if selected_role == 'admin' %}selected{% endif %}>Administrator</option>
             </select>
@@ -327,7 +327,7 @@
             <input id="new-email" name="email" type="email" value="{{ request.form.get('email', '') }}" autocomplete="off" required>
           </div>
           <div class="field">
-            <label for="new-phone">Mobile number <span class="text-muted" data-phone-optional>(optional for booking agents and administrators)</span></label>
+            <label for="new-phone">Mobile number <span class="text-muted" data-phone-optional>(optional for Booking and Administrator accounts)</span></label>
             <input id="new-phone" name="phone" type="tel" value="{{ request.form.get('phone', '') }}" inputmode="tel" autocomplete="off" data-role-phone>
           </div>
           <div class="field">
@@ -341,7 +341,7 @@
           </div>
           <div class="field">
             <label for="new-password">Temporary password <span class="text-muted">(optional)</span></label>
-            <input id="new-password" name="password" type="password" minlength="10" autocomplete="new-password" aria-describedby="temporary-password-help">
+            <input id="new-password" name="password" type="password" minlength="5" autocomplete="new-password" aria-describedby="temporary-password-help">
             <span class="field-hint" id="temporary-password-help">Leave blank to generate a secure password automatically.</span>
           </div>
           <div class="field" data-instructor-only {% if selected_role != 'instructor' %}hidden{% endif %}>

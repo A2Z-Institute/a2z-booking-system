@@ -100,15 +100,15 @@
         </div>
         <div class="field">
           <label for="availability-start">Starts</label>
-          <input id="availability-start" name="start_time" type="time" value="06:00" min="06:00" max="17:00" step="1800" required>
+          <input id="availability-start" name="start_time" type="time" value="06:00" min="06:00" max="18:00" step="1800" required>
         </div>
         <div class="field">
           <label for="availability-end">Ends</label>
-          <input id="availability-end" name="end_time" type="time" value="13:00" min="06:30" max="17:30" step="1800" required>
+          <input id="availability-end" name="end_time" type="time" value="18:30" min="06:30" max="18:30" step="1800" required>
         </div>
         <button class="button button-primary" type="submit">Add period</button>
       </form>
-      <p class="field-hint">Use 30-minute increments within 06:00–13:00 or 14:00–17:30. Periods cannot cross the lunch break.</p>
+      <p class="field-hint">Use 30-minute increments within 06:00–18:30. Add each instructor’s Breakfast, Lunch, and Tea Break directly on the calendar.</p>
     </div>
 
     {% if weekly %}

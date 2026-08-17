@@ -1,12 +1,9 @@
 """
 Computes free 15-minute time slots for instructors/machines on a given date.
-Excludes lunch break (13:00 to 14:00).
+Instructor-specific breaks are stored as busy periods and removed separately.
 """
 
-WORK_WINDOWS = [
-    ("06:00", "13:00"),
-    ("14:00", "18:30"),
-]
+WORK_WINDOWS = [("06:00", "18:30")]
 
 
 def _to_minutes(time_str):

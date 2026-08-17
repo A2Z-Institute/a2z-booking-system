@@ -883,20 +883,25 @@ def init_db() -> None:
                 SELECT RAISE(ABORT, 'invalid weekly availability');
             END;
 
-            CREATE TRIGGER IF NOT EXISTS validate_booking_status_insert
+            DROP TRIGGER IF EXISTS validate_booking_status_insert;
+            DROP TRIGGER IF EXISTS validate_booking_status_update;
+
+            CREATE TRIGGER validate_booking_status_insert
             BEFORE INSERT ON bookings
             WHEN NEW.validation_status NOT IN
                 ('Pending', 'Approved', 'Not Confirmed', 'Rejected', 'Cancelled',
-                 'Completed', 'No-show', 'Running Late', 'Arrived', 'Rescheduled')
+                 'Completed', 'No-show', 'Running Late', 'Arrived', 'Rescheduled',
+                 'No Action')
             BEGIN
                 SELECT RAISE(ABORT, 'invalid booking status');
             END;
 
-            CREATE TRIGGER IF NOT EXISTS validate_booking_status_update
+            CREATE TRIGGER validate_booking_status_update
             BEFORE UPDATE OF validation_status ON bookings
             WHEN NEW.validation_status NOT IN
                 ('Pending', 'Approved', 'Not Confirmed', 'Rejected', 'Cancelled',
-                 'Completed', 'No-show', 'Running Late', 'Arrived', 'Rescheduled')
+                 'Completed', 'No-show', 'Running Late', 'Arrived', 'Rescheduled',
+                 'No Action')
             BEGIN
                 SELECT RAISE(ABORT, 'invalid booking status');
             END;

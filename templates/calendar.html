@@ -5,7 +5,7 @@
 {% block body_class %}calendar-page{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260814-4') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260817-1') }}">
 {% endblock %}
 
 {% block content %}
@@ -14,10 +14,12 @@
     <h1>Calendar</h1>
     <p>Staff scheduling in 15-minute intervals</p>
   </div>
-  <button class="button button-primary calendar-add-button" type="button" data-add-appointment>
-    <span aria-hidden="true">+</span>
-    Add appointment
-  </button>
+  {% if current_user.role in ['admin', 'booking_agent'] %}
+    <button class="button button-primary calendar-add-button" type="button" data-add-appointment>
+      <span aria-hidden="true">+</span>
+      Add appointment
+    </button>
+  {% endif %}
 </header>
 
 <section
@@ -30,6 +32,7 @@
   data-client-search-url="{{ url_for('api_calendar_search_clients') }}"
   data-cancel-url-template="{{ url_for('api_calendar_cancel_appointment', booking_id=0) }}"
   data-delete-url-template="{{ url_for('api_calendar_delete_appointment', booking_id=0) }}"
+  data-instructor-status-url-template="{{ url_for('api_calendar_instructor_status', booking_id=0) }}"
   data-busy-create-url="{{ url_for('api_calendar_create_busy_time') }}"
   data-busy-update-url-template="{{ url_for('api_calendar_update_busy_time', time_off_id=0) }}"
   data-busy-delete-url-template="{{ url_for('api_calendar_delete_busy_time', time_off_id=0) }}"
@@ -66,6 +69,7 @@
                 <option value="">All statuses</option>
                 <option value="Pending">Pending</option>
                 <option value="Approved">Confirmed</option>
+                <option value="No Action">No Action</option>
                 <option value="Completed">Completed</option>
                 <option value="No-show">No-show</option>
                 <option value="Cancelled">Cancelled</option>
@@ -128,7 +132,7 @@
       <div class="appointment-editor-tabs" role="tablist" aria-label="Schedule item type">
         <button class="appointment-editor-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="appointment-panel" data-editor-tab="appointment">Appointment</button>
         {% if current_user.role == 'admin' %}<button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="booking-slot-panel" data-editor-tab="slot">Booking Slot</button>{% endif %}
-        {% if current_user.role != 'booking_agent' %}<button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="busy-time-panel" data-editor-tab="busy">Event / Busy Time</button>{% endif %}
+        {% if current_user.role == 'admin' %}<button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="busy-time-panel" data-editor-tab="busy">Event / Busy Time</button>{% endif %}
       </div>
       <button class="icon-button editor-close-button" type="button" aria-label="Close appointment editor" data-editor-close>×</button>
     </header>
@@ -297,7 +301,7 @@
                 <label for="editor-status">Status</label>
                 <select id="editor-status" name="status" data-editor-status>
                   {% if current_user.role == 'instructor' %}
-                  <option value="Approved">Confirmed</option>
+                  <option value="No Action">No Action</option>
                   <option value="Pending">Pending</option>
                   <option value="Completed">Completed</option>
                   {% else %}
@@ -311,6 +315,7 @@
                   <option value="Arrived">Arrived</option>
                   <option value="Rescheduled">Rescheduled</option>
                   <option value="Cancelled">Cancelled</option>
+                  <option value="No Action">No Action</option>
                   {% endif %}
                 </select>
                 {% if current_user.role == 'instructor' %}<span class="field-hint">Update your appointment to Pending or Completed.</span>{% endif %}
@@ -409,6 +414,16 @@
           <p>Block an instructor’s calendar for training, leave, meetings, or other private time.</p>
           <div class="form-grid two-column">
             <div class="field field-span-2">
+              <label for="busy-kind">Calendar block type</label>
+              <select id="busy-kind" name="busy_kind" data-editor-busy-kind>
+                <option value="breakfast">Breakfast</option>
+                <option value="lunch">Lunch</option>
+                <option value="tea">Tea Break</option>
+                <option value="busy">Other event / busy time</option>
+              </select>
+              <span class="field-hint">Break times are set separately for each instructor and cannot be booked over.</span>
+            </div>
+            <div class="field field-span-2">
               <label for="busy-title">Title</label>
               <input id="busy-title" name="busy_title" maxlength="120" placeholder="For example: Staff training" data-editor-busy-title>
             </div>
@@ -489,5 +504,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('static', filename='js/calendar.js', v='20260814-4') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/calendar.js', v='20260817-1') }}" defer></script>
 {% endblock %}

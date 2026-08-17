@@ -12,14 +12,16 @@
       <p>Staff use these records when arranging appointments by phone or in person.</p>
     </div>
     <div class="management-panel-actions">
-      <a class="icon-button labelled-icon-button" href="{{ url_for('export_clients_csv') }}" title="Export clients">
-        <span aria-hidden="true">⇩</span>
-        <span>Export</span>
-      </a>
-      <a class="button button-primary button-small" href="{{ url_for('client_new') }}">
-        <span aria-hidden="true">+</span>
-        Add client
-      </a>
+      {% if current_user.role in ['admin', 'booking_agent'] %}
+        <a class="icon-button labelled-icon-button" href="{{ url_for('export_clients_csv') }}" title="Export clients">
+          <span aria-hidden="true">⇩</span>
+          <span>Export</span>
+        </a>
+        <a class="button button-primary button-small" href="{{ url_for('client_new') }}">
+          <span aria-hidden="true">+</span>
+          Add client
+        </a>
+      {% endif %}
     </div>
   </header>
 

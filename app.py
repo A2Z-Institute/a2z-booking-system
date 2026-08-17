@@ -58,12 +58,12 @@ ACTIVE_BOOKING_STATUSES = (
     "Running Late",
     "Arrived",
     "Rescheduled",
+    "No Action",
 )
 STAFF_DAY_START_MINUTES = 6 * 60
 STAFF_DAY_END_MINUTES = (18 * 60) + 30
-STAFF_LUNCH_START_MINUTES = 13 * 60
-STAFF_LUNCH_END_MINUTES = 14 * 60
 FINAL_BOOKING_STATUSES = ("Rejected", "Cancelled", "Completed", "No-show")
+MIN_PASSWORD_LENGTH = 5
 DAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 MANAGED_ROLES = ("student", "booking_agent", "instructor", "admin")
 BRANCH_TIMEZONE_OPTIONS = (
@@ -967,7 +967,7 @@ def _validate_availability_range(start_time, end_time, *, within_hours=True):
         and end_minutes <= _time_to_minutes(window_end)
         for window_start, window_end in WORK_WINDOWS
     ):
-        raise ValueError("Keep availability inside institute hours and outside the lunch break.")
+        raise ValueError("Keep availability inside institute hours.")
     return start_time, end_time
 
 
@@ -1429,8 +1429,8 @@ def account_password():
             ).fetchone()
             if not row or not check_password_hash(row["password_hash"], current_password):
                 error = "Your current password is not correct."
-            elif len(new_password) < 10:
-                error = "Use at least 10 characters for your new password."
+            elif len(new_password) < MIN_PASSWORD_LENGTH:
+                error = f"Use at least {MIN_PASSWORD_LENGTH} characters for your new password."
             elif new_password != confirmation:
                 error = "The two new passwords do not match."
             elif check_password_hash(row["password_hash"], new_password):
@@ -1665,7 +1665,7 @@ def admin_users():
     try:
         if role not in MANAGED_ROLES:
             raise ValueError(
-                "Choose student, booking agent, instructor or administrator access."
+                "Choose student, Booking, instructor or administrator access."
             )
         if role == "student" and not app.config["A2Z_STUDENT_SELF_BOOKING"]:
             raise ValueError(
@@ -1682,8 +1682,10 @@ def admin_users():
         password = request.form.get("password") or ""
         if not password:
             password = generated_password = _temporary_password()
-        if len(password) < 10:
-            raise ValueError("Temporary passwords must be at least 10 characters.")
+        if len(password) < MIN_PASSWORD_LENGTH:
+            raise ValueError(
+                f"Temporary passwords must be at least {MIN_PASSWORD_LENGTH} characters."
+            )
 
         with get_db() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -1816,7 +1818,7 @@ def admin_user_edit(user_id):
             if user["role"] in scheduling_roles:
                 if requested_role not in scheduling_roles:
                     raise ValueError(
-                        "Scheduling accounts can be Administrator or Booking Agent."
+                        "Scheduling accounts can be Administrator or Booking."
                     )
                 if user["role"] == "admin" and requested_role == "booking_agent":
                     other_admin = conn.execute(
@@ -1831,7 +1833,7 @@ def admin_user_edit(user_id):
                     if not other_admin:
                         raise ValueError(
                             "Create or activate another administrator before changing "
-                            "the last administrator to Booking Agent."
+                            "the last administrator to Booking."
                         )
             elif requested_role != user["role"]:
                 raise ValueError(
@@ -2664,15 +2666,25 @@ def _calendar_event(row):
         "repeat_rule": row.get("repeat_rule") or "none",
         "series_position": row.get("series_position") or 1,
         "series_count": row.get("series_count") or 1,
-        "can_edit": row["validation_status"] != "Cancelled",
+        "can_edit": (
+            current_user.role in {"admin", "booking_agent"}
+            and row["validation_status"] != "Cancelled"
+        ),
     }
 
 
 def _calendar_busy_event(row):
+    reason = " ".join(str(row["reason"] or "Busy time").split())
+    break_kind = {
+        "breakfast": "breakfast",
+        "lunch": "lunch",
+        "tea break": "tea",
+    }.get(reason.lower(), "busy")
     return {
         "type": "busy",
         "id": row["id"],
-        "title": row["reason"] or "Busy time",
+        "title": reason,
+        "busy_kind": break_kind,
         "notes": row["notes"] or "",
         "instructor_id": row["instructor_id"],
         "instructor_name": row["instructor_name"],
@@ -2680,7 +2692,7 @@ def _calendar_busy_event(row):
         "date": row["target_date"],
         "start_time": row["start_time"],
         "end_time": row["end_time"],
-        "status": "Busy",
+        "status": "Break" if break_kind != "busy" else "Busy",
         "revision": row["calendar_revision"],
         "buffer_before_minutes": 0,
         "buffer_after_minutes": 0,
@@ -2689,7 +2701,7 @@ def _calendar_busy_event(row):
         "repeat_rule": row.get("repeat_rule") or "none",
         "series_position": row.get("series_position") or 1,
         "series_count": row.get("series_count") or 1,
-        "can_edit": current_user.role in {"admin", "instructor"},
+        "can_edit": current_user.role == "admin",
     }
 
 
@@ -2845,6 +2857,7 @@ def api_calendar_events():
         "cancelled": "Cancelled",
         "completed": "Completed",
         "no-show": "No-show",
+        "no-action": "No Action",
     }
     selected_status = status_lookup.get(
         (request.args.get("status") or "").strip().lower(), ""
@@ -2995,13 +3008,6 @@ def _assert_appointment_outside_breaks(
     conn, instructor_id, target, start_minutes, end_minutes
 ):
     """Breaks and recorded busy time are absolute, even for double bookings."""
-    if (
-        start_minutes < STAFF_LUNCH_END_MINUTES
-        and end_minutes > STAFF_LUNCH_START_MINUTES
-    ):
-        raise AppointmentConflictError(
-            "Appointments cannot overlap the lunch break from 1:00 pm to 2:00 pm."
-        )
     busy = conn.execute(
         """
         SELECT reason, start_time, end_time
@@ -3069,7 +3075,7 @@ def _assert_busy_time_available(
 
 
 @app.post("/api/calendar/busy-times")
-@role_required("instructor", "admin")
+@role_required("admin")
 def api_calendar_create_busy_time():
     payload = request.get_json(silent=True) or {}
     try:
@@ -3085,7 +3091,19 @@ def api_calendar_create_busy_time():
         start_time, end_time, start_minutes, end_minutes = _busy_time_range(
             payload.get("start_time"), payload.get("end_time")
         )
-        title = " ".join(str(payload.get("title") or "").split())[:120]
+        break_type = str(payload.get("break_type") or "busy").strip().lower()
+        break_titles = {
+            "breakfast": "Breakfast",
+            "lunch": "Lunch",
+            "tea": "Tea Break",
+        }
+        if break_type not in {"busy", *break_titles}:
+            raise ValueError("Choose Breakfast, Lunch, Tea Break, or Busy time.")
+        title = (
+            break_titles.get(break_type)
+            or " ".join(str(payload.get("title") or "").split())[:120]
+            or "Busy time"
+        )
         notes = str(payload.get("notes") or "").strip()[:500]
         dates, repeat_rule = _repeat_dates(
             target, payload.get("repeat"), payload.get("repeat_count")
@@ -3131,7 +3149,7 @@ def api_calendar_create_busy_time():
                         occurrence_date.isoformat(),
                         start_time,
                         end_time,
-                        title or "Busy time",
+                        title,
                         notes or None,
                         series_id,
                         repeat_rule,
@@ -3175,7 +3193,7 @@ def api_calendar_create_busy_time():
 
 
 @app.patch("/api/calendar/busy-times/<int:time_off_id>")
-@role_required("instructor", "admin")
+@role_required("admin")
 def api_calendar_update_busy_time(time_off_id):
     payload = request.get_json(silent=True) or {}
     try:
@@ -3221,12 +3239,20 @@ def api_calendar_update_busy_time(time_off_id):
                 payload.get("start_time") or existing["start_time"],
                 payload.get("end_time") or existing["end_time"],
             )
-            title_source = (
-                payload.get("title")
-                if "title" in payload
-                else existing["reason"]
+            break_type = str(payload.get("break_type") or "busy").strip().lower()
+            break_titles = {
+                "breakfast": "Breakfast",
+                "lunch": "Lunch",
+                "tea": "Tea Break",
+            }
+            if break_type not in {"busy", *break_titles}:
+                raise ValueError("Choose Breakfast, Lunch, Tea Break, or Busy time.")
+            title_source = payload.get("title") if "title" in payload else existing["reason"]
+            title = (
+                break_titles.get(break_type)
+                or " ".join(str(title_source or "").split())[:120]
+                or "Busy time"
             )
-            title = " ".join(str(title_source or "").split())[:120] or "Busy time"
             notes = (
                 str(payload.get("notes") or "").strip()[:500]
                 if "notes" in payload
@@ -3309,7 +3335,7 @@ def api_calendar_update_busy_time(time_off_id):
 
 
 @app.delete("/api/calendar/busy-times/<int:time_off_id>")
-@role_required("instructor", "admin")
+@role_required("admin")
 def api_calendar_delete_busy_time(time_off_id):
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -3458,7 +3484,7 @@ def api_calendar_delete_booking_slot(slot_id):
 
 
 @app.post("/api/calendar/appointments")
-@role_required("booking_agent", "instructor", "admin")
+@role_required("booking_agent", "admin")
 def api_calendar_create_appointment():
     payload = request.get_json(silent=True) or {}
     try:
@@ -3484,6 +3510,7 @@ def api_calendar_create_appointment():
             "Arrived",
             "Rescheduled",
             "Cancelled",
+            "No Action",
         }
         if requested_status not in allowed_statuses:
             raise ValueError("Choose a valid appointment status.")
@@ -3700,7 +3727,7 @@ def api_calendar_create_appointment():
 
 
 @app.patch("/api/calendar/appointments/<int:booking_id>")
-@role_required("booking_agent", "instructor", "admin")
+@role_required("booking_agent", "admin")
 def api_calendar_reschedule_appointment(booking_id):
     payload = request.get_json(silent=True) or {}
     try:
@@ -3799,6 +3826,7 @@ def api_calendar_reschedule_appointment(booking_id):
                 "Arrived",
                 "Rescheduled",
                 "Cancelled",
+                "No Action",
             }
             if next_status not in allowed_statuses:
                 raise ValueError("Choose a valid appointment status.")
@@ -4023,7 +4051,7 @@ def api_calendar_reschedule_appointment(booking_id):
 
 
 @app.delete("/api/calendar/appointments/<int:booking_id>")
-@role_required("booking_agent", "instructor", "admin")
+@role_required("booking_agent", "admin")
 def api_calendar_cancel_appointment(booking_id):
     payload = request.get_json(silent=True) or {}
     with get_db() as conn:
@@ -4092,6 +4120,57 @@ def api_calendar_delete_appointment(booking_id):
         conn.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
         _audit(conn, "appointment_permanently_deleted", details={"booking_id": booking_id})
     return jsonify({"success": True})
+
+
+@app.patch("/api/calendar/appointments/<int:booking_id>/instructor-status")
+@role_required("instructor")
+def api_calendar_instructor_status(booking_id):
+    """Allow an instructor to update only the appointment status dropdown."""
+    payload = request.get_json(silent=True) or {}
+    next_status = str(payload.get("status") or "").strip()
+    if next_status not in {"No Action", "Pending", "Completed"}:
+        return jsonify(
+            {"error": "Instructors may select No Action, Pending, or Completed."}
+        ), 400
+    try:
+        revision = int(payload.get("revision"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Refresh the calendar and try again."}), 400
+    with get_db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        booking = conn.execute(
+            """
+            SELECT b.*, u.is_active AS client_is_active
+            FROM bookings b
+            JOIN users u ON u.id = b.student_user_id
+            WHERE b.id = ? AND b.instructor_id = ?
+            """,
+            (booking_id, current_user.instructor_id),
+        ).fetchone()
+        if not booking:
+            abort(404)
+        if not booking["client_is_active"]:
+            return jsonify({"error": "This customer is no longer active."}), 409
+        if booking["validation_status"] in {"Cancelled", "Rejected"}:
+            return jsonify({"error": "This appointment is already closed."}), 409
+        if revision != booking["calendar_revision"]:
+            return jsonify(
+                {"error": "This appointment changed in another window. Refresh and try again."}
+            ), 409
+        conn.execute(
+            """
+            UPDATE bookings
+            SET validation_status = ?, reviewed_by = ?,
+                reviewed_at = CURRENT_TIMESTAMP,
+                calendar_revision = calendar_revision + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (next_status, current_user.id, booking_id),
+        )
+        _audit(conn, "instructor_status_updated", booking_id, {"status": next_status})
+        row = _booking_rows(conn, "b.id = ?", (booking_id,))[0]
+    return jsonify({"success": True, "event": _calendar_event(row)})
 
 
 @app.get("/instructor/dashboard")
@@ -4298,7 +4377,7 @@ def _create_client_record(conn, payload):
 
 
 @app.post("/api/calendar/clients")
-@role_required("booking_agent", "instructor", "admin")
+@role_required("booking_agent", "admin")
 def api_calendar_create_client():
     payload = request.get_json(silent=True) if request.is_json else request.form
     payload = payload or {}
@@ -4328,7 +4407,7 @@ def api_calendar_create_client():
 
 
 @app.get("/api/calendar/clients/search")
-@role_required("booking_agent", "instructor", "admin")
+@role_required("booking_agent", "admin")
 def api_calendar_search_clients():
     query = " ".join((request.args.get("q") or "").split())[:100]
     if len(query) < 2:
@@ -4367,7 +4446,7 @@ def api_calendar_search_clients():
 
 
 @app.get("/clients/new")
-@role_required("booking_agent", "instructor", "admin")
+@role_required("booking_agent", "admin")
 def client_new():
     with get_db() as conn:
         if current_user.role in {"admin", "booking_agent"}:
@@ -4387,7 +4466,7 @@ def client_new():
 
 
 @app.post("/clients")
-@role_required("booking_agent", "instructor", "admin")
+@role_required("booking_agent", "admin")
 def client_create():
     try:
         with get_db() as conn:
@@ -4435,7 +4514,7 @@ def _client_access_row(conn, client_id):
             FROM users u
             LEFT JOIN branches br ON br.id = u.branch_id
             LEFT JOIN client_profiles cp ON cp.user_id = u.id
-            WHERE u.id = ? AND u.role = 'student'
+            WHERE u.id = ? AND u.role = 'student' AND u.is_active = 1
               AND (
                 EXISTS (
                     SELECT 1 FROM student_instructor_assignments a
@@ -4460,6 +4539,7 @@ def clients_directory():
     params = []
     clauses = ["u.role = 'student'"]
     if current_user.role == "instructor":
+        clauses.append("u.is_active = 1")
         clauses.append(
             """
             (
@@ -4599,7 +4679,7 @@ def client_detail(client_id):
 
 
 @app.post("/clients/<int:client_id>/profile")
-@role_required("booking_agent", "instructor", "admin")
+@role_required("booking_agent", "admin")
 def client_profile_update(client_id):
     try:
         with get_db() as conn:
@@ -4973,7 +5053,7 @@ def _csv_response(filename, headers, rows):
 
 
 @app.get("/exports/appointments.csv")
-@role_required("instructor", "admin")
+@role_required("admin")
 def export_appointments_csv():
     clauses = []
     params = []
@@ -5030,7 +5110,7 @@ def export_appointments_csv():
 
 
 @app.get("/exports/clients.csv")
-@role_required("instructor", "admin")
+@role_required("booking_agent", "admin")
 def export_clients_csv():
     params = []
     scope = ""
@@ -6447,7 +6527,7 @@ def _availability_overlap(conn, instructor_id, weekday, start_time, end_time, ex
 
 
 @app.post("/instructor/availability/weekly")
-@role_required("instructor", "admin")
+@role_required("admin")
 def instructor_availability_add():
     instructor_id = None
     try:
@@ -6496,7 +6576,7 @@ def instructor_availability_add():
 
 
 @app.post("/instructor/availability/weekly/<int:availability_id>/update")
-@role_required("instructor", "admin")
+@role_required("admin")
 def instructor_availability_update(availability_id):
     instructor_id = None
     try:
@@ -6550,7 +6630,7 @@ def instructor_availability_update(availability_id):
 
 
 @app.post("/instructor/availability/weekly/<int:availability_id>/delete")
-@role_required("instructor", "admin")
+@role_required("admin")
 def instructor_availability_delete(availability_id):
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -6577,7 +6657,7 @@ def instructor_availability_delete(availability_id):
 
 
 @app.post("/instructor/availability/reset")
-@role_required("instructor", "admin")
+@role_required("admin")
 def instructor_availability_reset():
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -6603,7 +6683,7 @@ def instructor_availability_reset():
 
 
 @app.post("/instructor/time-off")
-@role_required("instructor", "admin")
+@role_required("admin")
 def instructor_time_off_add():
     instructor_id = None
     try:
@@ -6665,7 +6745,7 @@ def instructor_time_off_add():
 
 
 @app.post("/instructor/time-off/<int:time_off_id>/delete")
-@role_required("instructor", "admin")
+@role_required("admin")
 def instructor_time_off_delete(time_off_id):
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -6798,7 +6878,7 @@ def _approval_invalid_reason(conn, booking):
 
 
 @app.post("/bookings/<int:booking_id>/decision")
-@role_required("instructor", "admin")
+@role_required("admin")
 def booking_decision(booking_id):
     decision = (request.form.get("decision") or "").strip().lower()
     review_notes = " ".join((request.form.get("review_notes") or "").split())
@@ -6872,7 +6952,7 @@ def booking_decision(booking_id):
 
 
 @app.post("/bookings/<int:booking_id>/attendance")
-@role_required("instructor", "admin")
+@role_required("admin")
 def booking_attendance(booking_id):
     status = (request.form.get("status") or "").strip().lower()
     status_map = {"completed": "Completed", "no-show": "No-show"}

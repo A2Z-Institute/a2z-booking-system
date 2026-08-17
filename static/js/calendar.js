@@ -53,6 +53,7 @@
   const busyDate = editor.querySelector("[data-editor-busy-date]");
   const busyStart = editor.querySelector("[data-editor-busy-start]");
   const busyEnd = editor.querySelector("[data-editor-busy-end]");
+  const busyKind = editor.querySelector("[data-editor-busy-kind]");
   const busyTitle = editor.querySelector("[data-editor-busy-title]");
   const busyNotes = editor.querySelector("[data-editor-busy-notes]");
   const busyRepeat = editor.querySelector("[data-editor-busy-repeat]");
@@ -598,6 +599,7 @@
     selectedClientId = "",
     bookingSlot = null,
   ) => {
+    if (currentRole === "instructor") return;
     lastFocused = trigger || document.activeElement;
     editingEvent = null;
     editor.reset();
@@ -619,6 +621,7 @@
     if (repeatCount) repeatCount.value = "1";
     syncRepeatCount(repeatInput, repeatCount);
     if (busyInstructor) busyInstructor.value = instructorInput.value;
+    if (busyKind) busyKind.value = "breakfast";
     if (busyDate) busyDate.value = editorDate.value;
     if (busyStart) busyStart.value = editorStart.value;
     if (busyEnd) busyEnd.value = timeValue(Math.min(STAFF_DAY_END, minutes(editorStart.value) + 60));
@@ -737,6 +740,7 @@
       if (busyDate) busyDate.value = event.date;
       if (busyStart) busyStart.value = event.start_time;
       if (busyEnd) busyEnd.value = event.end_time;
+      if (busyKind) busyKind.value = event.busy_kind || "busy";
       if (busyTitle) busyTitle.value = event.title || "Busy";
       if (busyNotes) busyNotes.value = event.notes || "";
       if (busyRepeat) busyRepeat.value = "none";
@@ -752,22 +756,41 @@
       if (deleteSlotButton) deleteSlotButton.hidden = true;
       if (saveButton) saveButton.hidden = !event.can_edit;
       setEditorType("busy");
+      if (!event.can_edit) {
+        editor.querySelectorAll('[data-editor-panel="busy"] input, [data-editor-panel="busy"] select, [data-editor-panel="busy"] textarea, [data-editor-panel="busy"] button').forEach((control) => {
+          control.disabled = true;
+        });
+      }
     } else {
       populateAppointment(event);
       if (eyebrowText) eyebrowText.textContent = `Appointment #${event.id}`;
       if (titleText) titleText.textContent = "Edit appointment";
       if (descriptionText) descriptionText.textContent = "Update the client, services, staff, time, status, or private notes.";
       if (cancelAppointmentButton) {
-        cancelAppointmentButton.hidden = ![
+        cancelAppointmentButton.hidden = !event.can_edit || ![
           "Approved", "Pending", "Not Confirmed", "Running Late", "Arrived", "Rescheduled",
         ].includes(event.status);
       }
       if (bookingMenu) bookingMenu.hidden = !event.can_edit;
       if (deleteBusyButton) deleteBusyButton.hidden = true;
       if (deleteSlotButton) deleteSlotButton.hidden = true;
-      if (saveButton) saveButton.hidden = !event.can_edit;
+      if (saveButton) {
+        saveButton.hidden = currentRole === "instructor" ? false : !event.can_edit;
+        if (currentRole === "instructor") saveButton.textContent = "Save status";
+      }
       if (permanentDeleteButton) permanentDeleteButton.hidden = currentRole !== "admin";
       setEditorType("appointment");
+      if (!event.can_edit) {
+        if (titleText) titleText.textContent = "Appointment details";
+        if (descriptionText) descriptionText.textContent = "View the active customer details needed for follow-up.";
+        editor.querySelectorAll('[data-editor-panel="appointment"] input, [data-editor-panel="appointment"] select, [data-editor-panel="appointment"] textarea, [data-editor-panel="appointment"] button').forEach((control) => {
+          control.disabled = true;
+        });
+        if (currentRole === "instructor" && editorStatus) {
+          editorStatus.disabled = false;
+          editorStatus.value = event.status === "Approved" ? "No Action" : event.status;
+        }
+      }
     }
     dialog.showModal();
   };
@@ -835,7 +858,7 @@
     );
     button.addEventListener("click", (clickEvent) => {
       clickEvent.stopPropagation();
-      if (isSlot && currentRole !== "admin") {
+      if (isSlot && currentRole === "booking_agent") {
         prepareNewEditor(
           event.date,
           event.instructor_id,
@@ -847,6 +870,7 @@
         );
         return;
       }
+      if (isSlot && currentRole === "instructor") return;
       openEditorForEvent(event, button);
     });
     if (canDragEvent) {
@@ -963,8 +987,7 @@
   };
 
   const wireSlot = (slot, column, start, occupied = false) => {
-    const lunch = start >= "13:00" && start < "14:00";
-    const disabled = column.nonWorking || lunch;
+    const disabled = column.nonWorking;
     slot.classList.toggle("is-non-working", disabled);
     slot.classList.toggle("is-occupied", occupied);
     slot.setAttribute("aria-disabled", String(disabled || occupied));
@@ -1297,6 +1320,34 @@
     };
   };
 
+  const saveInstructorStatus = async () => {
+    if (!editingEvent || editingEvent.type !== "appointment") {
+      throw new Error("Open an appointment before changing its status.");
+    }
+    const response = await fetch(
+      replaceId(calendar.dataset.instructorStatusUrlTemplate, editingEvent.id),
+      {
+        method: "PATCH",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrf,
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          status: editorStatus?.value || "No Action",
+          revision: editingEvent.revision,
+        }),
+      },
+    );
+    const data = await parseJson(response);
+    if (!response.ok) throw new Error(data.error || "The status could not be changed.");
+    return {
+      message: `Status changed to ${data.event?.status || editorStatus?.value}.`,
+      savedEvents: data.event ? [data.event] : [],
+    };
+  };
+
   const saveBusyTime = async () => {
     const repeat = busyRepeat?.value || "none";
     const payload = {
@@ -1304,6 +1355,7 @@
       target_date: busyDate?.value || "",
       start_time: busyStart?.value || "",
       end_time: busyEnd?.value || "",
+      break_type: busyKind?.value || "busy",
       title: busyTitle?.value || "",
       notes: busyNotes?.value || "",
       repeat,
@@ -1385,7 +1437,11 @@
       saveButton.textContent = "Saving…";
     }
     try {
-      const result = editorType === "busy" ? await saveBusyTime() : editorType === "slot" ? await saveBookingSlot() : await saveAppointment();
+      const result = currentRole === "instructor" && editorType === "appointment"
+        ? await saveInstructorStatus()
+        : editorType === "busy" ? await saveBusyTime()
+        : editorType === "slot" ? await saveBookingSlot()
+        : await saveAppointment();
       if (result?.savedEvents?.length) {
         const savedIds = new Set(result.savedEvents.map((item) => String(item.id)));
         events = events.filter((item) => !savedIds.has(String(item.id)));
@@ -1405,7 +1461,11 @@
       editor.removeAttribute("aria-busy");
       if (saveButton) {
         saveButton.disabled = false;
-        saveButton.textContent = editorType === "busy" ? "Save busy time" : editorType === "slot" ? "Save slot" : "Save appointment";
+        saveButton.textContent = currentRole === "instructor" && editorType === "appointment"
+          ? "Save status"
+          : editorType === "busy" ? "Save busy time"
+          : editorType === "slot" ? "Save slot"
+          : "Save appointment";
       }
     }
   });
