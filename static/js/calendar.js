@@ -172,7 +172,6 @@
         [
           ["name", client.full_name || "—"],
           ["phone", client.phone || "No phone"],
-          ["email", client.email || "No email"],
         ].forEach(([field, value]) => {
           const span = document.createElement("span");
           span.className = `client-typeahead-${field}`;

@@ -996,7 +996,7 @@
 .client-typeahead-option {
   display: grid;
   width: 100%;
-  grid-template-columns: minmax(0, 1.45fr) minmax(6.5rem, 0.9fr) minmax(5.5rem, 0.9fr);
+  grid-template-columns: minmax(0, 1.65fr) minmax(7rem, 0.85fr);
   gap: 0.65rem;
   padding: 0.65rem 0.75rem;
   border: 0;
@@ -1015,8 +1015,7 @@
   font-weight: 650;
   white-space: normal;
 }
-.client-typeahead-phone,
-.client-typeahead-email {
+.client-typeahead-phone {
   overflow: hidden;
   align-self: center;
   text-overflow: ellipsis;
@@ -1026,7 +1025,7 @@
 
 @media (max-width: 620px) {
   .client-typeahead-option {
-    grid-template-columns: minmax(0, 1.35fr) minmax(5.8rem, 0.9fr) minmax(4.8rem, 0.8fr);
+    grid-template-columns: minmax(0, 1.55fr) minmax(6rem, 0.85fr);
     gap: 0.35rem;
     padding-inline: 0.45rem;
     font-size: 0.78rem;
