@@ -155,7 +155,7 @@
           <div><dt>Client</dt><dd data-editor-summary-client>—</dd></div>
           <div><dt>Service</dt><dd data-editor-summary-service>—</dd></div>
           <div><dt>Status</dt><dd data-editor-summary-status>—</dd></div>
-          <div><dt>Phone</dt><dd><a data-editor-summary-phone href="#">—</dd></div>
+          <div><dt>Phone</dt><dd><a data-editor-summary-phone href="#">—</a></dd></div>
         </dl>
 
         <fieldset class="editor-section smart-service-section service-picker" data-editor-services-field>
@@ -177,7 +177,7 @@
                 {% for service in group.list %}
                   <label class="service-checkbox-option">
                     <input
-                      type="radio"
+                      type="checkbox"
                       name="service_ids"
                       value="{{ service.id }}"
                       data-editor-service
