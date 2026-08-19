@@ -1,6 +1,6 @@
 """Set every instructor login to the A2Z standard credentials.
 
-Username: exact full name, e.g. ``Abhinand Biju``
+Username: instructor name with trailing parenthetical descriptor removed, e.g. ``Ajay Kunjumon ( 20 Trailer )`` -> ``Ajay Kunjumon``
 Password: first name in lowercase + ``@123``, e.g. ``abhinand@123``
 
 The script creates a verified backup before changing anything and refuses to
@@ -23,14 +23,19 @@ def credentials(full_name: str) -> tuple[str, str]:
     name = " ".join((full_name or "").split())
     if not name:
         raise ValueError("Instructor has an empty full name.")
-    if len(name) > 100:
-        raise ValueError(f"Instructor full name is over 100 characters: {name!r}")
-    if any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
+    # Parenthetical descriptors are not part of the instructor login name.
+    # Example: "Ajay Kunjumon ( 20 Trailer )" -> "Ajay Kunjumon".
+    username = re.sub(r"\s*\([^()]*\)\s*$", "", name).strip()
+    if not username:
+        raise ValueError(f"Instructor username cannot be derived from name: {name!r}")
+    if len(username) > 100:
+        raise ValueError(f"Instructor username is over 100 characters: {username!r}")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in username):
         raise ValueError(f"Instructor name contains an invalid control character: {name!r}")
-    first = re.sub(r"[^A-Za-z0-9]", "", name.split()[0]).lower()
+    first = re.sub(r"[^A-Za-z0-9]", "", username.split()[0]).lower()
     if not first:
         raise ValueError(f"Instructor first name cannot form a password: {name!r}")
-    return name, f"{first}@123"
+    return username, f"{first}@123"
 
 
 def main() -> None:
