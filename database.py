@@ -960,8 +960,20 @@ def init_db() -> None:
                       AND NEW.end_time > b.start_time
                     )
                     OR (
-                      (b.machine_id = NEW.machine_id
-                       OR b.instructor_id = NEW.instructor_id)
+                      (
+                        b.instructor_id = NEW.instructor_id
+                        OR (
+                          b.machine_id = NEW.machine_id
+                          AND NOT EXISTS (
+                            SELECT 1 FROM booking_slots s
+                            WHERE s.instructor_id = NEW.instructor_id
+                              AND s.machine_id = NEW.machine_id
+                              AND s.target_date = NEW.target_date
+                              AND s.start_time <= NEW.start_time
+                              AND s.end_time >= NEW.end_time
+                          )
+                        )
+                      )
                       AND (
                         CAST(substr(NEW.start_time, 1, 2) AS INTEGER) * 60
                         + CAST(substr(NEW.start_time, 4, 2) AS INTEGER)
@@ -1006,8 +1018,20 @@ def init_db() -> None:
                       AND NEW.end_time > b.start_time
                     )
                     OR (
-                      (b.machine_id = NEW.machine_id
-                       OR b.instructor_id = NEW.instructor_id)
+                      (
+                        b.instructor_id = NEW.instructor_id
+                        OR (
+                          b.machine_id = NEW.machine_id
+                          AND NOT EXISTS (
+                            SELECT 1 FROM booking_slots s
+                            WHERE s.instructor_id = NEW.instructor_id
+                              AND s.machine_id = NEW.machine_id
+                              AND s.target_date = NEW.target_date
+                              AND s.start_time <= NEW.start_time
+                              AND s.end_time >= NEW.end_time
+                          )
+                        )
+                      )
                       AND (
                         CAST(substr(NEW.start_time, 1, 2) AS INTEGER) * 60
                         + CAST(substr(NEW.start_time, 4, 2) AS INTEGER)

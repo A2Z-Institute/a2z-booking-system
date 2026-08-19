@@ -1,5 +1,15 @@
 # A2Z Institute Scheduling Portal
 
+For the cleaned production client and upcoming-booking update dated
+19 August 2026, follow `DATA-UPDATE-2026-08-19.md` after deployment. The data
+reconciliation is deliberately manual and is not run during container startup.
+
+The same release includes the permanent blue booking-slot conflict correction
+described in `BOOKING-SLOT-CONFLICT-FIX-2026-08-19.md`.
+
+Use `CLEAR-APPOINTMENTS-ONLY.md` when clearing dummy appointments while keeping
+clients, instructors, blue booking slots, and break/busy-time entries.
+
 A role-based scheduling system for practical training at A2Z Institute. Access is controlled by the institution: there is no public account-registration page.
 
 ## What the system does

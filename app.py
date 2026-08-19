@@ -693,12 +693,37 @@ def _free_with_padding(bookings, work_windows, before_minutes, after_minutes):
     for window in free:
         start = _time_to_minutes(window["start"]) + before_minutes
         end = _time_to_minutes(window["end"]) - after_minutes
-        start = ((start + 29) // 30) * 30
+        # The calendar works in 15-minute increments. Rounding a gap that
+        # starts at :15 or :45 to the next half hour made a visibly free slot
+        # fail validation after an adjacent appointment ended.
+        start = ((start + 14) // 15) * 15
         if start < end:
             padded.append(
                 {"start": _minutes_to_time(start), "end": _minutes_to_time(end)}
             )
     return padded
+
+
+def _merge_free_windows(windows):
+    """Return the union of free/reserved windows without duplicate sessions."""
+    intervals = sorted(
+        (
+            _time_to_minutes(window["start"]),
+            _time_to_minutes(window["end"]),
+        )
+        for window in windows
+        if _time_to_minutes(window["start"]) < _time_to_minutes(window["end"])
+    )
+    merged = []
+    for start, end in intervals:
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [
+        {"start": _minutes_to_time(start), "end": _minutes_to_time(end)}
+        for start, end in merged
+    ]
 
 
 def _cancel_queued_booking_notifications(conn, booking_id):
@@ -1181,6 +1206,25 @@ def _appointment_conflict_message(buffer_before=0, buffer_after=0):
     return "This time conflicts with the client, instructor, or equipment schedule."
 
 
+def _has_covering_booking_slot(
+    conn, *, instructor_id, machine_id, target, start_time, end_time
+):
+    """A blue slot reserves this equipment band for this instructor."""
+    target_text = target.isoformat() if hasattr(target, "isoformat") else str(target)
+    return bool(
+        conn.execute(
+            """
+            SELECT 1
+            FROM booking_slots
+            WHERE instructor_id = ? AND machine_id = ? AND target_date = ?
+              AND start_time <= ? AND end_time >= ?
+            LIMIT 1
+            """,
+            (instructor_id, machine_id, target_text, start_time, end_time),
+        ).fetchone()
+    )
+
+
 def _appointment_conflict_for_range(
     conn,
     *,
@@ -1200,10 +1244,22 @@ def _appointment_conflict_for_range(
         exclude_clause = " AND b.id != ?"
         base_params.append(exclude_booking_id)
 
-    checks = (
+    checks = [
         ("b.instructor_id = ?", instructor_id, "The destination instructor already has an appointment during this time."),
-        ("b.machine_id = ?", machine_id, "The selected equipment is already booked during this time."),
-        ("b.student_user_id = ?", student_id, "This client already has another appointment during this time."),
+    ]
+    if not _has_covering_booking_slot(
+        conn,
+        instructor_id=instructor_id,
+        machine_id=machine_id,
+        target=target,
+        start_time=start_time,
+        end_time=end_time,
+    ):
+        checks.append(
+            ("b.machine_id = ?", machine_id, "The selected equipment is already booked during this time.")
+        )
+    checks.append(
+        ("b.student_user_id = ?", student_id, "This client already has another appointment during this time.")
     )
     for resource_clause, resource_id, message in checks:
         row = conn.execute(
@@ -1431,6 +1487,22 @@ def _available_slots(
         buffer_before_minutes,
         buffer_after_minutes,
     )
+    # A blue booking slot is an administrator-created reservation of this
+    # equipment band for this instructor. Add it back to machine availability
+    # even when the same equipment category is used by another instructor.
+    reserved_windows = [
+        {"start": row["start_time"], "end": row["end_time"]}
+        for row in conn.execute(
+            """
+            SELECT start_time, end_time
+            FROM booking_slots
+            WHERE instructor_id = ? AND machine_id = ? AND target_date = ?
+            ORDER BY start_time
+            """,
+            (instructor_id, machine_id, target.isoformat()),
+        ).fetchall()
+    ]
+    machine_free = _merge_free_windows(machine_free + reserved_windows)
     instructor_windows = (
         _instructor_work_windows(conn, instructor_id, target)
         if respect_working_hours
