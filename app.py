@@ -4581,7 +4581,7 @@ def api_calendar_cancel_appointment(booking_id):
 
 
 @app.delete("/api/calendar/appointments/<int:booking_id>/permanent")
-@role_required("admin")
+@role_required("booking_agent", "admin")
 def api_calendar_delete_appointment(booking_id):
     payload = request.get_json(silent=True) or {}
     with get_db() as conn:
