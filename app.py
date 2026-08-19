@@ -1134,9 +1134,12 @@ def _validate_email(value):
     return email
 
 
-def _validate_username(value):
-    username = (value or "").strip()
-    if not re.fullmatch(r"[A-Za-z0-9._-]{3,50}", username):
+def _validate_username(value, *, allow_spaces=False):
+    username = " ".join((value or "").split()) if allow_spaces else (value or "").strip()
+    pattern = r"[A-Za-z0-9._ -]{3,50}" if allow_spaces else r"[A-Za-z0-9._-]{3,50}"
+    if not re.fullmatch(pattern, username):
+        if allow_spaces:
+            raise ValueError("Username must be 3–50 letters, numbers, spaces, dots, dashes or underscores.")
         raise ValueError("Username must be 3–50 letters, numbers, dots, dashes or underscores.")
     return username
 
@@ -1146,6 +1149,20 @@ def _validate_full_name(value):
     if len(full_name) < 2 or len(full_name) > 100:
         raise ValueError("Enter the person's full name.")
     return full_name
+
+
+def _instructor_credentials(full_name):
+    """Return the requested instructor username and starter password.
+
+    Username is exactly the normalized full name. Password is the first name
+    in lowercase followed by @123, e.g. ``Abhinand Biju`` -> ``abhinand@123``.
+    """
+    full_name = _validate_full_name(full_name)
+    username = _validate_username(full_name, allow_spaces=True)
+    first_name = re.sub(r"[^A-Za-z0-9]", "", full_name.split()[0]).lower()
+    if not first_name:
+        raise ValueError("The instructor's first name must contain letters or numbers.")
+    return username, f"{first_name}@123"
 
 
 def _optional_email(value):
@@ -1872,13 +1889,14 @@ def _admin_users_context(conn, *, editing_user_id=None):
 
 
 def _render_admin_users(*, editing_user_id=None, error=None, temporary_password=None,
-                        temporary_username=None, status_code=200):
+                        temporary_username=None, credential_is_temporary=True, status_code=200):
     with get_db() as conn:
         context = _admin_users_context(conn, editing_user_id=editing_user_id)
     context.update(
         error=error,
         temporary_password=temporary_password,
         temporary_username=temporary_username,
+        credential_is_temporary=credential_is_temporary,
     )
     return render_template("admin_users.html", **context), status_code
 
@@ -1902,6 +1920,10 @@ def admin_users():
             )
         full_name = _validate_full_name(request.form.get("full_name"))
         username = _validate_username(request.form.get("username"))
+        if role == "instructor":
+            username, instructor_password = _instructor_credentials(full_name)
+        else:
+            instructor_password = None
         email = _validate_email(request.form.get("email"))
         phone = (request.form.get("phone") or "").strip()
         if role in {"student", "instructor"}:
@@ -1909,7 +1931,10 @@ def admin_users():
         elif phone:
             phone = _normalise_phone(phone)
         password = request.form.get("password") or ""
-        if not password:
+        if role == "instructor":
+            password = instructor_password
+            generated_password = password
+        elif not password:
             password = generated_password = _temporary_password()
         if len(password) < MIN_PASSWORD_LENGTH:
             raise ValueError(
@@ -2021,6 +2046,7 @@ def admin_users():
         return _render_admin_users(
             temporary_password=generated_password,
             temporary_username=username if generated_password else None,
+            credential_is_temporary=(role != "instructor"),
         )
     except sqlite3.IntegrityError:
         return _render_admin_users(
@@ -2072,7 +2098,10 @@ def admin_user_edit(user_id):
                     "Instructor and student roles cannot be changed after creation."
                 )
             full_name = _validate_full_name(request.form.get("full_name"))
-            username = _validate_username(request.form.get("username"))
+            if user["role"] == "instructor":
+                username, _ = _instructor_credentials(full_name)
+            else:
+                username = _validate_username(request.form.get("username"))
             email = _validate_email(request.form.get("email"))
             phone = (request.form.get("phone") or "").strip()
             if user["role"] in {"student", "instructor"}:
@@ -2295,21 +2324,37 @@ def admin_user_toggle(user_id):
 @app.post("/admin/users/<int:user_id>/reset-password")
 @role_required("admin")
 def admin_user_reset_password(user_id):
-    password = _temporary_password()
     with get_db() as conn:
-        user = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
+        user = conn.execute(
+            "SELECT id, username, full_name, role FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
         if not user:
             abort(404)
-        conn.execute(
-            """
-            UPDATE users SET password_hash = ?, must_change_password = 1,
-                updated_at = CURRENT_TIMESTAMP WHERE id = ?
-            """,
-            (generate_password_hash(password), user_id),
-        )
+        if user["role"] == "instructor":
+            username, password = _instructor_credentials(user["full_name"])
+            conn.execute(
+                """
+                UPDATE users SET username = ?, password_hash = ?, must_change_password = 0,
+                    updated_at = CURRENT_TIMESTAMP WHERE id = ?
+                """,
+                (username, generate_password_hash(password), user_id),
+            )
+        else:
+            password = _temporary_password()
+            username = user["username"]
+            conn.execute(
+                """
+                UPDATE users SET password_hash = ?, must_change_password = 1,
+                    updated_at = CURRENT_TIMESTAMP WHERE id = ?
+                """,
+                (generate_password_hash(password), user_id),
+            )
         _audit(conn, "temporary_password_issued", details={"target_user_id": user_id})
     return _render_admin_users(
-        temporary_password=password, temporary_username=user["username"]
+        temporary_password=password,
+        temporary_username=username,
+        credential_is_temporary=(user["role"] != "instructor"),
     )
 
 

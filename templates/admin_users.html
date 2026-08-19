@@ -43,8 +43,8 @@
   <section class="credential-panel" role="status" aria-labelledby="temporary-password-title">
     <div>
       <p class="eyebrow">Shown once</p>
-      <h2 id="temporary-password-title">Temporary sign-in details</h2>
-      <p>Share these details privately. The user must choose a new password after signing in.</p>
+      <h2 id="temporary-password-title">{{ 'Temporary sign-in details' if credential_is_temporary else 'Instructor sign-in details' }}</h2>
+      <p>{% if credential_is_temporary %}Share these details privately. The user must choose a new password after signing in.{% else %}Share these details privately. This is the instructor's standard login password.{% endif %}</p>
     </div>
     <dl class="credential-values">
       <div>
@@ -52,7 +52,7 @@
         <dd><code id="temporary-username-value">{{ temporary_username }}</code></dd>
       </div>
       <div>
-        <dt>Temporary password</dt>
+        <dt>{{ 'Temporary password' if credential_is_temporary else 'Password' }}</dt>
         <dd><code id="temporary-password-value">{{ temporary_password }}</code></dd>
       </div>
     </dl>
@@ -165,7 +165,7 @@
                       <a class="button button-secondary button-small" href="{{ url_for('admin_user_edit', user_id=managed.id) }}#account-form">Edit</a>
                       <form class="inline-form" action="{{ url_for('admin_user_reset_password', user_id=managed.id) }}" method="post">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button class="button button-quiet button-small" type="submit" data-confirm="Issue a new temporary password for {{ managed.full_name }}?">Reset password</button>
+                        <button class="button button-quiet button-small" type="submit" data-confirm="{{ 'Reset ' ~ managed.full_name ~ ' to the standard instructor password?' if managed.role == 'instructor' else 'Issue a new temporary password for ' ~ managed.full_name ~ '?' }}">Reset password</button>
                       </form>
                       <form class="inline-form" action="{{ url_for('admin_user_toggle', user_id=managed.id) }}" method="post">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -203,7 +203,7 @@
               <a class="button button-secondary button-small" href="{{ url_for('admin_user_edit', user_id=managed.id) }}#account-form">Edit</a>
               <form action="{{ url_for('admin_user_reset_password', user_id=managed.id) }}" method="post">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class="button button-quiet button-small" type="submit" data-confirm="Issue a new temporary password for {{ managed.full_name }}?">Reset password</button>
+                <button class="button button-quiet button-small" type="submit" data-confirm="{{ 'Reset ' ~ managed.full_name ~ ' to the standard instructor password?' if managed.role == 'instructor' else 'Issue a new temporary password for ' ~ managed.full_name ~ '?' }}">Reset password</button>
               </form>
               <form action="{{ url_for('admin_user_toggle', user_id=managed.id) }}" method="post">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -256,7 +256,7 @@
           </div>
           <div class="field">
             <label for="edit-username">Username</label>
-            <input id="edit-username" name="username" type="text" value="{{ request.form.get('username', editing_user.username) }}" minlength="3" maxlength="50" pattern="[A-Za-z0-9._-]+" autocapitalize="none" spellcheck="false" required>
+            <input id="edit-username" name="username" type="text" value="{{ request.form.get('username', editing_user.username) }}" minlength="3" maxlength="50" pattern="[A-Za-z0-9._ -]+" autocapitalize="words" spellcheck="false" {% if editing_user.role == 'instructor' %}readonly{% endif %} required>
           </div>
           <div class="field">
             <label for="edit-email">Email address</label>
@@ -336,8 +336,8 @@
           </div>
           <div class="field">
             <label for="new-username">Username</label>
-            <input id="new-username" name="username" type="text" value="{{ request.form.get('username', linking.suggested_username if linking else '') }}" minlength="3" maxlength="50" pattern="[A-Za-z0-9._-]+" autocapitalize="none" spellcheck="false" autocomplete="off" required>
-            <span class="field-hint">Letters, numbers, dots, dashes, and underscores.</span>
+            <input id="new-username" name="username" type="text" value="{{ request.form.get('username', linking.suggested_username if linking else '') }}" minlength="3" maxlength="50" pattern="[A-Za-z0-9._ -]+" autocapitalize="words" spellcheck="false" autocomplete="off" required>
+            <span class="field-hint">For Instructor accounts, username is automatically set to the full name.</span>
           </div>
           <div class="field">
             <label for="new-email">Email address</label>
