@@ -1158,7 +1158,13 @@ def _instructor_credentials(full_name):
     in lowercase followed by @123, e.g. ``Abhinand Biju`` -> ``abhinand@123``.
     """
     full_name = _validate_full_name(full_name)
-    username = _validate_username(full_name, allow_spaces=True)
+    # Instructor usernames intentionally match the full name, including
+    # normal punctuation such as parentheses. General usernames remain
+    # restricted by _validate_username; instructor credentials are the
+    # exception because the requested username is the person's full name.
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in full_name):
+        raise ValueError("The instructor's full name contains an invalid character.")
+    username = full_name
     first_name = re.sub(r"[^A-Za-z0-9]", "", full_name.split()[0]).lower()
     if not first_name:
         raise ValueError("The instructor's first name must contain letters or numbers.")

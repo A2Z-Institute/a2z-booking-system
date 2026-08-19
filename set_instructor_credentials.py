@@ -23,10 +23,10 @@ def credentials(full_name: str) -> tuple[str, str]:
     name = " ".join((full_name or "").split())
     if not name:
         raise ValueError("Instructor has an empty full name.")
-    if len(name) > 50:
-        raise ValueError(f"Instructor full name is over 50 characters: {name!r}")
-    if not re.fullmatch(r"[A-Za-z0-9._ -]{3,50}", name):
-        raise ValueError(f"Instructor name cannot be used as a username: {name!r}")
+    if len(name) > 100:
+        raise ValueError(f"Instructor full name is over 100 characters: {name!r}")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
+        raise ValueError(f"Instructor name contains an invalid control character: {name!r}")
     first = re.sub(r"[^A-Za-z0-9]", "", name.split()[0]).lower()
     if not first:
         raise ValueError(f"Instructor first name cannot form a password: {name!r}")
