@@ -808,7 +808,7 @@
         saveButton.hidden = currentRole === "instructor" ? false : !event.can_edit;
         if (currentRole === "instructor") saveButton.textContent = "Save status";
       }
-      if (permanentDeleteButton) permanentDeleteButton.hidden = !["admin", "booking_agent"].includes(currentRole);
+      if (permanentDeleteButton) permanentDeleteButton.hidden = currentRole !== "admin";
       setEditorType("appointment");
       if (!event.can_edit) {
         if (titleText) titleText.textContent = "Appointment details";
@@ -1813,7 +1813,7 @@
   });
 
   permanentDeleteButton?.addEventListener("click", async () => {
-    if (!editingEvent || editingEvent.type !== "appointment" || !["admin", "booking_agent"].includes(currentRole)) return;
+    if (!editingEvent || editingEvent.type !== "appointment" || currentRole !== "admin") return;
     if (!window.confirm(`Delete ${editingEvent.student_name}'s appointment permanently? Click OK to delete it.`)) return;
     clearError();
     try {

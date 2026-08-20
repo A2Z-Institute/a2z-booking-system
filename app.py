@@ -1134,12 +1134,9 @@ def _validate_email(value):
     return email
 
 
-def _validate_username(value, *, allow_spaces=False):
-    username = " ".join((value or "").split()) if allow_spaces else (value or "").strip()
-    pattern = r"[A-Za-z0-9._ -]{3,50}" if allow_spaces else r"[A-Za-z0-9._-]{3,50}"
-    if not re.fullmatch(pattern, username):
-        if allow_spaces:
-            raise ValueError("Username must be 3–50 letters, numbers, spaces, dots, dashes or underscores.")
+def _validate_username(value):
+    username = (value or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9._-]{3,50}", username):
         raise ValueError("Username must be 3–50 letters, numbers, dots, dashes or underscores.")
     return username
 
@@ -1149,26 +1146,6 @@ def _validate_full_name(value):
     if len(full_name) < 2 or len(full_name) > 100:
         raise ValueError("Enter the person's full name.")
     return full_name
-
-
-def _instructor_credentials(full_name):
-    """Return the requested instructor username and starter password.
-
-    Username is exactly the normalized full name. Password is the first name
-    in lowercase followed by @123, e.g. ``Abhinand Biju`` -> ``abhinand@123``.
-    """
-    full_name = _validate_full_name(full_name)
-    # Instructor usernames intentionally match the full name, including
-    # normal punctuation such as parentheses. General usernames remain
-    # restricted by _validate_username; instructor credentials are the
-    # exception because the requested username is the person's full name.
-    if any(ord(ch) < 32 or ord(ch) == 127 for ch in full_name):
-        raise ValueError("The instructor's full name contains an invalid character.")
-    username = full_name
-    first_name = re.sub(r"[^A-Za-z0-9]", "", full_name.split()[0]).lower()
-    if not first_name:
-        raise ValueError("The instructor's first name must contain letters or numbers.")
-    return username, f"{first_name}@123"
 
 
 def _optional_email(value):
@@ -1311,7 +1288,10 @@ def _matching_contact_record(
     email_values = sorted(
         {str(value).strip().lower() for value in emails if value}
     )
-    phone_values = sorted({str(value).strip() for value in phones if value})
+    # Imported client lists frequently contain spaces, brackets or dashes in
+    # phone numbers.  A literal comparison lets the same person be created a
+    # second time when a booking agent types the number without formatting.
+    phone_values = sorted({_phone_digits(value) for value in phones if value})
     contact_clauses = []
     params = [exclude_user_id or -1]
     for email in email_values:
@@ -1326,8 +1306,8 @@ def _matching_contact_record(
     for phone in phone_values:
         contact_clauses.append(
             """
-            (COALESCE(u.phone, '') = ?
-             OR COALESCE(cp.secondary_phone, '') = ?)
+            (REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(u.phone, ''), ' ', ''), '-', ''), '(', ''), ')', ''), '+', '') = ?
+             OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(cp.secondary_phone, ''), ' ', ''), '-', ''), '(', ''), ')', ''), '+', '') = ?)
             """
         )
         params.extend((phone, phone))
@@ -1344,6 +1324,57 @@ def _matching_contact_record(
         """,
         params,
     ).fetchone()
+
+
+def _phone_digits(value):
+    """Return a display-format independent phone value for client matching."""
+    return re.sub(r"\D", "", str(value or ""))
+
+
+def _client_identity_key(full_name, phone):
+    """The conservative identity rule used for harmless client consolidation."""
+    name = " ".join(str(full_name or "").casefold().split())
+    phone_digits = _phone_digits(phone)
+    return (name, phone_digits) if name and phone_digits else None
+
+
+def _related_client_ids(conn, client_id):
+    """Return client ids that are unquestionably the same person.
+
+    We only relate records with the exact normalized full name *and* primary
+    phone.  This deliberately avoids phone-only matching, which could join
+    relatives sharing a number.
+    """
+    current = conn.execute(
+        "SELECT id, full_name, phone FROM users WHERE id = ? AND role = 'student'",
+        (client_id,),
+    ).fetchone()
+    if not current:
+        return []
+    key = _client_identity_key(current["full_name"], current["phone"])
+    if not key:
+        return [client_id]
+    rows = conn.execute(
+        """
+        SELECT id, full_name, phone
+        FROM users
+        WHERE role = 'student'
+          AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone, ''), ' ', ''), '-', ''), '(', ''), ')', ''), '+', '') = ?
+        ORDER BY id
+        """,
+        (key[1],),
+    ).fetchall()
+    related = [
+        row["id"] for row in rows
+        if _client_identity_key(row["full_name"], row["phone"]) == key
+    ]
+    return related or [client_id]
+
+
+def _canonical_client_id(conn, client_id):
+    """Use one stable client id for future bookings of the same person."""
+    related = _related_client_ids(conn, client_id)
+    return min(related) if related else client_id
 
 
 def _client_contact_values(payload):
@@ -1895,14 +1926,13 @@ def _admin_users_context(conn, *, editing_user_id=None):
 
 
 def _render_admin_users(*, editing_user_id=None, error=None, temporary_password=None,
-                        temporary_username=None, credential_is_temporary=True, status_code=200):
+                        temporary_username=None, status_code=200):
     with get_db() as conn:
         context = _admin_users_context(conn, editing_user_id=editing_user_id)
     context.update(
         error=error,
         temporary_password=temporary_password,
         temporary_username=temporary_username,
-        credential_is_temporary=credential_is_temporary,
     )
     return render_template("admin_users.html", **context), status_code
 
@@ -1926,10 +1956,6 @@ def admin_users():
             )
         full_name = _validate_full_name(request.form.get("full_name"))
         username = _validate_username(request.form.get("username"))
-        if role == "instructor":
-            username, instructor_password = _instructor_credentials(full_name)
-        else:
-            instructor_password = None
         email = _validate_email(request.form.get("email"))
         phone = (request.form.get("phone") or "").strip()
         if role in {"student", "instructor"}:
@@ -1937,10 +1963,7 @@ def admin_users():
         elif phone:
             phone = _normalise_phone(phone)
         password = request.form.get("password") or ""
-        if role == "instructor":
-            password = instructor_password
-            generated_password = password
-        elif not password:
+        if not password:
             password = generated_password = _temporary_password()
         if len(password) < MIN_PASSWORD_LENGTH:
             raise ValueError(
@@ -2052,7 +2075,6 @@ def admin_users():
         return _render_admin_users(
             temporary_password=generated_password,
             temporary_username=username if generated_password else None,
-            credential_is_temporary=(role != "instructor"),
         )
     except sqlite3.IntegrityError:
         return _render_admin_users(
@@ -2104,10 +2126,7 @@ def admin_user_edit(user_id):
                     "Instructor and student roles cannot be changed after creation."
                 )
             full_name = _validate_full_name(request.form.get("full_name"))
-            if user["role"] == "instructor":
-                username, _ = _instructor_credentials(full_name)
-            else:
-                username = _validate_username(request.form.get("username"))
+            username = _validate_username(request.form.get("username"))
             email = _validate_email(request.form.get("email"))
             phone = (request.form.get("phone") or "").strip()
             if user["role"] in {"student", "instructor"}:
@@ -2330,37 +2349,21 @@ def admin_user_toggle(user_id):
 @app.post("/admin/users/<int:user_id>/reset-password")
 @role_required("admin")
 def admin_user_reset_password(user_id):
+    password = _temporary_password()
     with get_db() as conn:
-        user = conn.execute(
-            "SELECT id, username, full_name, role FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
+        user = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
         if not user:
             abort(404)
-        if user["role"] == "instructor":
-            username, password = _instructor_credentials(user["full_name"])
-            conn.execute(
-                """
-                UPDATE users SET username = ?, password_hash = ?, must_change_password = 0,
-                    updated_at = CURRENT_TIMESTAMP WHERE id = ?
-                """,
-                (username, generate_password_hash(password), user_id),
-            )
-        else:
-            password = _temporary_password()
-            username = user["username"]
-            conn.execute(
-                """
-                UPDATE users SET password_hash = ?, must_change_password = 1,
-                    updated_at = CURRENT_TIMESTAMP WHERE id = ?
-                """,
-                (generate_password_hash(password), user_id),
-            )
+        conn.execute(
+            """
+            UPDATE users SET password_hash = ?, must_change_password = 1,
+                updated_at = CURRENT_TIMESTAMP WHERE id = ?
+            """,
+            (generate_password_hash(password), user_id),
+        )
         _audit(conn, "temporary_password_issued", details={"target_user_id": user_id})
     return _render_admin_users(
-        temporary_password=password,
-        temporary_username=username,
-        credential_is_temporary=(user["role"] != "instructor"),
+        temporary_password=password, temporary_username=user["username"]
     )
 
 
@@ -2514,7 +2517,7 @@ def new_booking():
         machines = [
             dict(row)
             for row in conn.execute(
-                """
+                f"""
                 SELECT id, machine_code, category, location FROM machines
                 WHERE branch_id = ? AND is_active = 1
                 ORDER BY category, machine_code
@@ -3984,6 +3987,10 @@ def api_calendar_create_appointment():
         )
         with get_db() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            # Book every service for an already-known person against the same
+            # canonical record.  This also repairs the case where an older
+            # formatted-phone import left duplicate client rows behind.
+            student_id = _canonical_client_id(conn, student_id)
             resource = _staff_booking_resources(
                 conn, student_id, instructor_id, machine_id
             )
@@ -4581,7 +4588,7 @@ def api_calendar_cancel_appointment(booking_id):
 
 
 @app.delete("/api/calendar/appointments/<int:booking_id>/permanent")
-@role_required("booking_agent", "admin")
+@role_required("admin")
 def api_calendar_delete_appointment(booking_id):
     payload = request.get_json(silent=True) or {}
     with get_db() as conn:
@@ -4897,15 +4904,21 @@ def api_calendar_search_clients():
     if len(query) < 2:
         return jsonify({"clients": []})
     pattern = f"%{query}%"
-    clauses = [
-        "u.role = 'student'",
-        "u.is_active = 1",
-        "(lower(COALESCE(u.full_name, '')) LIKE lower(?) OR lower(COALESCE(u.email, '')) LIKE lower(?) OR COALESCE(u.phone, '') LIKE ?)",
-    ]
+    phone_query = _phone_digits(query)
+    match_clause = """(lower(COALESCE(u.full_name, '')) LIKE lower(?)
+        OR lower(COALESCE(u.email, '')) LIKE lower(?)
+        OR COALESCE(u.phone, '') LIKE ?"""
     params = [pattern, pattern, pattern]
+    if phone_query:
+        match_clause += " OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(u.phone, ''), ' ', ''), '-', ''), '(', ''), ')', ''), '+', '') LIKE ?"
+        params.append(f"%{phone_query}%")
+    match_clause += ")"
+    clauses = ["u.role = 'student'", "u.is_active = 1", match_clause]
     if current_user.role == "instructor":
         clauses.append("u.branch_id = ?")
         params.append(current_user.branch_id)
+    clients = []
+    emitted_client_ids = set()
     with get_db() as conn:
         rows = conn.execute(
             f"""
@@ -4919,20 +4932,34 @@ def api_calendar_search_clients():
             """,
             (*params, query),
         ).fetchall()
-    clients = []
-    for row in rows:
-        record = dict(row)
-        if not current_user.has_permission("contact_details"):
-            phone = record.get("phone") or ""
-            email = record.get("email") or ""
-            record["phone"] = ("•" * max(0, len(phone) - 3)) + phone[-3:] if phone else ""
-            if email and "@" in email:
-                local, domain = email.split("@", 1)
-                record["email"] = (local[:1] + "•••@" + domain) if local else "•••@" + domain
-        parts = (record["full_name"] or "").strip().split(None, 1)
-        record["first_name"] = parts[0] if parts else ""
-        record["last_name"] = parts[1] if len(parts) > 1 else ""
-        clients.append(record)
+        for row in rows:
+            record = dict(row)
+            canonical_id = _canonical_client_id(conn, record["id"])
+            if canonical_id in emitted_client_ids:
+                continue
+            if canonical_id != record["id"]:
+                canonical = conn.execute(
+                    """
+                    SELECT id, full_name, COALESCE(email, '') AS email,
+                           COALESCE(phone, '') AS phone, branch_id
+                    FROM users WHERE id = ? AND role = 'student'
+                    """,
+                    (canonical_id,),
+                ).fetchone()
+                if canonical:
+                    record = dict(canonical)
+            emitted_client_ids.add(canonical_id)
+            if not current_user.has_permission("contact_details"):
+                phone = record.get("phone") or ""
+                email = record.get("email") or ""
+                record["phone"] = ("•" * max(0, len(phone) - 3)) + phone[-3:] if phone else ""
+                if email and "@" in email:
+                    local, domain = email.split("@", 1)
+                    record["email"] = (local[:1] + "•••@" + domain) if local else "•••@" + domain
+            parts = (record["full_name"] or "").strip().split(None, 1)
+            record["first_name"] = parts[0] if parts else ""
+            record["last_name"] = parts[1] if len(parts) > 1 else ""
+            clients.append(record)
     return jsonify({"clients": clients})
 
 
@@ -5105,16 +5132,18 @@ def client_detail(client_id):
         client = _client_access_row(conn, client_id)
         if not client:
             abort(404)
+        related_client_ids = _related_client_ids(conn, client_id)
+        related_placeholders = ",".join("?" for _ in related_client_ids)
         bookings = _booking_rows(
             conn,
-            "b.student_user_id = ?",
-            (client_id,),
+            f"b.student_user_id IN ({related_placeholders})",
+            tuple(related_client_ids),
             "b.target_date DESC, b.start_time DESC",
         )
         intake_values = [
             dict(row)
             for row in conn.execute(
-                """
+                f"""
                 SELECT biv.*, b.target_date, b.start_time,
                        COALESCE(NULLIF(b.service_name, ''), s.name, m.category)
                            AS service_name
@@ -5122,10 +5151,10 @@ def client_detail(client_id):
                 JOIN bookings b ON b.id = biv.booking_id
                 JOIN machines m ON m.id = b.machine_id
                 LEFT JOIN services s ON s.id = b.service_id
-                WHERE b.student_user_id = ?
+                WHERE b.student_user_id IN ({related_placeholders})
                 ORDER BY b.target_date DESC, b.start_time DESC, biv.id
                 """,
-                (client_id,),
+                tuple(related_client_ids),
             ).fetchall()
         ]
         branches = []
