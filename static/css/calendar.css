@@ -337,6 +337,26 @@
   font-size: 0.61rem;
 }
 
+.calendar-event-double-book {
+  position: absolute;
+  right: 0.18rem;
+  top: 0.18rem;
+  z-index: 3;
+  padding: 0.08rem 0.28rem;
+  border: 1px solid #087b9e;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #087b9e;
+  font-size: 0.62rem !important;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.calendar-event:hover .calendar-event-double-book,
+.calendar-event:focus-visible .calendar-event-double-book {
+  background: #e8f8fd;
+}
+
 .calendar-event.event-status-pending {
   background: repeating-linear-gradient(
     -45deg,

@@ -435,9 +435,12 @@
       const base = hasBookingSlot ? 32 : 0;
       const available = 100 - base;
       group.forEach((item) => {
+        // Smart Scheduling places the original appointment on the right and
+        // grows approved double bookings toward the left.
+        const displayLane = laneCount - 1 - item._calendarLane;
         item._calendarLaneCount = laneCount;
-        item._calendarLeft = base + (available * item._calendarLane / laneCount);
-        item._calendarRight = 100 - (base + (available * (item._calendarLane + 1) / laneCount));
+        item._calendarLeft = base + (available * displayLane / laneCount);
+        item._calendarRight = 100 - (base + (available * (displayLane + 1) / laneCount));
       });
       group = [];
     };
@@ -831,6 +834,10 @@
     button.className = eventClass(event);
     const isBusy = event.type === "busy";
     const isSlot = event.type === "slot";
+    const canStartDoubleBooking = !isBusy
+      && !isSlot
+      && ["admin", "booking_agent"].includes(currentRole)
+      && !["Cancelled", "Rejected", "Completed", "No-show"].includes(event.status);
     const canDragEvent = Boolean(event.can_edit) && (
       event.type === "appointment" || (isSlot && currentRole === "admin")
     );
@@ -866,6 +873,7 @@
       <strong class="calendar-event-client"></strong>
       <span class="calendar-event-service"></span>
       <small class="calendar-event-status"></small>
+      ${canStartDoubleBooking ? '<span class="calendar-event-double-book" title="Add another booking at this time">+ Book</span>' : ''}
       ${canDragEvent ? `<span class="calendar-event-resize" title="Drag to change ${isSlot ? "slot" : "appointment"} duration" aria-label="Resize ${isSlot ? "booking slot" : "appointment"}"></span>` : ''}
     `;
     button.querySelector(".calendar-event-client").textContent =
@@ -890,6 +898,18 @@
     button.addEventListener("click", (clickEvent) => {
       clickEvent.stopPropagation();
       if (Date.now() < suppressEventClickUntil) return;
+      if (canStartDoubleBooking && clickEvent.target.closest(".calendar-event-double-book")) {
+        prepareNewEditor(
+          event.date,
+          event.instructor_id,
+          event.start_time,
+          button,
+          "appointment",
+          "",
+          event,
+        );
+        return;
+      }
       if (isSlot && currentRole === "booking_agent") {
         prepareNewEditor(
           event.date,
