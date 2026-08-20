@@ -242,14 +242,15 @@
 .calendar-slot:not(.is-non-working):not(.is-occupied):focus-visible::before {
   position: absolute;
   z-index: 2;
-  inset: 1px 4px;
+  inset: 3px 5px;
   display: grid;
   place-items: center;
-  border: 1px dashed #0b93bd;
+  border: 1px solid #0b93bd;
+  border-radius: 999px;
   background: #e8f8fd;
   color: #087b9e;
   content: attr(data-book-label);
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   font-weight: 800;
 }
 

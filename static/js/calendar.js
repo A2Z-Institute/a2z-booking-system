@@ -1225,7 +1225,10 @@
       });
     });
     if (disabled || occupied) return;
-    slot.dataset.bookLabel = `Book ${formatClock(start)}`;
+    // A visible plus affordance makes it clear that an empty white cell can
+    // start a booking. The server still checks conflicts and asks authorised
+    // staff before recording an allowed double booking.
+    slot.dataset.bookLabel = `+ Book ${formatClock(start)}`;
     let longPressTimer;
     let longPressed = false;
     slot.addEventListener("pointerdown", (event) => {
