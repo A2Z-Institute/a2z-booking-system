@@ -36,7 +36,7 @@ def matching_rows(conn):
         SELECT b.id, b.student_name, b.mobile_number, b.target_date,
                b.start_time, b.end_time, b.notes, b.instructor_id,
                b.machine_id, b.branch_id, i.name AS instructor_name,
-               m.name AS machine_name, m.code AS machine_code
+               m.machine_code, m.category AS machine_category
           FROM bookings b
           JOIN instructors i ON i.id = b.instructor_id
           JOIN machines m ON m.id = b.machine_id
@@ -63,6 +63,24 @@ def slot_exists(conn, row) -> bool:
     )
 
 
+def ame_machine_id(conn, branch_id: int) -> int:
+    """Return the dedicated AME slot resource, creating it when required."""
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO machines
+            (machine_code, category, location, branch_id, is_active)
+        VALUES ('AME', 'Availability slot', 'Scheduling', ?, 1)
+        """,
+        (branch_id,),
+    )
+    row = conn.execute(
+        "SELECT id FROM machines WHERE upper(machine_code) = 'AME'"
+    ).fetchone()
+    if not row:
+        raise RuntimeError("Could not create or find the AME slot resource.")
+    return int(row["id"])
+
+
 def report_for(conn) -> dict:
     rows = ame_rows(conn)
     return {
@@ -76,7 +94,7 @@ def report_for(conn) -> dict:
                 "date": row["target_date"],
                 "time": f"{row['start_time']}-{row['end_time']}",
                 "instructor": row["instructor_name"],
-                "equipment": row["machine_name"] or row["machine_code"],
+                "equipment": row["machine_code"] or row["machine_category"],
             }
             for row in rows
         ],
@@ -131,6 +149,11 @@ def main() -> int:
         conn.execute("BEGIN IMMEDIATE")
         created = 0
         for row in rows:
+            machine_id = ame_machine_id(conn, row["branch_id"])
+            # AME availability is deliberately separate from the original
+            # vehicle. It is then available in the administrator slot picker.
+            row = dict(row)
+            row["machine_id"] = machine_id
             if not slot_exists(conn, row):
                 note = f"Converted AME availability slot from appointment #{row['id']}: {row['student_name']}"
                 if row["notes"]:

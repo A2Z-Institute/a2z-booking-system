@@ -1,8 +1,10 @@
 # Convert AME appointments to slots
 
-An AME placeholder such as `AME 58` can be converted into a blue booking slot.
-The conversion keeps its instructor, equipment, date and time. It does **not**
-delete any client record; it deletes only the matched placeholder appointment.
+An AME placeholder such as `AME 58` can be converted into a blue **AME**
+booking slot. The conversion keeps its instructor, date and time, and moves it
+onto the dedicated AME slot resource shown in the administrator equipment list.
+It does **not** delete any client record; it deletes only the matched
+placeholder appointment.
 
 The conversion matches names starting with `AME` followed by a number, for
 example `AME 58`, `AME-58`, or `ame 58`. It will not touch regular client

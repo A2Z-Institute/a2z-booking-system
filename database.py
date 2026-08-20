@@ -1099,6 +1099,9 @@ def seed_reference_data() -> None:
         ).fetchone()["id"]
 
         machines = [
+            # AME is an availability-band resource. Administrators use it for
+            # blue AME booking slots; it is not a client training vehicle.
+            ("AME", "Availability slot", "Scheduling"),
             ("FORKLIFT MANUAL", "Forklift", "Track"),
             ("TRAILER - TEST TRIAL", "Trailer", "Track"),
             ("ELECTRIC FORKLIFT", "Forklift", "Track"),
