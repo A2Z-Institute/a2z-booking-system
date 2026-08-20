@@ -2919,7 +2919,7 @@ def _calendar_instructors(conn):
             WHERE {where}
             -- Staff order is operational and matches the imported Smart
             -- Scheduling calendar instead of alphabetising the columns.
-            ORDER BY br.name, i.id
+            ORDER BY br.name, i.display_order, i.id
             """,
             params,
         ).fetchall()

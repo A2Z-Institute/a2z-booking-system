@@ -572,6 +572,9 @@ def init_db() -> None:
                 "verified_at": "TEXT",
                 "verified_by": "INTEGER",
                 "uses_custom_availability": "INTEGER NOT NULL DEFAULT 0",
+                # Calendar columns use this operational order rather than the
+                # import/database record id.
+                "display_order": "INTEGER NOT NULL DEFAULT 1000",
                 "created_at": "TEXT",
                 "updated_at": "TEXT",
             },
