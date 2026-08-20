@@ -121,6 +121,15 @@
   let saveInFlight = false;
   let moveInFlight = false;
 
+  const persistCalendarDate = () => {
+    const selectedDate = String(dateInput?.value || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) return;
+    const locationUrl = new URL(window.location.href);
+    if (locationUrl.searchParams.get("date") === selectedDate) return;
+    locationUrl.searchParams.set("date", selectedDate);
+    window.history.replaceState({}, "", locationUrl);
+  };
+
   const parseJson = async (response) => {
     try {
       return await response.json();
@@ -1361,6 +1370,9 @@
     if (loadRequest) loadRequest.abort();
     loadRequest = new AbortController();
     loadInFlight = true;
+    // Keep the selected day in the URL. A normal refresh then asks Flask for
+    // this same day instead of falling back to today's calendar.
+    persistCalendarDate();
     const selectedPeriod = period();
     const start = toInputDate(selectedPeriod.start);
     const end = toInputDate(selectedPeriod.end);
@@ -1693,9 +1705,14 @@
         : editorType === "slot" ? await saveBookingSlot()
         : await saveAppointment();
       mergeSavedEvents(result?.savedEvents || []);
+      const savedDate = result?.savedEvents?.[0]?.date;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(savedDate || ""))) {
+        dateInput.value = savedDate;
+        resetHorizontalScroll = true;
+      }
       dialog.close();
       announce(result?.message || result);
-      void loadEvents();
+      await loadEvents({ silent: true, force: true });
     } catch (error) {
       showError(error.message || "The schedule item could not be saved.");
     } finally {
