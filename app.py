@@ -1726,7 +1726,13 @@ def logout():
     logout_user()
     session.clear()
     flash("You have been signed out safely.", "success")
-    return redirect(url_for("login"))
+    # A 303 guarantees the browser follows a POST logout with a fresh GET to
+    # the login page. No-store prevents Chrome restoring the old POST request
+    # and showing its misleading "Confirm Form Resubmission" page.
+    response = redirect(url_for("login"), code=303)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 def _admin_users_context(conn, *, editing_user_id=None):
