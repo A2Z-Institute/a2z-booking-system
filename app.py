@@ -4045,7 +4045,13 @@ def api_calendar_create_appointment():
             # padding was removed because it made visibly free slots fail.
             buffer_before = 0
             buffer_after = 0
-            allow_double_booking = bool(payload.get("allow_double_booking")) if current_user.role == "admin" else False
+            # Booking agents may record an intentional variance after the
+            # calendar conflict prompt. Instructors cannot bypass conflicts.
+            allow_double_booking = (
+                bool(payload.get("allow_double_booking"))
+                if current_user.role in {"admin", "booking_agent"}
+                else False
+            )
             if (
                 buffer_before < 0
                 or buffer_after < 0
@@ -4192,7 +4198,7 @@ def api_calendar_create_appointment():
             {
                 "error": str(exc),
                 "conflict_type": "schedule",
-                "can_override": current_user.role == "admin",
+                "can_override": current_user.role in {"admin", "booking_agent"},
             }
         ), 409
     except (TypeError, ValueError) as exc:
@@ -4341,7 +4347,7 @@ def api_calendar_reschedule_appointment(booking_id):
             next_buffer_after = 0
             allow_double_booking = (
                 bool(payload.get("allow_double_booking", booking["allow_double_booking"]))
-                if current_user.role == "admin"
+                if current_user.role in {"admin", "booking_agent"}
                 else bool(booking["allow_double_booking"])
             )
             if (
@@ -4532,7 +4538,7 @@ def api_calendar_reschedule_appointment(booking_id):
             {
                 "error": str(exc),
                 "conflict_type": "schedule",
-                "can_override": current_user.role == "admin",
+                "can_override": current_user.role in {"admin", "booking_agent"},
             }
         ), 409
     except (TypeError, ValueError) as exc:
