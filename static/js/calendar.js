@@ -1786,11 +1786,18 @@
 
   cancelAppointmentButton?.addEventListener("click", async () => {
     if (!editingEvent || editingEvent.type !== "appointment") return;
-    if (!window.confirm(`Delete ${editingEvent.student_name}'s appointment from the active calendar? The record will be retained as cancelled.`)) return;
+    const permanentlyDelete = currentRole === "booking_agent";
+    const confirmation = permanentlyDelete
+      ? `Delete ${editingEvent.student_name}'s appointment? This will immediately free the time for another booking.`
+      : `Delete ${editingEvent.student_name}'s appointment from the active calendar? The record will be retained as cancelled.`;
+    if (!window.confirm(confirmation)) return;
     clearError();
     try {
       const response = await fetch(
-        replaceId(calendar.dataset.cancelUrlTemplate, editingEvent.id),
+        replaceId(
+          permanentlyDelete ? calendar.dataset.deleteUrlTemplate : calendar.dataset.cancelUrlTemplate,
+          editingEvent.id,
+        ),
         {
           method: "DELETE",
           headers: {
@@ -1803,12 +1810,12 @@
         },
       );
       const data = await parseJson(response);
-      if (!response.ok) throw new Error(data.error || "The appointment could not be cancelled.");
+      if (!response.ok) throw new Error(data.error || "The appointment could not be deleted.");
       dialog.close();
-      announce("Appointment cancelled.");
+      announce(permanentlyDelete ? "Appointment deleted. The time is now available." : "Appointment cancelled.");
       await loadEvents();
     } catch (error) {
-      showError(error.message || "The appointment could not be cancelled.");
+      showError(error.message || "The appointment could not be deleted.");
     }
   });
 

@@ -4588,7 +4588,7 @@ def api_calendar_cancel_appointment(booking_id):
 
 
 @app.delete("/api/calendar/appointments/<int:booking_id>/permanent")
-@role_required("admin")
+@role_required("admin", "booking_agent")
 def api_calendar_delete_appointment(booking_id):
     payload = request.get_json(silent=True) or {}
     with get_db() as conn:
@@ -4609,7 +4609,11 @@ def api_calendar_delete_appointment(booking_id):
                 ), 409
         conn.execute("DELETE FROM audit_events WHERE booking_id = ?", (booking_id,))
         conn.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
-        _audit(conn, "appointment_permanently_deleted", details={"booking_id": booking_id})
+        _audit(
+            conn,
+            "appointment_permanently_deleted",
+            details={"booking_id": booking_id, "deleted_by_role": current_user.role},
+        )
     return jsonify({"success": True})
 
 
