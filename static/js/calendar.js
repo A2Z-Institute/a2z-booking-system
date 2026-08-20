@@ -120,6 +120,7 @@
   let resetHorizontalScroll = true;
   let saveInFlight = false;
   let moveInFlight = false;
+  let trailerFinishAuto = false;
 
   const persistCalendarDate = () => {
     const selectedDate = String(dateInput?.value || "");
@@ -572,6 +573,25 @@
     updateServiceTrigger();
   };
 
+  const isTrailerBooking = () => {
+    const selectedServiceNames = selectedServices().map((input) => (
+      input.closest("label")?.querySelector("strong")?.textContent || ""
+    ));
+    const machineName = machineInput.selectedOptions[0]?.textContent || "";
+    return [...selectedServiceNames, machineName].some((name) => (
+      /(?:\b20\s*TRAILER\b|\bJEEP\s*TRAILER\b|\bTRAILER\b)/i.test(name)
+    ));
+  };
+
+  const applyTrailerDefaultFinish = () => {
+    if (bookingIdInput.value || editorType !== "appointment" || !isTrailerBooking()) return;
+    const finish = minutes(editorStart.value) + 30;
+    if (editorEnd instanceof HTMLSelectElement && finish <= STAFF_DAY_END) {
+      editorEnd.value = timeValue(finish);
+      trailerFinishAuto = true;
+    }
+  };
+
   const populateAppointment = (event) => {
     bookingIdInput.value = event.id;
     revisionInput.value = event.revision || "";
@@ -645,6 +665,7 @@
     lastFocused = trigger || document.activeElement;
     editingEvent = null;
     editor.reset();
+    trailerFinishAuto = false;
     clearError();
     bookingIdInput.value = "";
     revisionInput.value = "";
@@ -720,6 +741,7 @@
       if (machineOption) machineInput.value = machineId;
     }
     updateDuration();
+    applyTrailerDefaultFinish();
     dialog.showModal();
   };
 
@@ -1787,9 +1809,11 @@
     input.addEventListener("change", () => {
       syncMachines();
       updateDuration({ useServicePadding: !bookingIdInput.value });
+      applyTrailerDefaultFinish();
       updateServiceTrigger();
     });
   });
+  machineInput.addEventListener("change", applyTrailerDefaultFinish);
   editor.querySelector("[data-service-picker-open]")?.addEventListener("click", () => {
     if (!servicePicker) return;
     servicePickerSnapshot = selectedServiceIds().map(String);
@@ -1816,11 +1840,16 @@
       : 'More <span aria-hidden="true">⌃</span>';
   });
   editorStart.addEventListener("change", () => {
+    if (trailerFinishAuto && !bookingIdInput.value && isTrailerBooking()) {
+      applyTrailerDefaultFinish();
+      return;
+    }
     if (editorEnd instanceof HTMLSelectElement && minutes(editorEnd.value) <= minutes(editorStart.value)) {
       editorEnd.value = timeValue(minutes(editorStart.value) + 15);
     }
   });
   editorEnd?.addEventListener("change", () => {
+    trailerFinishAuto = false;
     if (endTimeText) endTimeText.textContent = "";
   });
 
