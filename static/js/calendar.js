@@ -76,6 +76,7 @@
   const clientDetailsLink = editor.querySelector("[data-editor-client-details]");
   const clientNotesLink = editor.querySelector("[data-editor-client-notes]");
   const deleteBusyButton = editor.querySelector("[data-editor-busy-delete]");
+  const deleteBusyForAllButton = editor.querySelector("[data-editor-busy-delete-all]");
   const deleteSlotButton = editor.querySelector("[data-editor-slot-delete]");
   const durationText = editor.querySelector("[data-editor-duration]");
   const endTimeText = editor.querySelector("[data-editor-end-time]");
@@ -711,6 +712,7 @@
     if (bookingMenu) bookingMenu.hidden = true;
     if (serviceTotal) serviceTotal.hidden = true;
     if (deleteBusyButton) deleteBusyButton.hidden = true;
+    if (deleteBusyForAllButton) deleteBusyForAllButton.hidden = true;
     if (deleteSlotButton) deleteSlotButton.hidden = true;
     if (saveButton) saveButton.hidden = false;
     setEditorType(initialType);
@@ -794,6 +796,7 @@
       if (permanentDeleteButton) permanentDeleteButton.hidden = true;
       if (bookingMenu) bookingMenu.hidden = true;
       if (deleteBusyButton) deleteBusyButton.hidden = true;
+      if (deleteBusyForAllButton) deleteBusyForAllButton.hidden = true;
       if (deleteSlotButton) deleteSlotButton.hidden = !event.can_edit;
       if (saveButton) saveButton.hidden = !event.can_edit;
       setEditorType("slot");
@@ -817,6 +820,10 @@
       if (permanentDeleteButton) permanentDeleteButton.hidden = true;
       if (bookingMenu) bookingMenu.hidden = true;
       if (deleteBusyButton) deleteBusyButton.hidden = !event.can_edit;
+      if (deleteBusyForAllButton) {
+        deleteBusyForAllButton.hidden = !event.can_edit
+          || !["breakfast", "lunch", "tea"].includes(event.busy_kind);
+      }
       if (deleteSlotButton) deleteSlotButton.hidden = true;
       if (saveButton) saveButton.hidden = !event.can_edit;
       setEditorType("busy");
@@ -837,6 +844,7 @@
       }
       if (bookingMenu) bookingMenu.hidden = !event.can_edit;
       if (deleteBusyButton) deleteBusyButton.hidden = true;
+      if (deleteBusyForAllButton) deleteBusyForAllButton.hidden = true;
       if (deleteSlotButton) deleteSlotButton.hidden = true;
       if (saveButton) {
         saveButton.hidden = !event.can_edit;
@@ -871,7 +879,9 @@
       && ["admin", "booking_agent"].includes(currentRole)
       && !["Cancelled", "Rejected", "Completed", "No-show"].includes(event.status);
     const canDragEvent = Boolean(event.can_edit) && (
-      event.type === "appointment" || (isSlot && currentRole === "admin")
+      event.type === "appointment"
+      || (isSlot && currentRole === "admin")
+      || (isBusy && currentRole === "admin")
     );
     button.draggable = false;
     button.classList.toggle("is-movable", canDragEvent);
@@ -906,7 +916,7 @@
       <span class="calendar-event-service"></span>
       <small class="calendar-event-status"></small>
       ${canStartDoubleBooking ? '<span class="calendar-event-double-book" title="Add another booking at this time">+ Book</span>' : ''}
-      ${canDragEvent ? `<span class="calendar-event-resize" title="Drag to change ${isSlot ? "slot" : "appointment"} duration" aria-label="Resize ${isSlot ? "booking slot" : "appointment"}"></span>` : ''}
+      ${canDragEvent ? `<span class="calendar-event-resize" title="Drag to change ${isSlot ? "slot" : isBusy ? "busy time" : "appointment"} duration" aria-label="Resize ${isSlot ? "booking slot" : isBusy ? "busy time" : "appointment"}"></span>` : ''}
     `;
     button.querySelector(".calendar-event-client").textContent =
       isBusy || isSlot ? (event.title || "Booking slot") : (event.student_name || "Client");
@@ -1154,7 +1164,6 @@
   const moveEvent = async (event, target) => {
     if (
       !event?.can_edit
-      || event.type === "busy"
       || (event.type === "slot" && currentRole !== "admin")
       || moveInFlight
     ) return;
@@ -1164,9 +1173,12 @@
     message.textContent = "Checking the new time…";
     try {
       const isBookingSlot = event.type === "slot";
+      const isBusyTime = event.type === "busy";
       const updateUrl = isBookingSlot
         ? replaceId(calendar.dataset.slotUpdateUrlTemplate, event.id)
-        : replaceId(calendar.dataset.updateUrlTemplate, event.id);
+        : isBusyTime
+          ? replaceId(calendar.dataset.busyUpdateUrlTemplate, event.id)
+          : replaceId(calendar.dataset.updateUrlTemplate, event.id);
       let currentEvent = event;
       let response;
       let data;
@@ -1186,6 +1198,11 @@
             ...(target.end ? { end_time: target.end } : {}),
             instructor_id: Number(target.instructorId),
             machine_id: Number(target.machineId || currentEvent.machine_id),
+            ...(isBusyTime ? {
+              break_type: currentEvent.busy_kind || "busy",
+              title: currentEvent.title || "Busy time",
+              notes: currentEvent.notes || "",
+            } : {}),
           }),
         });
         data = await parseJson(response);
@@ -1200,13 +1217,13 @@
           String(item.id) === String(event.id) && item.type === event.type
         ));
         if (!freshEvent) {
-          throw new Error(`This ${isBookingSlot ? "booking slot" : "appointment"} no longer exists.`);
+          throw new Error(`This ${isBookingSlot ? "booking slot" : isBusyTime ? "busy time" : "appointment"} no longer exists.`);
         }
         currentEvent = freshEvent;
       }
-      if (!response.ok) throw new Error(data.error || `The ${isBookingSlot ? "booking slot" : "appointment"} could not be moved.`);
+      if (!response.ok) throw new Error(data.error || `The ${isBookingSlot ? "booking slot" : isBusyTime ? "busy time" : "appointment"} could not be moved.`);
       if (data.event) mergeSavedEvents([data.event]);
-      announce(isBookingSlot ? "Booking slot moved." : "Appointment moved.");
+      announce(isBookingSlot ? "Booking slot moved." : isBusyTime ? "Busy time moved." : "Appointment moved.");
       message.hidden = true;
       // Reconcile in the background in case another user changed the same day.
       void loadEvents();
@@ -1215,7 +1232,7 @@
       renderCalendar();
       message.hidden = false;
       message.classList.add("is-error");
-      message.textContent = error.message || `The ${event.type === "slot" ? "booking slot" : "appointment"} could not be moved.`;
+      message.textContent = error.message || `The ${event.type === "slot" ? "booking slot" : event.type === "busy" ? "busy time" : "appointment"} could not be moved.`;
       announce(message.textContent);
     } finally {
       moveInFlight = false;
@@ -1952,6 +1969,35 @@
       await loadEvents();
     } catch (error) {
       showError(error.message || "The busy time could not be deleted.");
+    }
+  });
+
+  deleteBusyForAllButton?.addEventListener("click", async () => {
+    if (!editingEvent || editingEvent.type !== "busy") return;
+    const kind = editingEvent.busy_kind || "";
+    if (!["breakfast", "lunch", "tea"].includes(kind)) return;
+    const label = editingEvent.title || "this break";
+    if (!window.confirm(`Delete ${label} for every instructor on ${editingEvent.date}? This cannot be undone from the calendar.`)) return;
+    try {
+      const url = (calendar.dataset.busyBulkDeleteUrlTemplate || "")
+        .replace("__BREAK_KIND__", encodeURIComponent(kind));
+      const response = await fetch(url, {
+        method: "DELETE",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrf,
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({ target_date: editingEvent.date }),
+      });
+      const data = await parseJson(response);
+      if (!response.ok) throw new Error(data.error || "The break could not be removed for all instructors.");
+      dialog.close();
+      announce(`${label} removed for all instructors.`);
+      await loadEvents({ force: true });
+    } catch (error) {
+      showError(error.message || "The break could not be removed for all instructors.");
     }
   });
 

@@ -3078,6 +3078,22 @@ def _calendar_busy_event(row):
     }
 
 
+def _standard_break_kind(source_reference, reason):
+    """Return the standard break key when a busy record is a named break."""
+    source = str(source_reference or "")
+    if source.startswith(f"{DEFAULT_LUNCH_SOURCE_PREFIX}:"):
+        return "lunch"
+    if source.startswith(f"{DEFAULT_BREAK_SOURCE_PREFIX}:"):
+        parts = source.split(":", 3)
+        if len(parts) == 4 and parts[1] in {"breakfast", "lunch", "tea"}:
+            return parts[1]
+    return {
+        "breakfast": "breakfast",
+        "lunch": "lunch",
+        "tea break": "tea",
+    }.get(" ".join(str(reason or "").lower().split()))
+
+
 def _default_lunch_source(instructor_id, target):
     return f"{DEFAULT_LUNCH_SOURCE_PREFIX}:{instructor_id}:{target.isoformat()}"
 
@@ -3777,6 +3793,9 @@ def api_calendar_update_busy_time(time_off_id):
                 if "notes" in payload
                 else existing["notes"]
             )
+            existing_break_kind = _standard_break_kind(
+                existing["source_reference"], existing["reason"]
+            )
             instructor = conn.execute(
                 """
                 SELECT id, name, branch_id FROM instructors
@@ -3800,11 +3819,35 @@ def api_calendar_update_busy_time(time_off_id):
                 end_minutes,
                 exclude_id=time_off_id,
             )
+            source_reference = existing["source_reference"]
+            # A default break moved to another staff column/date must not be
+            # regenerated at its old place. Preserve it as the default break
+            # at its new location instead.
+            if existing_break_kind and (
+                instructor_id != existing["instructor_id"]
+                or target.isoformat() != existing["target_date"]
+            ):
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO default_break_exceptions
+                        (instructor_id, target_date, break_kind)
+                    VALUES (?, ?, ?)
+                    """,
+                    (
+                        existing["instructor_id"],
+                        existing["target_date"],
+                        existing_break_kind,
+                    ),
+                )
+                source_reference = (
+                    f"{DEFAULT_BREAK_SOURCE_PREFIX}:{existing_break_kind}:"
+                    f"{instructor_id}:{target.isoformat()}"
+                )
             cursor = conn.execute(
                 """
                 UPDATE instructor_time_off
                 SET instructor_id = ?, target_date = ?, start_time = ?,
-                    end_time = ?, reason = ?, notes = ?,
+                    end_time = ?, reason = ?, notes = ?, source_reference = ?,
                     calendar_revision = calendar_revision + 1,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ? AND calendar_revision = ?
@@ -3816,6 +3859,7 @@ def api_calendar_update_busy_time(time_off_id):
                     end_time,
                     title,
                     notes or None,
+                    source_reference,
                     time_off_id,
                     revision,
                 ),
@@ -3869,13 +3913,7 @@ def api_calendar_delete_busy_time(time_off_id):
         ):
             abort(404)
         source_reference = str(row["source_reference"] or "")
-        break_kind = None
-        if source_reference.startswith(f"{DEFAULT_LUNCH_SOURCE_PREFIX}:"):
-            break_kind = "lunch"
-        elif source_reference.startswith(f"{DEFAULT_BREAK_SOURCE_PREFIX}:"):
-            parts = source_reference.split(":", 3)
-            if len(parts) == 4 and parts[1] in {"breakfast", "lunch", "tea"}:
-                break_kind = parts[1]
+        break_kind = _standard_break_kind(source_reference, row["reason"])
         if break_kind:
             conn.execute(
                 """
@@ -3905,6 +3943,70 @@ def api_calendar_delete_busy_time(time_off_id):
             },
         )
     return jsonify({"success": True})
+
+
+@app.delete("/api/calendar/default-breaks/<break_kind>")
+@role_required("admin")
+def api_calendar_delete_default_break_for_all(break_kind):
+    """Remove one named break across all staff columns for a selected day."""
+    labels = {"breakfast": "Breakfast", "lunch": "Lunch", "tea": "Tea Break"}
+    if break_kind not in labels:
+        return jsonify({"error": "Choose Breakfast, Lunch, or Tea Break."}), 400
+    payload = request.get_json(silent=True) or {}
+    try:
+        target = _validate_booking_date(payload.get("target_date"), enforce_online_window=False)
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    with get_db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        instructor_ids = [
+            row["id"]
+            for row in conn.execute(
+                """
+                SELECT id FROM instructors
+                WHERE is_active = 1 AND verification_status = 'verified'
+                """
+            ).fetchall()
+        ]
+        for instructor_id in instructor_ids:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO default_break_exceptions
+                    (instructor_id, target_date, break_kind)
+                VALUES (?, ?, ?)
+                """,
+                (instructor_id, target.isoformat(), break_kind),
+            )
+        deleted = conn.execute(
+            """
+            DELETE FROM instructor_time_off
+            WHERE target_date = ?
+              AND (
+                source_reference LIKE ?
+                OR lower(trim(reason)) = ?
+                OR (? = 'lunch' AND source_reference LIKE ?)
+              )
+            """,
+            (
+                target.isoformat(),
+                f"{DEFAULT_BREAK_SOURCE_PREFIX}:{break_kind}:%",
+                labels[break_kind].lower(),
+                break_kind,
+                f"{DEFAULT_LUNCH_SOURCE_PREFIX}:%",
+            ),
+        ).rowcount
+        _audit(
+            conn,
+            "default_break_deleted_for_all_instructors",
+            details={
+                "break_kind": break_kind,
+                "target_date": target.isoformat(),
+                "deleted_count": deleted,
+                "instructor_count": len(instructor_ids),
+            },
+        )
+    return jsonify({"success": True, "deleted_count": deleted})
 
 
 def _slot_resource(conn, instructor_id, machine_id):
