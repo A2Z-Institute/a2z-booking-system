@@ -9,6 +9,12 @@
     "#2F6B9A", "#237A57", "#7A4EAB", "#A45C1B", "#0F766E",
     "#A33A4A", "#49657A", "#7A6A32", "#4D5D93", "#8A4D70",
   ];
+  // Soft Smart-Scheduling-style tints for the individual calendar cells.
+  // The colour is stable per instructor so their whole column is easy to scan.
+  const INSTRUCTOR_CELL_COLOURS = [
+    "#F6E9FF", "#F3FBCB", "#E8F2FF", "#E8F8E8", "#FFF0DE",
+    "#FFE9EB", "#E5F8FA", "#F1EAFB", "#FFF6D9", "#E9F7F3",
+  ];
 
   const calendar = document.querySelector("[data-calendar]");
   const dialog = document.querySelector("[data-appointment-dialog]");
@@ -430,14 +436,22 @@
     return `calendar-event duration-${durationSteps} event-status-${status}${event.type === "busy" ? " calendar-busy-event" : ""}${event.type === "slot" ? " calendar-booking-slot" : ""}`;
   };
 
-  const instructorEventColour = (instructorId) => {
+  const instructorColourIndex = (instructorId) => {
     const text = String(instructorId || "");
     let hash = 0;
     for (let index = 0; index < text.length; index += 1) {
       hash = ((hash * 31) + text.charCodeAt(index)) >>> 0;
     }
-    return INSTRUCTOR_EVENT_COLOURS[hash % INSTRUCTOR_EVENT_COLOURS.length];
+    return hash % INSTRUCTOR_EVENT_COLOURS.length;
   };
+
+  const instructorEventColour = (instructorId) => (
+    INSTRUCTOR_EVENT_COLOURS[instructorColourIndex(instructorId)]
+  );
+
+  const instructorCellColour = (instructorId) => (
+    INSTRUCTOR_CELL_COLOURS[instructorColourIndex(instructorId)]
+  );
 
   const assignOverlapLanes = (columnEvents, hasBookingSlot) => {
     const appointments = columnEvents
@@ -1385,6 +1399,7 @@
       section.dataset.date = column.date;
       section.dataset.instructorId = column.instructorId;
       section.style.setProperty("--instructor-colour", instructorEventColour(column.instructorId));
+      section.style.setProperty("--instructor-cell-background", instructorCellColour(column.instructorId));
       const columnEvents = events.filter((item) => (
         item.date === column.date
         && String(item.instructor_id) === String(column.instructorId)

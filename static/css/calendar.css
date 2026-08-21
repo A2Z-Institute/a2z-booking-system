@@ -219,7 +219,9 @@
 
 .calendar-slot {
   position: relative;
-  background: var(--surface);
+  /* Give every 15-minute cell a very light instructor colour, similar to
+     Smart Scheduling, while keeping text and grid lines highly readable. */
+  background: var(--instructor-cell-background, var(--surface));
   cursor: cell;
 }
 
