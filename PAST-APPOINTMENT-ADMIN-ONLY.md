@@ -3,7 +3,8 @@
 Past appointments are read-only for booking agents and instructors.
 
 - **Administrators:** can open, edit, cancel, move, or permanently delete a
-  past appointment.
+  past appointment. They can also add an appointment on a past date after a
+  confirmation warning.
 - **Booking agents:** can view a past appointment, but cannot change, cancel,
   move, double-book, or permanently delete it.
 - **Instructors:** can view their past appointments, but cannot change the

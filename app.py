@@ -3430,8 +3430,10 @@ def _validate_staff_day_range(start_minutes, end_minutes, item_name="Booking"):
         raise ValueError(f"{item_name} must start before 6:30 pm.")
 
 
-def _assert_active_appointment_not_past(target, start_minutes, status, *, action):
-    """Prevent staff APIs and drag/drop from placing active work in elapsed time."""
+def _assert_active_appointment_not_past(
+    target, start_minutes, status, *, action, allow_admin_past=False
+):
+    """Prevent elapsed work, unless an administrator explicitly confirms it."""
     if status not in ACTIVE_BOOKING_STATUSES:
         return
     now = datetime.now(IST)
@@ -3439,9 +3441,11 @@ def _assert_active_appointment_not_past(target, start_minutes, status, *, action
         target == now.date()
         and start_minutes < (now.hour * 60 + now.minute)
     ):
+        if current_user.role == "admin" and allow_admin_past:
+            return
         past_action = "created in" if action == "created" else "moved into"
         raise ValueError(
-            f"Active appointments cannot be {past_action} the past."
+            f"Active appointments cannot be {past_action} the past without administrator confirmation."
         )
 
 
@@ -4048,12 +4052,17 @@ def api_calendar_create_appointment():
                 )
             _validate_staff_day_range(start_minutes, end_minutes, "Appointments")
             end_time = _minutes_to_time(end_minutes)
+            allow_admin_past = (
+                current_user.role == "admin"
+                and payload.get("allow_past_appointment") is True
+            )
             for occurrence_date in dates:
                 _assert_active_appointment_not_past(
                     occurrence_date,
                     start_minutes,
                     requested_status,
                     action="created",
+                    allow_admin_past=allow_admin_past,
                 )
                 if requested_status in ACTIVE_BOOKING_STATUSES:
                     _assert_appointment_outside_breaks(
@@ -4356,6 +4365,10 @@ def api_calendar_reschedule_appointment(booking_id):
                 start_minutes,
                 next_status,
                 action="moved",
+                allow_admin_past=(
+                    current_user.role == "admin"
+                    and payload.get("allow_past_appointment") is True
+                ),
             )
             if next_status in ACTIVE_BOOKING_STATUSES:
                 _assert_appointment_outside_breaks(

@@ -1549,6 +1549,22 @@
     if (minutes(payload.start_time) < STAFF_DAY_START || minutes(payload.end_time) > STAFF_DAY_END) {
       throw new Error("Appointments must be between 6:00 am and 6:30 pm.");
     }
+    const now = new Date();
+    const localToday = toInputDate(now);
+    const currentMinutes = (now.getHours() * 60) + now.getMinutes();
+    const isPastAppointment = payload.target_date < localToday || (
+      payload.target_date === localToday && minutes(payload.start_time) < currentMinutes
+    );
+    if (isPastAppointment) {
+      if (currentRole !== "admin") {
+        throw new Error("Past appointments can be created or edited only by an administrator.");
+      }
+      const confirmed = window.confirm(
+        `This appointment is on ${payload.target_date} at ${formatClock(payload.start_time)}, which has already passed.\n\nDo you want to save it as a past appointment?`
+      );
+      if (!confirmed) throw new Error("Past appointment was not saved.");
+      payload = { ...payload, allow_past_appointment: true };
+    }
     const editing = Boolean(bookingIdInput.value);
     const url = editing
       ? replaceId(calendar.dataset.updateUrlTemplate, bookingIdInput.value)
