@@ -3035,6 +3035,14 @@ def _calendar_event(row):
         "repeat_rule": row.get("repeat_rule") or "none",
         "series_position": row.get("series_position") or 1,
         "series_count": row.get("series_count") or 1,
+        # Instructors can update only their own appointment status.  This is
+        # deliberately separate from can_edit so they cannot drag, change the
+        # client, alter the time, or otherwise modify the booking.
+        "can_update_status": (
+            current_user.role == "instructor"
+            and current_user.instructor_id == row["instructor_id"]
+            and row["validation_status"] not in {"Cancelled", "Rejected"}
+        ),
         "can_edit": (
             current_user.has_permission("write_access")
             and row["validation_status"] != "Cancelled"

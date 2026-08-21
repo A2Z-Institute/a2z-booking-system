@@ -293,7 +293,10 @@
   border: 0;
   border-left: 5px solid var(--event-colour);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--event-colour) 13%, white);
+  /* Every appointment in an instructor column uses the same colour.  Keep
+     the calendar itself white, but make the appointment card sufficiently
+     visible to scan the instructor's schedule at a glance. */
+  background: color-mix(in srgb, var(--event-colour) 28%, white);
   color: var(--ink-900);
   box-shadow: 0 2px 7px rgba(14, 14, 16, 0.14);
   text-align: left;
@@ -358,13 +361,9 @@
 }
 
 .calendar-event.event-status-pending {
-  background: repeating-linear-gradient(
-    -45deg,
-    #fff8df,
-    #fff8df 7px,
-    #fff1be 7px,
-    #fff1be 14px
-  );
+  /* Pending remains in the assigned instructor colour too, so a single
+     instructor never changes colour across their booked appointments. */
+  background: color-mix(in srgb, var(--event-colour) 28%, white);
 }
 
 .calendar-event.event-status-cancelled,
@@ -1684,6 +1683,74 @@
 
 .calendar-booking-slot[aria-readonly="true"] {
   cursor: pointer;
+}
+
+/* Professional white calendar: colour identifies the instructor, while the
+   cards and grid stay calm and readable throughout a busy day. */
+.calendar-shell,
+.calendar-toolbar,
+.calendar-range-row,
+.calendar-scroll,
+.calendar-time-column,
+.calendar-schedule-column,
+.calendar-slot {
+  background: #fff;
+}
+
+.calendar-shell {
+  border-color: #d8dde2;
+  box-shadow: 0 1px 4px rgba(14, 14, 16, 0.05);
+}
+
+.calendar-column-header {
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(14, 14, 16, 0.04);
+}
+
+.calendar-schedule-column .calendar-column-header {
+  border-top: 3px solid var(--instructor-colour, #667085);
+}
+
+.calendar-slot,
+.calendar-time-label {
+  border-bottom-color: #e3e7ea;
+}
+
+.calendar-slot:nth-child(4n + 2) {
+  border-top-color: #d4d9de;
+}
+
+.calendar-slot:hover,
+.calendar-slot:focus-visible {
+  background: #f8fafb;
+}
+
+.calendar-event,
+.calendar-event.event-status-pending {
+  background: #fff;
+  border-color: color-mix(in srgb, var(--event-colour) 38%, #d8dde2);
+  border-left-color: var(--event-colour);
+  box-shadow: none;
+}
+
+.calendar-event:hover,
+.calendar-event:focus-visible {
+  background: #fff;
+  box-shadow: 0 3px 9px rgba(14, 14, 16, 0.12);
+}
+
+.calendar-busy-event {
+  --event-colour: #667085;
+  background: #f5f6f7 !important;
+  border-color: #cbd2d8;
+  border-left-color: #667085;
+}
+
+.calendar-booking-slot {
+  --event-colour: #277da1;
+  background: #edf8fc;
+  border-color: #8ec8dc;
+  color: #123b4b;
 }
 
 .appointment-dialog {

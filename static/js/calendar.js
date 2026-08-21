@@ -3,6 +3,12 @@
 
   const STAFF_DAY_START = 6 * 60;
   const STAFF_DAY_END = (18 * 60) + 30;
+  // Bookings are coloured by instructor rather than equipment/service. This
+  // makes each staff column easy to scan while keeping the calendar white.
+  const INSTRUCTOR_EVENT_COLOURS = [
+    "#2F6B9A", "#237A57", "#7A4EAB", "#A45C1B", "#0F766E",
+    "#A33A4A", "#49657A", "#7A6A32", "#4D5D93", "#8A4D70",
+  ];
 
   const calendar = document.querySelector("[data-calendar]");
   const dialog = document.querySelector("[data-appointment-dialog]");
@@ -424,6 +430,15 @@
     return `calendar-event duration-${durationSteps} event-status-${status}${event.type === "busy" ? " calendar-busy-event" : ""}${event.type === "slot" ? " calendar-booking-slot" : ""}`;
   };
 
+  const instructorEventColour = (instructorId) => {
+    const text = String(instructorId || "");
+    let hash = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      hash = ((hash * 31) + text.charCodeAt(index)) >>> 0;
+    }
+    return INSTRUCTOR_EVENT_COLOURS[hash % INSTRUCTOR_EVENT_COLOURS.length];
+  };
+
   const assignOverlapLanes = (columnEvents, hasBookingSlot) => {
     const appointments = columnEvents
       .filter((item) => item.type === "appointment")
@@ -602,7 +617,15 @@
     editorDate.value = event.date;
     editorStart.value = event.start_time;
     if (editorEnd) editorEnd.value = event.end_time;
-    if (editorStatus) editorStatus.value = event.status || "Approved";
+    if (editorStatus) {
+      // Instructors use their own three-state workflow.  An existing
+      // Confirmed/Approved booking appears as No Action until the instructor
+      // chooses a follow-up status.
+      const instructorStatus = event.status === "Approved" ? "No Action" : event.status;
+      editorStatus.value = currentRole === "instructor"
+        ? (["No Action", "Pending", "Completed"].includes(instructorStatus) ? instructorStatus : "No Action")
+        : (event.status || "Approved");
+    }
     if (editorNotes) editorNotes.value = event.notes || "";
     const nameParts = String(event.student_name || "").trim().split(/\s+/);
     const firstNameInput = editor.querySelector("[data-new-client-first-name]");
@@ -847,7 +870,7 @@
       if (deleteBusyForAllButton) deleteBusyForAllButton.hidden = true;
       if (deleteSlotButton) deleteSlotButton.hidden = true;
       if (saveButton) {
-        saveButton.hidden = !event.can_edit;
+        saveButton.hidden = !event.can_edit && !event.can_update_status;
         if (currentRole === "instructor") saveButton.textContent = "Save status";
       }
       if (permanentDeleteButton) permanentDeleteButton.hidden = currentRole !== "admin";
@@ -858,9 +881,9 @@
         editor.querySelectorAll('[data-editor-panel="appointment"] input, [data-editor-panel="appointment"] select, [data-editor-panel="appointment"] textarea, [data-editor-panel="appointment"] button').forEach((control) => {
           control.disabled = true;
         });
-        if (currentRole === "instructor" && event.can_edit && editorStatus) {
+        if (currentRole === "instructor" && event.can_update_status && editorStatus) {
           editorStatus.disabled = false;
-          editorStatus.value = event.status === "Approved" ? "No Action" : event.status;
+          if (saveButton) saveButton.disabled = false;
         }
       }
     }
@@ -886,7 +909,12 @@
     button.draggable = false;
     button.classList.toggle("is-movable", canDragEvent);
     button.dataset.eventId = event.id;
-    if (event.service_color) button.style.setProperty("--event-colour", event.service_color);
+    button.style.setProperty(
+      "--event-colour",
+      !isBusy && !isSlot
+        ? instructorEventColour(event.instructor_id)
+        : (event.service_color || "#667085"),
+    );
     const range = visibleEventRange(event) || {
       start: minutes(event.start_time),
       end: minutes(event.end_time),
@@ -1356,6 +1384,7 @@
       section.className = "calendar-schedule-column";
       section.dataset.date = column.date;
       section.dataset.instructorId = column.instructorId;
+      section.style.setProperty("--instructor-colour", instructorEventColour(column.instructorId));
       const columnEvents = events.filter((item) => (
         item.date === column.date
         && String(item.instructor_id) === String(column.instructorId)
