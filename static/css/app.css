@@ -797,6 +797,48 @@ h3 {
   min-width: 280px;
 }
 
+.admin-users-layout .data-table th:first-child,
+.admin-users-layout .instructor-order-cell {
+  width: 3.2rem;
+  min-width: 3.2rem;
+  text-align: center;
+}
+
+.instructor-order-handle {
+  display: inline-grid;
+  width: 2.2rem;
+  height: 2.2rem;
+  place-items: center;
+  border: 1px solid var(--line-200);
+  border-radius: 0.5rem;
+  background: var(--paper);
+  color: var(--ink-700);
+  cursor: grab;
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1;
+  touch-action: none;
+}
+
+.instructor-order-handle:hover,
+.instructor-order-handle:focus-visible {
+  border-color: var(--brand-600);
+  color: var(--brand-700);
+  outline: none;
+}
+
+.instructor-order-handle:active {
+  cursor: grabbing;
+}
+
+tr.is-instructor-dragging {
+  opacity: 0.45;
+}
+
+tr.is-instructor-drop-target td {
+  border-top: 3px solid var(--brand-600);
+}
+
 .admin-users-layout .table-actions {
   flex-wrap: nowrap;
 }

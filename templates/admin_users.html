@@ -92,6 +92,7 @@
       <div>
         <h2 id="directory-title">Account directory</h2>
         <p>Archive access when a course or employment period ends; booking history stays intact.</p>
+        <p class="field-hint" data-instructor-order-message>Use the ≡ handle to drag instructors into the calendar order.</p>
       </div>
     </div>
 
@@ -126,10 +127,11 @@
     {% if user_list %}
       <div class="section-body flush desktop-only">
         <div class="table-scroll" tabindex="0" aria-label="Scrollable account directory">
-          <table class="data-table">
+          <table class="data-table" data-instructor-order-table data-order-url="{{ url_for('api_admin_reorder_instructors') }}" data-csrf-token="{{ csrf_token() }}">
             <caption class="sr-only">Institute-managed user accounts</caption>
             <thead>
               <tr>
+                <th scope="col"><span class="sr-only">Calendar order</span></th>
                 <th scope="col">Person</th>
                 <th scope="col">Role</th>
                 <th scope="col">{{ 'Branch / assignment' if student_self_booking_enabled else 'Branch' }}</th>
@@ -139,7 +141,12 @@
             </thead>
             <tbody>
               {% for managed in user_list %}
-                <tr data-user-record data-search="{{ managed.full_name }} {{ managed.username }} {{ managed.email|default('', true) }}" data-role="{{ managed.role }}" data-status="{{ 'active' if managed.is_active else 'archived' }}">
+                <tr data-user-record data-search="{{ managed.full_name }} {{ managed.username }} {{ managed.email|default('', true) }}" data-role="{{ managed.role }}" data-status="{{ 'active' if managed.is_active else 'archived' }}" {% if managed.role == 'instructor' and managed.instructor_id %}data-instructor-order-row data-instructor-id="{{ managed.instructor_id }}"{% endif %}>
+                  <td class="instructor-order-cell">
+                    {% if managed.role == 'instructor' and managed.instructor_id %}
+                      <button class="instructor-order-handle" type="button" draggable="true" data-instructor-order-handle aria-label="Drag {{ managed.full_name }} to change calendar order" title="Drag to move in calendar order">≡</button>
+                    {% endif %}
+                  </td>
                   <td>
                     <span class="cell-title">{{ managed.full_name }}</span>
                     <span class="cell-detail">{{ managed.username }} · {{ managed.email|default('No email on file', true) }}</span>

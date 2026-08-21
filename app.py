@@ -1757,6 +1757,7 @@ def _admin_users_context(conn, *, editing_user_id=None):
             LEFT JOIN instructors i ON i.id = u.instructor_id
             ORDER BY u.is_active DESC,
                      CASE u.role WHEN 'admin' THEN 0 WHEN 'booking_agent' THEN 1 WHEN 'instructor' THEN 2 ELSE 3 END,
+                     CASE WHEN u.role = 'instructor' THEN COALESCE(i.display_order, 100000) ELSE 0 END,
                      lower(COALESCE(u.full_name, u.username))
             """
         ).fetchall()
@@ -2088,6 +2089,67 @@ def admin_users():
         )
     except (TypeError, ValueError) as exc:
         return _render_admin_users(error=str(exc), status_code=400)
+
+
+@app.patch("/api/admin/instructors/order")
+@role_required("admin")
+def api_admin_reorder_instructors():
+    """Save the staff order used by the calendar columns.
+
+    The account-directory screen submits all instructor accounts in their
+    displayed order.  Imported instructor records with no login are retained
+    after that list, so a staff-order change never removes hidden records.
+    """
+    payload = request.get_json(silent=True) or {}
+    raw_ids = payload.get("instructor_ids")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        return jsonify({"error": "Provide the instructor order."}), 400
+    try:
+        instructor_ids = [int(value) for value in raw_ids]
+    except (TypeError, ValueError):
+        return jsonify({"error": "The instructor order contains an invalid staff member."}), 400
+    if any(value < 1 for value in instructor_ids) or len(set(instructor_ids)) != len(instructor_ids):
+        return jsonify({"error": "The instructor order must not contain duplicates."}), 400
+
+    with get_db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        linked_rows = conn.execute(
+            """
+            SELECT DISTINCT i.id
+            FROM instructors i
+            JOIN users u ON u.instructor_id = i.id
+            WHERE u.role = 'instructor'
+            """
+        ).fetchall()
+        linked_ids = {row["id"] for row in linked_rows}
+        supplied_ids = set(instructor_ids)
+        if not supplied_ids.issubset(linked_ids):
+            return jsonify({"error": "One or more instructors could not be found."}), 400
+
+        all_rows = conn.execute(
+            """
+            SELECT id FROM instructors
+            WHERE is_active = 1 AND verification_status = 'verified'
+            ORDER BY display_order, id
+            """
+        ).fetchall()
+        remaining_ids = [row["id"] for row in all_rows if row["id"] not in supplied_ids]
+        final_ids = instructor_ids + remaining_ids
+        for position, instructor_id in enumerate(final_ids, start=1):
+            conn.execute(
+                """
+                UPDATE instructors
+                SET display_order = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (position, instructor_id),
+            )
+        _audit(
+            conn,
+            "calendar_instructor_order_updated",
+            details={"instructor_ids": final_ids},
+        )
+    return jsonify({"success": True, "instructor_ids": final_ids})
 
 
 @app.route("/admin/users/<int:user_id>/edit", methods=["GET", "POST"])

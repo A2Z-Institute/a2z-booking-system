@@ -258,6 +258,88 @@
     });
   }
 
+  const instructorOrderTable = document.querySelector("[data-instructor-order-table]");
+  if (instructorOrderTable) {
+    const body = instructorOrderTable.querySelector("tbody");
+    const message = document.querySelector("[data-instructor-order-message]");
+    const csrfToken = instructorOrderTable.dataset.csrfToken || "";
+    const orderUrl = instructorOrderTable.dataset.orderUrl || "";
+    let draggedRow = null;
+    let savingOrder = false;
+
+    const setOrderMessage = (text, error = false) => {
+      if (!message) return;
+      message.textContent = text;
+      message.classList.toggle("form-error", error);
+    };
+
+    const clearDropTargets = () => {
+      body?.querySelectorAll(".is-instructor-drop-target").forEach((row) => row.classList.remove("is-instructor-drop-target"));
+    };
+
+    const saveOrder = async () => {
+      if (savingOrder || !body || !orderUrl) return;
+      const instructorIds = Array.from(body.querySelectorAll("[data-instructor-order-row]"))
+        .map((row) => Number(row.dataset.instructorId))
+        .filter(Number.isInteger);
+      if (!instructorIds.length) return;
+      savingOrder = true;
+      setOrderMessage("Saving calendar order…");
+      try {
+        const response = await fetch(orderUrl, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken,
+          },
+          body: JSON.stringify({ instructor_ids: instructorIds }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) throw new Error(result.error || "Could not save the calendar order.");
+        setOrderMessage("Calendar order saved. The calendar columns now use this order.");
+      } catch (error) {
+        setOrderMessage(error.message || "Could not save the calendar order. Please try again.", true);
+      } finally {
+        savingOrder = false;
+      }
+    };
+
+    body?.querySelectorAll("[data-instructor-order-row]").forEach((row) => {
+      const handle = row.querySelector("[data-instructor-order-handle]");
+      if (!handle) return;
+      handle.addEventListener("dragstart", (event) => {
+        if (savingOrder) {
+          event.preventDefault();
+          return;
+        }
+        draggedRow = row;
+        row.classList.add("is-instructor-dragging");
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", row.dataset.instructorId || "");
+      });
+      handle.addEventListener("dragend", () => {
+        draggedRow?.classList.remove("is-instructor-dragging");
+        draggedRow = null;
+        clearDropTargets();
+      });
+      row.addEventListener("dragover", (event) => {
+        if (!draggedRow || draggedRow === row) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        clearDropTargets();
+        row.classList.add("is-instructor-drop-target");
+      });
+      row.addEventListener("drop", (event) => {
+        event.preventDefault();
+        if (!draggedRow || draggedRow === row || !body) return;
+        const before = event.clientY < row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
+        body.insertBefore(draggedRow, before ? row : row.nextSibling);
+        clearDropTargets();
+        saveOrder();
+      });
+    });
+  }
+
   const assignmentForm = document.querySelector("[data-assignment-form]");
   if (assignmentForm) {
     const student = assignmentForm.querySelector("[data-assignment-student]");
