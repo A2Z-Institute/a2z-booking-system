@@ -353,11 +353,26 @@
   font-size: 0.62rem !important;
   font-weight: 800;
   line-height: 1.15;
+  /* Prevent accidental taps on tiny +Book controls. The button is revealed
+     only for mouse/trackpad users when the appointment has enough space. */
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
-.calendar-event:hover .calendar-event-double-book,
-.calendar-event:focus-visible .calendar-event-double-book {
-  background: #e8f8fd;
+@media (hover: hover) and (pointer: fine) {
+  .calendar-event:not(.is-overlapping):hover .calendar-event-double-book,
+  .calendar-event:not(.is-overlapping):focus-visible .calendar-event-double-book {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    background: #e8f8fd;
+  }
+}
+
+/* Narrow/overlapping cards never show the tiny double-book button. */
+.calendar-event.is-overlapping .calendar-event-double-book {
+  display: none;
 }
 
 .calendar-event.event-status-pending {
