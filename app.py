@@ -2976,6 +2976,10 @@ def _calendar_event(row):
         "can_edit": (
             current_user.has_permission("write_access")
             and row["validation_status"] != "Cancelled"
+            and (
+                current_user.role == "admin"
+                or date.fromisoformat(row["target_date"]) >= datetime.now(IST).date()
+            )
         ),
     }
 
@@ -3439,6 +3443,18 @@ def _assert_active_appointment_not_past(target, start_minutes, status, *, action
         raise ValueError(
             f"Active appointments cannot be {past_action} the past."
         )
+
+
+def _assert_past_appointment_edit_allowed(booking):
+    """Keep historical appointments read-only for non-administrator roles."""
+    if current_user.role == "admin":
+        return
+    try:
+        booking_date = date.fromisoformat(str(booking["target_date"]))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("This appointment has an invalid date.") from exc
+    if booking_date < datetime.now(IST).date():
+        raise ValueError("Past appointments can be edited only by an administrator.")
 
 
 def _assert_appointment_outside_breaks(
@@ -4231,6 +4247,7 @@ def api_calendar_reschedule_appointment(booking_id):
                 and booking["instructor_id"] != current_user.instructor_id
             ):
                 abort(404)
+            _assert_past_appointment_edit_allowed(booking)
             if booking["calendar_revision"] != revision:
                 return jsonify(
                     {
@@ -4569,6 +4586,7 @@ def api_calendar_cancel_appointment(booking_id):
             and booking["instructor_id"] != current_user.instructor_id
         ):
             abort(404)
+        _assert_past_appointment_edit_allowed(booking)
         if payload.get("revision") is not None:
             try:
                 supplied_revision = int(payload["revision"])
@@ -4606,10 +4624,11 @@ def api_calendar_delete_appointment(booking_id):
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         booking = conn.execute(
-            "SELECT id, calendar_revision FROM bookings WHERE id = ?", (booking_id,)
+            "SELECT id, target_date, calendar_revision FROM bookings WHERE id = ?", (booking_id,)
         ).fetchone()
         if not booking:
             abort(404)
+        _assert_past_appointment_edit_allowed(booking)
         if payload.get("revision") is not None:
             try:
                 supplied_revision = int(payload["revision"])
@@ -4656,6 +4675,7 @@ def api_calendar_instructor_status(booking_id):
         ).fetchone()
         if not booking:
             abort(404)
+        _assert_past_appointment_edit_allowed(booking)
         if not booking["client_is_active"]:
             return jsonify({"error": "This customer is no longer active."}), 409
         if booking["validation_status"] in {"Cancelled", "Rejected"}:

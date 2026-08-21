@@ -839,7 +839,7 @@
       if (deleteBusyButton) deleteBusyButton.hidden = true;
       if (deleteSlotButton) deleteSlotButton.hidden = true;
       if (saveButton) {
-        saveButton.hidden = currentRole === "instructor" ? false : !event.can_edit;
+        saveButton.hidden = !event.can_edit;
         if (currentRole === "instructor") saveButton.textContent = "Save status";
       }
       if (permanentDeleteButton) permanentDeleteButton.hidden = currentRole !== "admin";
@@ -850,7 +850,7 @@
         editor.querySelectorAll('[data-editor-panel="appointment"] input, [data-editor-panel="appointment"] select, [data-editor-panel="appointment"] textarea, [data-editor-panel="appointment"] button').forEach((control) => {
           control.disabled = true;
         });
-        if (currentRole === "instructor" && editorStatus) {
+        if (currentRole === "instructor" && event.can_edit && editorStatus) {
           editorStatus.disabled = false;
           editorStatus.value = event.status === "Approved" ? "No Action" : event.status;
         }
@@ -865,7 +865,8 @@
     button.className = eventClass(event);
     const isBusy = event.type === "busy";
     const isSlot = event.type === "slot";
-    const canStartDoubleBooking = !isBusy
+    const canStartDoubleBooking = Boolean(event.can_edit)
+      && !isBusy
       && !isSlot
       && ["admin", "booking_agent"].includes(currentRole)
       && !["Cancelled", "Rejected", "Completed", "No-show"].includes(event.status);
