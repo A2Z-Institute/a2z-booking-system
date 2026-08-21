@@ -1267,7 +1267,7 @@
     }
   };
 
-  const wireSlot = (slot, column, start, occupied = false) => {
+  const wireSlot = (slot, column, start, occupied = false, allowOccupiedBooking = false) => {
     const disabled = column.nonWorking;
     const bookingSlot = events.find((item) => (
       item.type === "slot"
@@ -1321,8 +1321,9 @@
         ...(draggedEvent.type === "slot" ? { end: timeValue(minutes(start) + duration) } : {}),
       });
     });
-    if (disabled || occupied) return;
-    // A visible plus affordance makes it clear that an empty white cell can
+    if (disabled || (occupied && !allowOccupiedBooking)) return;
+    if (allowOccupiedBooking) slot.classList.add("is-bookable-occupied");
+    // A visible plus affordance makes it clear that an available part of the cell can
     // start a booking. The server still checks conflicts and asks authorised
     // staff before recording an allowed double booking.
     slot.dataset.bookLabel = `+ Book ${formatClock(start)}`;
@@ -1423,10 +1424,17 @@
           && eventSlotStart(item) === start
         )).sort((a, b) => (a.type === "slot" ? -1 : 1) - (b.type === "slot" ? -1 : 1));
         const occupied = coveringEvents.length > 0;
+        const allowOccupiedBooking = occupied
+          && ["admin", "booking_agent"].includes(currentRole)
+          && coveringEvents.every((item) => item.type === "appointment")
+          && coveringEvents.some((item) => Boolean(item.can_edit)
+            && !["Cancelled", "Rejected", "Completed", "No-show"].includes(item.status));
         slot.setAttribute("aria-label", occupied
-          ? `${column.title}, ${column.subtitle}, ${start}. Occupied`
+          ? (allowOccupiedBooking
+            ? `${column.title}, ${column.subtitle}, ${start}. Existing appointment; click free area to add another booking`
+            : `${column.title}, ${column.subtitle}, ${start}. Occupied`)
           : `${column.title}, ${column.subtitle}, ${start}. Book appointment`);
-        wireSlot(slot, column, start, occupied);
+        wireSlot(slot, column, start, occupied, allowOccupiedBooking);
         startsHere.forEach((item) => slot.append(createEventButton(item)));
         section.append(slot);
       });

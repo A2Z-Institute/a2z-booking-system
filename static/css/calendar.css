@@ -239,7 +239,9 @@
 }
 
 .calendar-slot:not(.is-non-working):not(.is-occupied):hover::before,
-.calendar-slot:not(.is-non-working):not(.is-occupied):focus-visible::before {
+.calendar-slot:not(.is-non-working):not(.is-occupied):focus-visible::before,
+.calendar-slot.is-bookable-occupied:hover::before,
+.calendar-slot.is-bookable-occupied:focus-visible::before {
   position: absolute;
   z-index: 2;
   inset: 3px 5px;
@@ -255,6 +257,7 @@
 }
 
 .calendar-slot.is-occupied { cursor: default; }
+.calendar-slot.is-bookable-occupied { cursor: cell; }
 
 .calendar-slot.is-non-working {
   background: repeating-linear-gradient(
