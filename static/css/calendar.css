@@ -219,9 +219,7 @@
 
 .calendar-slot {
   position: relative;
-  /* Give every 15-minute cell a very light instructor colour, similar to
-     Smart Scheduling, while keeping text and grid lines highly readable. */
-  background: var(--instructor-cell-background, var(--surface));
+  background: var(--surface);
   cursor: cell;
 }
 
@@ -1822,4 +1820,16 @@
     min-width: min(78vw, 272px);
     flex-basis: min(78vw, 272px);
   }
+}
+
+/* Smart Scheduling-style instructor cell tint.
+   This rule intentionally comes after the white-calendar overrides so only
+   normal 15-minute schedule cells receive the instructor's soft colour. */
+.calendar-schedule-column .calendar-slot:not(.is-non-working) {
+  background: var(--instructor-cell-background, #fff);
+}
+
+.calendar-schedule-column .calendar-slot:not(.is-non-working):hover,
+.calendar-schedule-column .calendar-slot:not(.is-non-working):focus-visible {
+  background: color-mix(in srgb, var(--instructor-colour, #667085) 18%, white);
 }
