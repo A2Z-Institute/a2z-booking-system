@@ -3,11 +3,19 @@
 
   const STAFF_DAY_START = 6 * 60;
   const STAFF_DAY_END = (18 * 60) + 30;
-  // Bookings are coloured by instructor rather than equipment/service. This
-  // makes each staff column easy to scan while keeping the calendar white.
-  const INSTRUCTOR_EVENT_COLOURS = [
-    "#2F6B9A", "#237A57", "#7A4EAB", "#A45C1B", "#0F766E",
-    "#A33A4A", "#49657A", "#7A6A32", "#4D5D93", "#8A4D70",
+  // Smart-Scheduling-style appointment colours. Free calendar cells remain
+  // white; actual appointment blocks get a clear pastel fill.
+  const APPOINTMENT_PALETTE = [
+    { border: "#8B5CF6", fill: "#E9D5FF" },
+    { border: "#D4A017", fill: "#FEF08A" },
+    { border: "#0EA5E9", fill: "#BAE6FD" },
+    { border: "#16A34A", fill: "#BBF7D0" },
+    { border: "#EA580C", fill: "#FED7AA" },
+    { border: "#E11D48", fill: "#FECDD3" },
+    { border: "#0891B2", fill: "#A5F3FC" },
+    { border: "#7C3AED", fill: "#DDD6FE" },
+    { border: "#65A30D", fill: "#D9F99D" },
+    { border: "#C2410C", fill: "#FFEDD5" },
   ];
 
   const calendar = document.querySelector("[data-calendar]");
@@ -430,13 +438,23 @@
     return `calendar-event duration-${durationSteps} event-status-${status}${event.type === "busy" ? " calendar-busy-event" : ""}${event.type === "slot" ? " calendar-booking-slot" : ""}`;
   };
 
-  const instructorEventColour = (instructorId) => {
-    const text = String(instructorId || "");
+  const stablePaletteIndex = (value, length) => {
+    const text = String(value || "");
     let hash = 0;
     for (let index = 0; index < text.length; index += 1) {
       hash = ((hash * 31) + text.charCodeAt(index)) >>> 0;
     }
-    return INSTRUCTOR_EVENT_COLOURS[hash % INSTRUCTOR_EVENT_COLOURS.length];
+    return hash % length;
+  };
+
+  const instructorEventColour = (instructorId) => (
+    APPOINTMENT_PALETTE[stablePaletteIndex(`staff:${instructorId}`, APPOINTMENT_PALETTE.length)].border
+  );
+
+  const appointmentColour = (event) => {
+    // Prefer service/equipment identity so similar bookings share a colour.
+    const key = event.service_name || event.machine_category || event.machine_name || event.client_id || event.id;
+    return APPOINTMENT_PALETTE[stablePaletteIndex(`appointment:${key}`, APPOINTMENT_PALETTE.length)];
   };
 
   const assignOverlapLanes = (columnEvents, hasBookingSlot) => {
@@ -909,12 +927,13 @@
     button.draggable = false;
     button.classList.toggle("is-movable", canDragEvent);
     button.dataset.eventId = event.id;
-    button.style.setProperty(
-      "--event-colour",
-      !isBusy && !isSlot
-        ? instructorEventColour(event.instructor_id)
-        : (event.service_color || "#667085"),
-    );
+    if (!isBusy && !isSlot) {
+      const colour = appointmentColour(event);
+      button.style.setProperty("--event-colour", event.service_color || colour.border);
+      button.style.setProperty("--event-background", colour.fill);
+    } else {
+      button.style.setProperty("--event-colour", event.service_color || "#667085");
+    }
     const range = visibleEventRange(event) || {
       start: minutes(event.start_time),
       end: minutes(event.end_time),
@@ -1386,7 +1405,6 @@
       section.dataset.date = column.date;
       section.dataset.instructorId = column.instructorId;
       section.style.setProperty("--instructor-colour", instructorEventColour(column.instructorId));
-      section.style.setProperty("--instructor-cell-background", `color-mix(in srgb, ${instructorEventColour(column.instructorId)} 12%, white)`);
       const columnEvents = events.filter((item) => (
         item.date === column.date
         && String(item.instructor_id) === String(column.instructorId)
