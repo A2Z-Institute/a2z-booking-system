@@ -1764,7 +1764,10 @@
 
 .calendar-event,
 .calendar-event.event-status-pending {
-  background: #fff;
+  /* Use one soft, recognisable colour for every appointment in the same
+     instructor column.  The grid remains white; only booked cards are
+     coloured. */
+  background: color-mix(in srgb, var(--event-colour) 24%, white);
   border-color: color-mix(in srgb, var(--event-colour) 38%, #d8dde2);
   border-left-color: var(--event-colour);
   box-shadow: none;
@@ -1772,7 +1775,7 @@
 
 .calendar-event:hover,
 .calendar-event:focus-visible {
-  background: #fff;
+  background: color-mix(in srgb, var(--event-colour) 32%, white);
   box-shadow: 0 3px 9px rgba(14, 14, 16, 0.12);
 }
 
