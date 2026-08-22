@@ -817,7 +817,6 @@
   padding: 1px 3px;
 }
 
-.calendar-event.duration-1 .calendar-event-client,
 .calendar-event.duration-1 .calendar-event-service,
 .calendar-event.duration-1 .calendar-event-status,
 .calendar-event.duration-2 .calendar-event-service,
@@ -825,11 +824,55 @@
   display: none;
 }
 
-.calendar-event.duration-1 .calendar-event-time,
+/* 15-minute appointments always keep the client/student name visible.
+   Time and name share the single row; secondary details are hidden first. */
+.calendar-event.duration-1 {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 3px;
+}
+
+.calendar-event.duration-1 .calendar-event-time {
+  display: block;
+  flex: 0 0 auto;
+  max-width: 44%;
+  overflow: hidden;
+  font-size: 0.58rem;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-event.duration-1 .calendar-event-client {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.63rem;
+  font-weight: 800;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .calendar-event.duration-2 .calendar-event-time {
   display: block;
   font-size: 0.62rem;
   line-height: 1.05;
+}
+
+/* Keep the resize grip from covering the name in the one-row card. */
+.calendar-event.duration-1 .calendar-event-resize {
+  width: 18px;
+  height: 6px;
+}
+
+.calendar-event.duration-1 .calendar-event-resize::after {
+  right: 1px;
+  bottom: 1px;
+  width: 12px;
+  height: 2px;
 }
 
 .calendar-event.duration-2 .calendar-event-client {
