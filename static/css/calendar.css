@@ -239,9 +239,7 @@
 }
 
 .calendar-slot:not(.is-non-working):not(.is-occupied):hover::before,
-.calendar-slot:not(.is-non-working):not(.is-occupied):focus-visible::before,
-.calendar-slot.is-bookable-occupied:hover::before,
-.calendar-slot.is-bookable-occupied:focus-visible::before {
+.calendar-slot:not(.is-non-working):not(.is-occupied):focus-visible::before {
   position: absolute;
   z-index: 2;
   inset: 3px 5px;
@@ -257,7 +255,6 @@
 }
 
 .calendar-slot.is-occupied { cursor: default; }
-.calendar-slot.is-bookable-occupied { cursor: cell; }
 
 .calendar-slot.is-non-working {
   background: repeating-linear-gradient(
@@ -356,34 +353,7 @@
   font-size: 0.62rem !important;
   font-weight: 800;
   line-height: 1.15;
-  /* Prevent accidental taps on tiny +Book controls inside appointment cards. */
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
 }
-
-/* Desktop: reveal +Book only on a full-width, non-overlapping appointment. */
-@media (hover: hover) and (pointer: fine) {
-  .calendar-event:not(.is-overlapping):hover .calendar-event-double-book,
-  .calendar-event:not(.is-overlapping):focus-visible .calendar-event-double-book {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    background: #e8f8fd;
-  }
-}
-
-/* Narrow/overlapping cards and touch devices never expose the tiny control. */
-.calendar-event.is-overlapping .calendar-event-double-book {
-  display: none;
-}
-
-@media (hover: none), (pointer: coarse) {
-  .calendar-event-double-book {
-    display: none !important;
-  }
-}
-
 
 .calendar-event:hover .calendar-event-double-book,
 .calendar-event:focus-visible .calendar-event-double-book {
@@ -817,6 +787,7 @@
   padding: 1px 3px;
 }
 
+.calendar-event.duration-1 .calendar-event-client,
 .calendar-event.duration-1 .calendar-event-service,
 .calendar-event.duration-1 .calendar-event-status,
 .calendar-event.duration-2 .calendar-event-service,
@@ -824,55 +795,11 @@
   display: none;
 }
 
-/* 15-minute appointments always keep the client/student name visible.
-   Time and name share the single row; secondary details are hidden first. */
-.calendar-event.duration-1 {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0 3px;
-}
-
-.calendar-event.duration-1 .calendar-event-time {
-  display: block;
-  flex: 0 0 auto;
-  max-width: 44%;
-  overflow: hidden;
-  font-size: 0.58rem;
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.calendar-event.duration-1 .calendar-event-client {
-  display: block;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  font-size: 0.63rem;
-  font-weight: 800;
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+.calendar-event.duration-1 .calendar-event-time,
 .calendar-event.duration-2 .calendar-event-time {
   display: block;
   font-size: 0.62rem;
   line-height: 1.05;
-}
-
-/* Keep the resize grip from covering the name in the one-row card. */
-.calendar-event.duration-1 .calendar-event-resize {
-  width: 18px;
-  height: 6px;
-}
-
-.calendar-event.duration-1 .calendar-event-resize::after {
-  right: 1px;
-  bottom: 1px;
-  width: 12px;
-  height: 2px;
 }
 
 .calendar-event.duration-2 .calendar-event-client {
@@ -1624,6 +1551,43 @@
   }
 }
 
+/* Smooth 15-minute booking interaction.  The grid stays white and calm; a
+   vacant cell is one large target, while optional double-book controls appear
+   only when an existing appointment is intentionally focused or hovered. */
+.calendar-slot {
+  touch-action: manipulation;
+}
+
+.calendar-slot:not(.is-non-working):not(.is-occupied):hover::before,
+.calendar-slot:not(.is-non-working):not(.is-occupied):focus-visible::before {
+  inset: 2px 4px;
+  min-height: calc(var(--calendar-quarter-height) - 4px);
+  transition: background-color 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+
+.calendar-event {
+  transition: box-shadow 120ms ease, background-color 120ms ease, opacity 120ms ease;
+}
+
+.calendar-event-double-book {
+  /* Keep the booking-agent double-book control available on every active
+     appointment, including short 15-minute ones. */
+  opacity: 0.96;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.calendar-event:hover .calendar-event-double-book,
+.calendar-event:focus-visible .calendar-event-double-book {
+  opacity: 1;
+  box-shadow: 0 1px 3px rgba(8, 123, 158, 0.22);
+}
+
+.calendar-event.is-pending-drag {
+  cursor: grab;
+}
+
 @media print {
   .calendar-page-title,
   .calendar-filter-menu,
@@ -1758,8 +1722,8 @@
   cursor: pointer;
 }
 
-/* Smart-Scheduling-style calendar: free cells stay neutral while actual
-   booking blocks carry clear pastel colours for quick visual scanning. */
+/* Professional white calendar: colour identifies the instructor, while the
+   cards and grid stay calm and readable throughout a busy day. */
 .calendar-shell,
 .calendar-toolbar,
 .calendar-range-row,
@@ -1800,21 +1764,20 @@
 
 .calendar-event,
 .calendar-event.event-status-pending {
-  background: var(--event-background, color-mix(in srgb, var(--event-colour) 38%, white));
-  border-color: color-mix(in srgb, var(--event-colour) 55%, #d8dde2);
+  background: #fff;
+  border-color: color-mix(in srgb, var(--event-colour) 38%, #d8dde2);
   border-left-color: var(--event-colour);
   box-shadow: none;
 }
 
 .calendar-event:hover,
 .calendar-event:focus-visible {
-  background: var(--event-background, color-mix(in srgb, var(--event-colour) 45%, white));
+  background: #fff;
   box-shadow: 0 3px 9px rgba(14, 14, 16, 0.12);
 }
 
 .calendar-busy-event {
   --event-colour: #667085;
-  --event-background: #f5f6f7;
   background: #f5f6f7 !important;
   border-color: #cbd2d8;
   border-left-color: #667085;
@@ -1822,7 +1785,6 @@
 
 .calendar-booking-slot {
   --event-colour: #277da1;
-  --event-background: #edf8fc;
   background: #edf8fc;
   border-color: #8ec8dc;
   color: #123b4b;
@@ -1895,16 +1857,4 @@
     min-width: min(78vw, 272px);
     flex-basis: min(78vw, 272px);
   }
-}
-
-/* Smart Scheduling-style instructor cell tint.
-   This rule intentionally comes after the white-calendar overrides so only
-   normal 15-minute schedule cells receive the instructor's soft colour. */
-.calendar-schedule-column .calendar-slot:not(.is-non-working) {
-  background: var(--instructor-cell-background, #fff);
-}
-
-.calendar-schedule-column .calendar-slot:not(.is-non-working):hover,
-.calendar-schedule-column .calendar-slot:not(.is-non-working):focus-visible {
-  background: color-mix(in srgb, var(--instructor-colour, #667085) 18%, white);
 }

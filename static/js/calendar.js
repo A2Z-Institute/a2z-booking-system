@@ -3,19 +3,11 @@
 
   const STAFF_DAY_START = 6 * 60;
   const STAFF_DAY_END = (18 * 60) + 30;
-  // Smart-Scheduling-style appointment colours. Free calendar cells remain
-  // white; actual appointment blocks get a clear pastel fill.
-  const APPOINTMENT_PALETTE = [
-    { border: "#8B5CF6", fill: "#E9D5FF" },
-    { border: "#D4A017", fill: "#FEF08A" },
-    { border: "#0EA5E9", fill: "#BAE6FD" },
-    { border: "#16A34A", fill: "#BBF7D0" },
-    { border: "#EA580C", fill: "#FED7AA" },
-    { border: "#E11D48", fill: "#FECDD3" },
-    { border: "#0891B2", fill: "#A5F3FC" },
-    { border: "#7C3AED", fill: "#DDD6FE" },
-    { border: "#65A30D", fill: "#D9F99D" },
-    { border: "#C2410C", fill: "#FFEDD5" },
+  // Bookings are coloured by instructor rather than equipment/service. This
+  // makes each staff column easy to scan while keeping the calendar white.
+  const INSTRUCTOR_EVENT_COLOURS = [
+    "#2F6B9A", "#237A57", "#7A4EAB", "#A45C1B", "#0F766E",
+    "#A33A4A", "#49657A", "#7A6A32", "#4D5D93", "#8A4D70",
   ];
 
   const calendar = document.querySelector("[data-calendar]");
@@ -136,6 +128,21 @@
   let saveInFlight = false;
   let moveInFlight = false;
   let trailerFinishAuto = false;
+  let reconcileTimer = null;
+
+  // The server response is applied immediately.  A short, quiet follow-up
+  // sync keeps a multi-user calendar accurate without making an agent wait
+  // for a full grid rebuild after every click, drag, or save.
+  const queueCalendarReconcile = (delay = 2200) => {
+    window.clearTimeout(reconcileTimer);
+    reconcileTimer = window.setTimeout(() => {
+      if (activePointerDragCleanup || draggedEvent || resizingEventId !== null) {
+        queueCalendarReconcile(700);
+        return;
+      }
+      void loadEvents({ silent: true, force: true });
+    }, delay);
+  };
 
   const persistCalendarDate = () => {
     const selectedDate = String(dateInput?.value || "");
@@ -438,23 +445,13 @@
     return `calendar-event duration-${durationSteps} event-status-${status}${event.type === "busy" ? " calendar-busy-event" : ""}${event.type === "slot" ? " calendar-booking-slot" : ""}`;
   };
 
-  const stablePaletteIndex = (value, length) => {
-    const text = String(value || "");
+  const instructorEventColour = (instructorId) => {
+    const text = String(instructorId || "");
     let hash = 0;
     for (let index = 0; index < text.length; index += 1) {
       hash = ((hash * 31) + text.charCodeAt(index)) >>> 0;
     }
-    return hash % length;
-  };
-
-  const instructorEventColour = (instructorId) => (
-    APPOINTMENT_PALETTE[stablePaletteIndex(`staff:${instructorId}`, APPOINTMENT_PALETTE.length)].border
-  );
-
-  const appointmentColour = (event) => {
-    // Prefer service/equipment identity so similar bookings share a colour.
-    const key = event.service_name || event.machine_category || event.machine_name || event.client_id || event.id;
-    return APPOINTMENT_PALETTE[stablePaletteIndex(`appointment:${key}`, APPOINTMENT_PALETTE.length)];
+    return INSTRUCTOR_EVENT_COLOURS[hash % INSTRUCTOR_EVENT_COLOURS.length];
   };
 
   const assignOverlapLanes = (columnEvents, hasBookingSlot) => {
@@ -927,13 +924,12 @@
     button.draggable = false;
     button.classList.toggle("is-movable", canDragEvent);
     button.dataset.eventId = event.id;
-    if (!isBusy && !isSlot) {
-      const colour = appointmentColour(event);
-      button.style.setProperty("--event-colour", event.service_color || colour.border);
-      button.style.setProperty("--event-background", colour.fill);
-    } else {
-      button.style.setProperty("--event-colour", event.service_color || "#667085");
-    }
+    button.style.setProperty(
+      "--event-colour",
+      !isBusy && !isSlot
+        ? instructorEventColour(event.instructor_id)
+        : (event.service_color || "#667085"),
+    );
     const range = visibleEventRange(event) || {
       start: minutes(event.start_time),
       end: minutes(event.end_time),
@@ -1023,7 +1019,10 @@
           || pointerEvent.target.closest(".calendar-event-resize")
         ) return;
         activePointerDragCleanup?.();
-        pointerEvent.preventDefault();
+        // Do not prevent the normal pointer-down action here.  It keeps a
+        // simple click reliable for opening an appointment; preventDefault is
+        // used only after the user has deliberately moved far enough to drag.
+        if (pointerEvent.target.closest(".calendar-event-double-book")) return;
         const originX = pointerEvent.clientX;
         const originY = pointerEvent.clientY;
         const duration = Math.max(15, minutes(event.end_time) - minutes(event.start_time));
@@ -1273,7 +1272,7 @@
       announce(isBookingSlot ? "Booking slot moved." : isBusyTime ? "Busy time moved." : "Appointment moved.");
       message.hidden = true;
       // Reconcile in the background in case another user changed the same day.
-      void loadEvents();
+      queueCalendarReconcile();
     } catch (error) {
       // Restore the server-backed size and position after a rejected resize/drop.
       renderCalendar();
@@ -1286,7 +1285,7 @@
     }
   };
 
-  const wireSlot = (slot, column, start, occupied = false, allowOccupiedBooking = false) => {
+  const wireSlot = (slot, column, start, occupied = false) => {
     const disabled = column.nonWorking;
     const bookingSlot = events.find((item) => (
       item.type === "slot"
@@ -1340,9 +1339,8 @@
         ...(draggedEvent.type === "slot" ? { end: timeValue(minutes(start) + duration) } : {}),
       });
     });
-    if (disabled || (occupied && !allowOccupiedBooking)) return;
-    if (allowOccupiedBooking) slot.classList.add("is-bookable-occupied");
-    // A visible plus affordance makes it clear that an available part of the cell can
+    if (disabled || occupied) return;
+    // A visible plus affordance makes it clear that an empty white cell can
     // start a booking. The server still checks conflicts and asks authorised
     // staff before recording an allowed double booking.
     slot.dataset.bookLabel = `+ Book ${formatClock(start)}`;
@@ -1442,17 +1440,10 @@
           && eventSlotStart(item) === start
         )).sort((a, b) => (a.type === "slot" ? -1 : 1) - (b.type === "slot" ? -1 : 1));
         const occupied = coveringEvents.length > 0;
-        const allowOccupiedBooking = occupied
-          && ["admin", "booking_agent"].includes(currentRole)
-          && coveringEvents.every((item) => item.type === "appointment")
-          && coveringEvents.some((item) => Boolean(item.can_edit)
-            && !["Cancelled", "Rejected", "Completed", "No-show"].includes(item.status));
         slot.setAttribute("aria-label", occupied
-          ? (allowOccupiedBooking
-            ? `${column.title}, ${column.subtitle}, ${start}. Existing appointment; click free area to add another booking`
-            : `${column.title}, ${column.subtitle}, ${start}. Occupied`)
+          ? `${column.title}, ${column.subtitle}, ${start}. Occupied`
           : `${column.title}, ${column.subtitle}, ${start}. Book appointment`);
-        wireSlot(slot, column, start, occupied, allowOccupiedBooking);
+        wireSlot(slot, column, start, occupied);
         startsHere.forEach((item) => slot.append(createEventButton(item)));
         section.append(slot);
       });
@@ -1824,7 +1815,9 @@
       }
       dialog.close();
       announce(result?.message || result);
-      await loadEvents({ silent: true, force: true });
+      // The returned event is already on screen.  Reconcile later rather than
+      // rebuilding every calendar column while the agent continues working.
+      queueCalendarReconcile();
     } catch (error) {
       showError(error.message || "The schedule item could not be saved.");
     } finally {
