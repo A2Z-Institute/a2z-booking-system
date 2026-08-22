@@ -1340,6 +1340,31 @@ def _client_identity_key(full_name, phone):
     return (name, phone_digits) if name and phone_digits else None
 
 
+def _booking_client_identity_fields(full_name, admission_number):
+    """Return clean booking-form fields for both new and imported clients.
+
+    Some historical imports stored an admission number at the end of the
+    client's name (for example ``ALWIN TR/1233/24/TC2``). Keep the original
+    record intact, but present name and admission number separately when a
+    booking agent selects the client.
+    """
+    name = " ".join(str(full_name or "").split()).strip(" -*")
+    admission = " ".join(str(admission_number or "").split())
+    if admission:
+        suffix = re.compile(rf"\s+{re.escape(admission)}$", re.IGNORECASE)
+        return suffix.sub("", name).strip(" -*"), admission
+
+    legacy = re.search(
+        r"(?:\s+|^)([A-Za-z]{1,8}\s*/\s*\d{1,8}\s*/\s*\d{2,4}\s*/\s*[A-Za-z0-9-]{1,12})$",
+        name,
+    )
+    if not legacy:
+        return name, ""
+    clean_name = name[:legacy.start()].strip(" -*")
+    clean_admission = re.sub(r"\s*/\s*", "/", legacy.group(1)).upper()
+    return clean_name or name, clean_admission
+
+
 def _related_client_ids(conn, client_id):
     """Return client ids that are unquestionably the same person.
 
@@ -5200,6 +5225,9 @@ def api_calendar_search_clients():
                 if canonical:
                     record = dict(canonical)
             emitted_client_ids.add(canonical_id)
+            record["full_name"], record["admission_number"] = _booking_client_identity_fields(
+                record.get("full_name"), record.get("admission_number")
+            )
             if not current_user.has_permission("contact_details"):
                 phone = record.get("phone") or ""
                 email = record.get("email") or ""
