@@ -81,6 +81,7 @@
   const bookingMenu = editor.querySelector("[data-editor-booking-menu]");
   const clientDetailsLink = editor.querySelector("[data-editor-client-details]");
   const clientNotesLink = editor.querySelector("[data-editor-client-notes]");
+  const whatsappConfirmationButton = editor.querySelector("[data-editor-whatsapp]");
   const deleteBusyButton = editor.querySelector("[data-editor-busy-delete]");
   const deleteBusyForAllButton = editor.querySelector("[data-editor-busy-delete-all]");
   const deleteSlotButton = editor.querySelector("[data-editor-slot-delete]");
@@ -129,6 +130,7 @@
   let moveInFlight = false;
   let trailerFinishAuto = false;
   let reconcileTimer = null;
+  let whatsappConfirmationEvent = null;
 
   // The server response is applied immediately.  A short, quiet follow-up
   // sync keeps a multi-user calendar accurate without making an agent wait
@@ -284,6 +286,38 @@
     return compact && minute === 0
       ? `${hour12}${suffix}`
       : `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
+  };
+  const whatsappNumber = (value) => {
+    let digits = String(value || "").replace(/\D/g, "");
+    if (digits.startsWith("0")) digits = digits.slice(1);
+    return digits.length === 10 ? `91${digits}` : digits;
+  };
+  const formatWhatsappDate = (value) => {
+    const [year, month, day] = String(value || "").split("-").map(Number);
+    if (!year || !month || !day) return String(value || "");
+    return new Intl.DateTimeFormat("en-IN", {
+      day: "numeric", month: "short", year: "numeric", timeZone: "UTC",
+    }).format(new Date(Date.UTC(year, month - 1, day)));
+  };
+  const openWhatsappConfirmation = (appointment) => {
+    const number = whatsappNumber(appointment?.student_phone);
+    if (!number || number.length < 10) {
+      showError("Add a valid client phone number before sending a WhatsApp confirmation.");
+      return;
+    }
+    const service = appointment.service_name || appointment.machine_category || appointment.machine_name || "Training";
+    const equipment = appointment.machine_category || appointment.machine_name || "";
+    const lines = [
+      `Hello ${appointment.student_name || ""},`,
+      "Your A2Z Institute training is confirmed.",
+      `Service: ${service}`,
+      `Date: ${formatWhatsappDate(appointment.date)}`,
+      `Time: ${formatClock(appointment.start_time)} – ${formatClock(appointment.end_time)}`,
+      `Instructor: ${appointment.instructor_name || ""}`,
+    ];
+    if (equipment && equipment !== service) lines.push(`Equipment: ${equipment}`);
+    lines.push("Please arrive on time. Thank you.");
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(lines.join("\n"))}`, "_blank", "noopener");
   };
   const formatDay = (value, includeYear = false) => new Intl.DateTimeFormat("en-IN", {
     weekday: "short",
@@ -668,6 +702,10 @@
     const clientUrl = replaceId(calendar.dataset.clientUrlTemplate || "", event.student_user_id || event.client_id || 0);
     if (clientDetailsLink) clientDetailsLink.href = `${clientUrl}#upcoming-title`;
     if (clientNotesLink) clientNotesLink.href = `${clientUrl}#client-notes`;
+    whatsappConfirmationEvent = event;
+    if (whatsappConfirmationButton) {
+      whatsappConfirmationButton.hidden = !String(event.student_phone || "").trim();
+    }
     syncRepeatCount(repeatInput, repeatCount);
 
     if (existingSummary) {
@@ -702,6 +740,7 @@
     if (currentRole === "instructor") return;
     lastFocused = trigger || document.activeElement;
     editingEvent = null;
+    whatsappConfirmationEvent = null;
     editor.reset();
     trailerFinishAuto = false;
     clearError();
@@ -709,6 +748,7 @@
     revisionInput.value = "";
     updateSeriesSummary(null);
     if (existingSummary) existingSummary.hidden = true;
+    if (whatsappConfirmationButton) whatsappConfirmationButton.hidden = true;
     setServiceSelection([]);
     instructorInput.value = String(instructorId || instructorFilter.value || instructors[0]?.id || "");
     clientInput.value = String(selectedClientId || "");
@@ -1870,6 +1910,9 @@
   });
 
   clientInput.addEventListener("change", syncEditorOptions);
+  whatsappConfirmationButton?.addEventListener("click", () => {
+    if (whatsappConfirmationEvent) openWhatsappConfirmation(whatsappConfirmationEvent);
+  });
   repeatInput?.addEventListener("change", () => syncRepeatCount(repeatInput, repeatCount));
   busyRepeat?.addEventListener("change", () => syncRepeatCount(busyRepeat, busyRepeatCount));
   slotRepeat?.addEventListener("change", () => syncRepeatCount(slotRepeat, slotRepeatCount));
@@ -2070,6 +2113,8 @@
 
   dialog.addEventListener("close", () => {
     editingEvent = null;
+    whatsappConfirmationEvent = null;
+    if (whatsappConfirmationButton) whatsappConfirmationButton.hidden = true;
     lastFocused?.focus?.();
   });
   document.querySelector("[data-add-appointment]")?.addEventListener("click", (event) => {

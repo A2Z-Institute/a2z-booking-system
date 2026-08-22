@@ -176,7 +176,20 @@
           <div class="timeline-copy">
             <div class="timeline-heading">
               <strong>{{ booking.service_name|default(booking.machine_category, true) }}</strong>
-              <span class="status-badge status-{{ status_key }}">{{ booking.validation_status }}</span>
+              <div class="timeline-actions">
+                <span class="status-badge status-{{ status_key }}">{{ booking.validation_status }}</span>
+                {% if current_user.role in ['admin', 'booking_agent'] and current_user.has_permission('contact_details') and client.phone %}
+                  <button class="button button-secondary button-small" type="button" data-whatsapp-confirmation
+                    data-whatsapp-phone="{{ client.phone }}"
+                    data-whatsapp-client="{{ client.full_name }}"
+                    data-whatsapp-service="{{ booking.service_name|default(booking.machine_category, true) }}"
+                    data-whatsapp-equipment="{{ booking.machine_code|replace('-', ' ') }}"
+                    data-whatsapp-instructor="{{ booking.instructor_name }}"
+                    data-whatsapp-date="{{ booking.target_date }}"
+                    data-whatsapp-start="{{ booking.start_time }}"
+                    data-whatsapp-end="{{ booking.end_time }}">WhatsApp confirmation</button>
+                {% endif %}
+              </div>
             </div>
             <p>{{ booking.instructor_name }} · {{ booking.machine_code|replace('-', ' ') }}</p>
             {% if booking.notes %}<p><strong>Appointment note:</strong> {{ booking.notes }}</p>{% endif %}
@@ -250,4 +263,43 @@
     <div class="empty-state compact-empty"><p>No service questions or files are recorded.</p></div>
   {% endif %}
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const formatDate = (value) => {
+    const [year, month, day] = String(value || '').split('-').map(Number);
+    if (!year || !month || !day) return value || '';
+    return new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+      .format(new Date(Date.UTC(year, month - 1, day)));
+  };
+  const formatTime = (value) => {
+    const [hour, minute] = String(value || '00:00').split(':').map(Number);
+    const suffix = hour < 12 ? 'am' : 'pm';
+    return `${hour % 12 || 12}:${String(minute || 0).padStart(2, '0')} ${suffix}`;
+  };
+  document.querySelectorAll('[data-whatsapp-confirmation]').forEach((button) => {
+    button.addEventListener('click', () => {
+      let number = String(button.dataset.whatsappPhone || '').replace(/\D/g, '');
+      if (number.startsWith('0')) number = number.slice(1);
+      if (number.length === 10) number = `91${number}`;
+      if (number.length < 10) return;
+      const service = button.dataset.whatsappService || 'Training';
+      const equipment = button.dataset.whatsappEquipment || '';
+      const lines = [
+        `Hello ${button.dataset.whatsappClient || ''},`,
+        'Your A2Z Institute training is confirmed.',
+        `Service: ${service}`,
+        `Date: ${formatDate(button.dataset.whatsappDate)}`,
+        `Time: ${formatTime(button.dataset.whatsappStart)} – ${formatTime(button.dataset.whatsappEnd)}`,
+        `Instructor: ${button.dataset.whatsappInstructor || ''}`,
+      ];
+      if (equipment && equipment !== service) lines.push(`Equipment: ${equipment}`);
+      lines.push('Please arrive on time. Thank you.');
+      window.open(`https://wa.me/${number}?text=${encodeURIComponent(lines.join('\n'))}`, '_blank', 'noopener');
+    });
+  });
+})();
+</script>
 {% endblock %}

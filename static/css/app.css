@@ -2416,6 +2416,14 @@ textarea:focus {
   gap: 0.6rem;
 }
 
+.timeline-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
 .intake-history {
   display: grid;
   gap: 0.8rem;
