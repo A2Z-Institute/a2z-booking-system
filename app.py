@@ -161,12 +161,14 @@ BOOKING_SELECT = """
            m.machine_code, m.category AS machine_category,
            m.location AS machine_location,
            i.name AS instructor_name, br.name AS branch_name,
-           u.email AS student_email, s.color AS service_color
+           u.email AS student_email, COALESCE(cp.admission_number, '') AS admission_number,
+           s.color AS service_color
     FROM bookings b
     JOIN machines m ON m.id = b.machine_id
     JOIN instructors i ON i.id = b.instructor_id
     JOIN branches br ON br.id = b.branch_id
     LEFT JOIN users u ON u.id = b.student_user_id
+    LEFT JOIN client_profiles cp ON cp.user_id = u.id
     LEFT JOIN services s ON s.id = b.service_id
 """
 
@@ -1414,6 +1416,9 @@ def _client_profile_values(payload):
             "Keep client notes under 2,000 characters and tags under 250."
         )
     return {
+        "admission_number": _bounded_client_text(
+            payload.get("admission_number"), "admission number", 100
+        ),
         "birthday": _optional_birthday(payload.get("birthday")),
         "gender": _bounded_client_text(payload.get("gender"), "gender", 50),
         "zip_code": _bounded_client_text(payload.get("zip_code"), "postcode", 20),
@@ -3005,6 +3010,7 @@ def _calendar_event(row):
         "client_id": row["student_user_id"],
         "student_user_id": row["student_user_id"],
         "student_name": row["student_name"],
+        "admission_number": row["admission_number"] or "",
         "student_phone": phone,
         "student_email": email,
         "service_name": row["service_name"] or row["machine_category"],
@@ -5041,13 +5047,14 @@ def _create_client_record(conn, payload):
     conn.execute(
         """
         INSERT INTO client_profiles
-            (user_id, secondary_phone, secondary_email, birthday, gender,
+            (user_id, admission_number, secondary_phone, secondary_email, birthday, gender,
              zip_code, city, street, internal_notes, tags, reminders_enabled,
              preferred_channel, updated_by, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         """,
         (
             user_id,
+            profile["admission_number"],
             contacts["secondary_phone"],
             contacts["secondary_email"],
             profile["birthday"],
@@ -5127,9 +5134,10 @@ def api_calendar_search_clients():
     pattern = f"%{query}%"
     phone_query = _phone_digits(query)
     match_clause = """(lower(COALESCE(u.full_name, '')) LIKE lower(?)
+        OR lower(COALESCE(cp.admission_number, '')) LIKE lower(?)
         OR lower(COALESCE(u.email, '')) LIKE lower(?)
         OR COALESCE(u.phone, '') LIKE ?"""
-    params = [pattern, pattern, pattern]
+    params = [pattern, pattern, pattern, pattern]
     if phone_query:
         match_clause += " OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(u.phone, ''), ' ', ''), '-', ''), '(', ''), ')', ''), '+', '') LIKE ?"
         params.append(f"%{phone_query}%")
@@ -5144,8 +5152,10 @@ def api_calendar_search_clients():
         rows = conn.execute(
             f"""
             SELECT u.id, u.full_name, COALESCE(u.email, '') AS email,
-                   COALESCE(u.phone, '') AS phone, u.branch_id
+                   COALESCE(u.phone, '') AS phone, u.branch_id,
+                   COALESCE(cp.admission_number, '') AS admission_number
             FROM users u
+            LEFT JOIN client_profiles cp ON cp.user_id = u.id
             WHERE {' AND '.join(clauses)}
             ORDER BY CASE WHEN lower(u.full_name) = lower(?) THEN 0 ELSE 1 END,
                      lower(u.full_name)
@@ -5161,9 +5171,12 @@ def api_calendar_search_clients():
             if canonical_id != record["id"]:
                 canonical = conn.execute(
                     """
-                    SELECT id, full_name, COALESCE(email, '') AS email,
-                           COALESCE(phone, '') AS phone, branch_id
-                    FROM users WHERE id = ? AND role = 'student'
+                    SELECT u.id, u.full_name, COALESCE(u.email, '') AS email,
+                           COALESCE(u.phone, '') AS phone, u.branch_id,
+                           COALESCE(cp.admission_number, '') AS admission_number
+                    FROM users u
+                    LEFT JOIN client_profiles cp ON cp.user_id = u.id
+                    WHERE u.id = ? AND u.role = 'student'
                     """,
                     (canonical_id,),
                 ).fetchone()
@@ -5177,9 +5190,6 @@ def api_calendar_search_clients():
                 if email and "@" in email:
                     local, domain = email.split("@", 1)
                     record["email"] = (local[:1] + "•••@" + domain) if local else "•••@" + domain
-            parts = (record["full_name"] or "").strip().split(None, 1)
-            record["first_name"] = parts[0] if parts else ""
-            record["last_name"] = parts[1] if len(parts) > 1 else ""
             clients.append(record)
     return jsonify({"clients": clients})
 
@@ -5428,14 +5438,30 @@ def client_detail(client_id):
     if not current_user.has_permission("client_notes"):
         client_record["internal_notes"] = ""
         client_record["tags"] = ""
-    today = datetime.now(IST).date().isoformat()
+    now_ist = datetime.now(IST)
+    today = now_ist.date().isoformat()
+
+    def booking_is_upcoming(booking):
+        """Treat appointments that already ended today as past appointments."""
+        try:
+            appointment_end = datetime.strptime(
+                f"{booking['target_date']} {booking['end_time']}",
+                "%Y-%m-%d %H:%M",
+            ).replace(tzinfo=IST)
+        except (KeyError, TypeError, ValueError):
+            # Keep malformed legacy data visible rather than silently hiding it.
+            return str(booking.get("target_date") or "") >= today
+        return appointment_end > now_ist
+
     upcoming_bookings = sorted(
-        (booking for booking in bookings if booking["target_date"] >= today),
+        (booking for booking in bookings if booking_is_upcoming(booking)),
         key=lambda booking: (booking["target_date"], booking["start_time"]),
     )
-    past_bookings = [
-        booking for booking in bookings if booking["target_date"] < today
-    ]
+    past_bookings = sorted(
+        (booking for booking in bookings if not booking_is_upcoming(booking)),
+        key=lambda booking: (booking["target_date"], booking["start_time"]),
+        reverse=True,
+    )
     return render_template(
         "client_detail.html",
         client=client_record,

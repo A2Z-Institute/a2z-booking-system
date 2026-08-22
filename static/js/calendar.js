@@ -168,15 +168,15 @@
 
   const selectClientMatch = (client) => {
     fillingClient = true;
-    if (clientFirstName) clientFirstName.value = client.first_name || "";
-    if (clientLastName) clientLastName.value = client.last_name || "";
+    if (clientFirstName) clientFirstName.value = client.full_name || "";
+    if (clientLastName) clientLastName.value = client.admission_number || "";
     if (clientPhone) clientPhone.value = client.phone || "";
     if (clientEmail) clientEmail.value = client.email || "";
     let option = Array.from(clientInput.options).find((item) => String(item.value) === String(client.id));
     if (!option) {
       option = document.createElement("option");
       option.value = String(client.id);
-      option.textContent = client.full_name || `${client.first_name || ""} ${client.last_name || ""}`.trim();
+      option.textContent = client.full_name || "Client";
       option.dataset.branchId = String(client.branch_id || "");
       clientInput.append(option);
     }
@@ -642,13 +642,12 @@
         : (event.status || "Approved");
     }
     if (editorNotes) editorNotes.value = event.notes || "";
-    const nameParts = String(event.student_name || "").trim().split(/\s+/);
     const firstNameInput = editor.querySelector("[data-new-client-first-name]");
     const lastNameInput = editor.querySelector("[data-new-client-last-name]");
     const phoneInput = editor.querySelector("[data-new-client-phone]");
     const emailInput = editor.querySelector("[data-new-client-email]");
-    if (firstNameInput) firstNameInput.value = nameParts.shift() || "";
-    if (lastNameInput) lastNameInput.value = nameParts.join(" ");
+    if (firstNameInput) firstNameInput.value = event.student_name || "";
+    if (lastNameInput) lastNameInput.value = event.admission_number || "";
     if (phoneInput) phoneInput.value = event.student_phone || "";
     if (emailInput) emailInput.value = event.student_email || "";
     if (bufferBefore) bufferBefore.value = String(event.buffer_before_minutes || 0);
@@ -1512,13 +1511,13 @@
   }
 
   const createClient = async () => {
-    const firstName = editor.querySelector("[data-new-client-first-name]")?.value.trim() || "";
-    const lastName = editor.querySelector("[data-new-client-last-name]")?.value.trim() || "";
+    const fullName = editor.querySelector("[data-new-client-first-name]")?.value.trim() || "";
+    const admissionNumber = editor.querySelector("[data-new-client-last-name]")?.value.trim() || "";
     const phone = editor.querySelector("[data-new-client-phone]")?.value.trim() || "";
     const email = editor.querySelector("[data-new-client-email]")?.value.trim() || "";
     const branchId = instructorInput.selectedOptions[0]?.dataset.branchId || "";
-    if (!firstName || !lastName || !phone) {
-      showError("Enter the client's first name, last name, and phone number.");
+    if (!fullName || !admissionNumber || !phone) {
+      showError("Enter the client's full name, admission number, and phone number.");
       return;
     }
     if (!branchId) {
@@ -1538,9 +1537,8 @@
         },
         credentials: "same-origin",
         body: JSON.stringify({
-          full_name: `${firstName} ${lastName}`,
-          first_name: firstName,
-          last_name: lastName,
+          full_name: fullName,
+          admission_number: admissionNumber,
           phone,
           email,
           branch_id: Number(branchId),
@@ -1556,7 +1554,7 @@
         option = document.createElement("option");
         option.value = String(record.id);
         option.dataset.branchId = String(record.branch_id || branchId);
-        option.textContent = record.full_name || `${firstName} ${lastName}`;
+        option.textContent = record.full_name || fullName;
         clientInput.append(option);
       }
       option.hidden = false;

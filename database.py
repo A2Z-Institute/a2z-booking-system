@@ -432,6 +432,7 @@ def init_db() -> None:
 
             CREATE TABLE IF NOT EXISTS client_profiles (
                 user_id INTEGER PRIMARY KEY,
+                admission_number TEXT,
                 secondary_phone TEXT,
                 secondary_email TEXT,
                 birthday TEXT,
@@ -645,6 +646,7 @@ def init_db() -> None:
             conn,
             "client_profiles",
             {
+                "admission_number": "TEXT",
                 "secondary_phone": "TEXT",
                 "secondary_email": "TEXT",
                 "birthday": "TEXT",
