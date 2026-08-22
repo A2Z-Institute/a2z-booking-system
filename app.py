@@ -3022,6 +3022,9 @@ def _calendar_instructors(conn):
 def _calendar_event(row):
     can_view_contacts = current_user.has_permission("contact_details")
     can_view_notes = current_user.has_permission("client_notes")
+    student_name, admission_number = _booking_client_identity_fields(
+        row["student_name"], row["admission_number"]
+    )
     phone = row["mobile_number"] or ""
     email = row["student_email"] or ""
     if not can_view_contacts:
@@ -3035,8 +3038,8 @@ def _calendar_event(row):
         "title": row["service_name"] or row["machine_category"],
         "client_id": row["student_user_id"],
         "student_user_id": row["student_user_id"],
-        "student_name": row["student_name"],
-        "admission_number": row["admission_number"] or "",
+        "student_name": student_name,
+        "admission_number": admission_number,
         "student_phone": phone,
         "student_email": email,
         "service_name": row["service_name"] or row["machine_category"],
