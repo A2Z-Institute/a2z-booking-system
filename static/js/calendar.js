@@ -940,6 +940,7 @@
       `calc(${offsetMinutes / 15} * var(--calendar-quarter-height))`,
     );
     const durationMinutes = Math.max(5, range.end - range.start);
+    const isShortAppointment = !isBusy && !isSlot && durationMinutes <= 15;
     button.style.setProperty(
       "--event-duration",
       `calc(${durationMinutes / 15} * var(--calendar-quarter-height))`,
@@ -958,7 +959,7 @@
       <strong class="calendar-event-client"></strong>
       <span class="calendar-event-service"></span>
       <small class="calendar-event-status"></small>
-      ${canStartDoubleBooking ? '<span class="calendar-event-double-book" title="Add another booking at this time">+ Book</span>' : ''}
+      ${canStartDoubleBooking ? `<span class="calendar-event-double-book${isShortAppointment ? " is-compact" : ""}" title="Add another booking at this time">${isShortAppointment ? "+" : "+ Book"}</span>` : ''}
       ${canDragEvent ? `<span class="calendar-event-resize" title="Drag to change ${isSlot ? "slot" : isBusy ? "busy time" : "appointment"} duration" aria-label="Resize ${isSlot ? "booking slot" : isBusy ? "busy time" : "appointment"}"></span>` : ''}
     `;
     button.querySelector(".calendar-event-client").textContent =
