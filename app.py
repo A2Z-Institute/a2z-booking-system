@@ -3066,6 +3066,7 @@ def _calendar_busy_event(row):
         "breakfast": "breakfast",
         "lunch": "lunch",
         "tea break": "tea",
+        "no booking": "no_booking",
     }.get(reason.lower(), "busy")
     return {
         "type": "busy",
@@ -3079,7 +3080,9 @@ def _calendar_busy_event(row):
         "date": row["target_date"],
         "start_time": row["start_time"],
         "end_time": row["end_time"],
-        "status": "Break" if break_kind != "busy" else "Busy",
+        "status": "No Booking" if break_kind == "no_booking" else (
+            "Break" if break_kind != "busy" else "Busy"
+        ),
         "revision": row["calendar_revision"],
         "buffer_before_minutes": 0,
         "buffer_after_minutes": 0,
@@ -3582,7 +3585,14 @@ def _assert_appointment_outside_breaks(
 
 
 def _assert_busy_time_available(
-    conn, instructor_id, target, start_minutes, end_minutes, *, exclude_id=None
+    conn,
+    instructor_id,
+    target,
+    start_minutes,
+    end_minutes,
+    *,
+    exclude_id=None,
+    allow_standard_break_overlap=False,
 ):
     active_placeholders = ",".join("?" for _ in ACTIVE_BOOKING_STATUSES)
     bookings = conn.execute(
@@ -3610,16 +3620,19 @@ def _assert_busy_time_available(
     if exclude_id is not None:
         exclude_clause = " AND id != ?"
         params.append(exclude_id)
-    existing = conn.execute(
+    existing_rows = conn.execute(
         f"""
-        SELECT 1 FROM instructor_time_off
+        SELECT id, reason, source_reference FROM instructor_time_off
         WHERE instructor_id = ? AND target_date = ?
           AND start_time < ? AND end_time > ? {exclude_clause}
-        LIMIT 1
         """,
         (*params[:2], _minutes_to_time(end_minutes), _minutes_to_time(start_minutes), *params[2:]),
-    ).fetchone()
-    if existing:
+    ).fetchall()
+    for existing in existing_rows:
+        if allow_standard_break_overlap and _standard_break_kind(
+            existing["source_reference"], existing["reason"]
+        ):
+            continue
         raise AppointmentConflictError("That busy time overlaps another busy period.")
 
 
@@ -3645,9 +3658,10 @@ def api_calendar_create_busy_time():
             "breakfast": "Breakfast",
             "lunch": "Lunch",
             "tea": "Tea Break",
+            "no_booking": "No Booking",
         }
         if break_type not in {"busy", *break_titles}:
-            raise ValueError("Choose Breakfast, Lunch, Tea Break, or Busy time.")
+            raise ValueError("Choose Breakfast, Lunch, Tea Break, No Booking, or Busy time.")
         title = (
             break_titles.get(break_type)
             or " ".join(str(payload.get("title") or "").split())[:120]
@@ -3683,6 +3697,7 @@ def api_calendar_create_busy_time():
                     occurrence_date,
                     start_minutes,
                     end_minutes,
+                    allow_standard_break_overlap=(break_type == "no_booking"),
                 )
                 time_off_id = conn.execute(
                     """
@@ -3793,9 +3808,10 @@ def api_calendar_update_busy_time(time_off_id):
                 "breakfast": "Breakfast",
                 "lunch": "Lunch",
                 "tea": "Tea Break",
+                "no_booking": "No Booking",
             }
             if break_type not in {"busy", *break_titles}:
-                raise ValueError("Choose Breakfast, Lunch, Tea Break, or Busy time.")
+                raise ValueError("Choose Breakfast, Lunch, Tea Break, No Booking, or Busy time.")
             title_source = payload.get("title") if "title" in payload else existing["reason"]
             title = (
                 break_titles.get(break_type)
@@ -3832,6 +3848,7 @@ def api_calendar_update_busy_time(time_off_id):
                 start_minutes,
                 end_minutes,
                 exclude_id=time_off_id,
+                allow_standard_break_overlap=(break_type == "no_booking"),
             )
             source_reference = existing["source_reference"]
             # A default break moved to another staff column/date must not be

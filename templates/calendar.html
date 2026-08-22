@@ -424,9 +424,10 @@
                 <option value="breakfast">Breakfast</option>
                 <option value="lunch">Lunch</option>
                 <option value="tea">Tea Break</option>
+                <option value="no_booking">No Booking</option>
                 <option value="busy">Other event / busy time</option>
               </select>
-              <span class="field-hint">Administrators can drag or resize Breakfast, Lunch, and Tea Break directly on the calendar. Breaks cannot be booked over.</span>
+              <span class="field-hint">Use No Booking when an instructor is unavailable. It blocks appointments but may overlap Breakfast, Lunch, or Tea Break. Administrators can drag or resize the named breaks directly on the calendar.</span>
             </div>
             <div class="field field-span-2">
               <label for="busy-title">Title</label>
@@ -447,11 +448,31 @@
             </div>
             <div class="field">
               <label for="busy-start">Start</label>
-              <input id="busy-start" name="busy_start_time" type="time" min="06:00" max="18:15" step="300" data-editor-busy-start>
+              <select id="busy-start" name="busy_start_time" data-editor-busy-start>
+                {% for hour in range(6, 19) %}
+                  {% for minute in range(0, 60, 5) %}
+                    {% if hour < 18 or minute <= 15 %}
+                      {% set value = '%02d:%02d'|format(hour, minute) %}
+                      {% set display_hour = 12 if hour % 12 == 0 else hour % 12 %}
+                      <option value="{{ value }}">{{ display_hour }}:{{ '%02d'|format(minute) }} {{ 'am' if hour < 12 else 'pm' }}</option>
+                    {% endif %}
+                  {% endfor %}
+                {% endfor %}
+              </select>
             </div>
             <div class="field">
               <label for="busy-end">Finish</label>
-              <input id="busy-end" name="busy_end_time" type="time" min="06:15" max="18:30" step="300" data-editor-busy-end>
+              <select id="busy-end" name="busy_end_time" data-editor-busy-end>
+                {% for hour in range(6, 19) %}
+                  {% for minute in range(0, 60, 5) %}
+                    {% if hour < 18 or minute <= 30 %}
+                      {% set value = '%02d:%02d'|format(hour, minute) %}
+                      {% set display_hour = 12 if hour % 12 == 0 else hour % 12 %}
+                      <option value="{{ value }}">{{ display_hour }}:{{ '%02d'|format(minute) }} {{ 'am' if hour < 12 else 'pm' }}</option>
+                    {% endif %}
+                  {% endfor %}
+                {% endfor %}
+              </select>
             </div>
             <div class="field">
               <label for="busy-repeat">Repeat</label>
