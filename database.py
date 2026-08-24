@@ -138,6 +138,7 @@ def _rebuild_legacy_account_tables(conn: sqlite3.Connection) -> None:
                 email TEXT,
                 phone TEXT,
                 branch_id INTEGER,
+                is_super_admin INTEGER NOT NULL DEFAULT 0,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 login_enabled INTEGER NOT NULL DEFAULT 1,
                 must_change_password INTEGER NOT NULL DEFAULT 1,
@@ -589,6 +590,9 @@ def init_db() -> None:
                 "email": "TEXT",
                 "phone": "TEXT",
                 "branch_id": "INTEGER",
+                # A Super Admin may manage every portal. Other administrators
+                # remain strictly inside the portal/branch linked to their account.
+                "is_super_admin": "INTEGER NOT NULL DEFAULT 0",
                 "is_active": "INTEGER NOT NULL DEFAULT 1",
                 "login_enabled": "INTEGER NOT NULL DEFAULT 1",
                 "must_change_password": "INTEGER NOT NULL DEFAULT 1",
@@ -1311,7 +1315,6 @@ def seed_reference_data() -> None:
                 "No active administrator account exists. Resolve the conflicting "
                 "'admin' username or restore an administrator before startup."
             )
-
         if os.environ.get("A2Z_SEED_DEMO_STUDENT", "0") == "1":
             student_password = os.environ.get("A2Z_STUDENT_PASSWORD")
             if not student_password:
@@ -1367,6 +1370,55 @@ def seed_reference_data() -> None:
             JOIN users u ON u.id = b.student_user_id AND u.role = 'student'
             WHERE b.student_user_id IS NOT NULL
             """
+        )
+
+
+def seed_portal_accounts() -> None:
+    """Create the optional Driving School portal without touching live data."""
+    if os.environ.get("A2Z_ENABLE_DRIVING_SCHOOL_PORTAL", "0") != "1":
+        return
+    admin_password = os.environ.get("A2Z_DRIVING_SCHOOL_ADMIN_PASSWORD")
+    agent_password = os.environ.get("A2Z_DRIVING_SCHOOL_AGENT_PASSWORD")
+    if not admin_password or not agent_password:
+        raise RuntimeError(
+            "Set A2Z_DRIVING_SCHOOL_ADMIN_PASSWORD and "
+            "A2Z_DRIVING_SCHOOL_AGENT_PASSWORD before enabling the Driving School portal."
+        )
+    portal_name = os.environ.get("A2Z_DRIVING_SCHOOL_PORTAL_NAME", "A2Z Driving School")
+    admin_username = os.environ.get("A2Z_DRIVING_SCHOOL_ADMIN_USERNAME", "admin_drivingschool")
+    agent_username = os.environ.get("A2Z_DRIVING_SCHOOL_AGENT_USERNAME", "a2zdrivingschool")
+    with get_db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "INSERT OR IGNORE INTO branches (name, address, phone) VALUES (?, '', '')",
+            (portal_name,),
+        )
+        branch_id = conn.execute(
+            "SELECT id FROM branches WHERE name = ?", (portal_name,)
+        ).fetchone()["id"]
+        for username, password, role, full_name in (
+            (admin_username, admin_password, "admin", "A2Z Driving School Admin"),
+            (agent_username, agent_password, "booking_agent", "A2Z Driving School Booking"),
+        ):
+            existing = conn.execute(
+                "SELECT id, branch_id FROM users WHERE lower(username) = lower(?)", (username,)
+            ).fetchone()
+            if existing and existing["branch_id"] != branch_id:
+                raise RuntimeError(f"Username '{username}' is already used by another portal.")
+            if not existing:
+                conn.execute(
+                    """
+                    INSERT INTO users
+                        (username, password_hash, role, full_name, branch_id,
+                         is_super_admin, is_active, login_enabled, must_change_password)
+                    VALUES (?, ?, ?, ?, ?, 0, 1, 1, 1)
+                    """,
+                    (username, generate_password_hash(password), role, full_name, branch_id),
+                )
+        super_admin_username = os.environ.get("A2Z_SUPER_ADMIN_USERNAME", "admin")
+        conn.execute(
+            "UPDATE users SET is_super_admin = 1 WHERE lower(username) = lower(?) AND role = 'admin'",
+            (super_admin_username,),
         )
 
 

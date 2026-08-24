@@ -46,7 +46,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from backup_database import backup_directory, verify_database
-from database import database_path, get_db, init_db, seed_reference_data
+from database import database_path, get_db, init_db, seed_portal_accounts, seed_reference_data
 from free_slots import WORK_WINDOWS, compute_free_slots, intersect_free_slots
 from gemini_insights import (
     GeminiInsightsError,
@@ -203,6 +203,9 @@ class User(UserMixin):
         self.email = row["email"] or ""
         self.phone = row["phone"] or ""
         self.branch_id = row["branch_id"]
+        self.is_super_admin = bool(
+            row["is_super_admin"] if "is_super_admin" in row.keys() else False
+        )
         self._active = bool(row["is_active"] and row["login_enabled"])
         self.must_change_password = bool(row["must_change_password"])
         raw_permissions = (
@@ -225,6 +228,13 @@ class User(UserMixin):
             return True
         bit = PERMISSION_BITS.get(permission)
         return bool(bit and self.permission_mask & bit)
+
+
+def _portal_branch_id():
+    """Return the signed-in user's portal, unless they are Super Admin."""
+    if current_user.is_authenticated and not current_user.is_super_admin:
+        return current_user.branch_id
+    return None
 
 
 @login_manager.user_loader
@@ -1482,6 +1492,9 @@ def _validate_branch(conn, value):
         "SELECT 1 FROM branches WHERE id = ? AND is_active = 1", (branch_id,)
     ).fetchone():
         raise ValueError("Choose a valid branch.")
+    portal_branch_id = _portal_branch_id()
+    if portal_branch_id is not None and branch_id != portal_branch_id:
+        abort(403)
     return branch_id
 
 
@@ -2999,6 +3012,9 @@ def _calendar_instructors(conn):
     ):
         params = (current_user.instructor_id,)
         where = "i.id = ?"
+    elif _portal_branch_id() is not None:
+        params = (_portal_branch_id(),)
+        where = "i.is_active = 1 AND i.verification_status = 'verified' AND i.branch_id = ?"
     else:
         params = ()
         where = "i.is_active = 1 AND i.verification_status = 'verified'"
@@ -3305,6 +3321,8 @@ def calendar_view():
             "everyone_schedule"
         ):
             branch_ids = [current_user.branch_id]
+        elif _portal_branch_id() is not None:
+            branch_ids = [_portal_branch_id()]
         else:
             branch_ids = sorted({item["branch_id"] for item in instructors})
         # Client lookup is type-ahead. Loading tens of thousands of clients as
@@ -3314,9 +3332,9 @@ def calendar_view():
         if requested_client_id:
             params = [requested_client_id]
             branch_clause = ""
-            if current_user.role == "instructor":
+            if _portal_branch_id() is not None:
                 branch_clause = " AND branch_id = ?"
-                params.append(current_user.branch_id)
+                params.append(_portal_branch_id())
             students = [
                 dict(row)
                 for row in conn.execute(
@@ -3392,22 +3410,27 @@ def api_calendar_events():
         clauses.append("b.instructor_id = ?")
         params.append(selected_instructor_id)
     else:
-        instructor_value = request.args.get("instructor_id", "")
-        branch_value = request.args.get("branch_id", "")
-        if instructor_value:
-            try:
-                selected_instructor_id = int(instructor_value)
-                clauses.append("b.instructor_id = ?")
-                params.append(selected_instructor_id)
-            except ValueError:
-                return jsonify({"error": "Choose a valid instructor."}), 400
-        if branch_value:
-            try:
-                selected_branch_id = int(branch_value)
-                clauses.append("b.branch_id = ?")
-                params.append(selected_branch_id)
-            except ValueError:
-                return jsonify({"error": "Choose a valid branch."}), 400
+        if _portal_branch_id() is not None:
+            selected_branch_id = _portal_branch_id()
+            clauses.append("b.branch_id = ?")
+            params.append(selected_branch_id)
+        else:
+            instructor_value = request.args.get("instructor_id", "")
+            branch_value = request.args.get("branch_id", "")
+            if instructor_value:
+                try:
+                    selected_instructor_id = int(instructor_value)
+                    clauses.append("b.instructor_id = ?")
+                    params.append(selected_instructor_id)
+                except ValueError:
+                    return jsonify({"error": "Choose a valid instructor."}), 400
+            if branch_value:
+                try:
+                    selected_branch_id = int(branch_value)
+                    clauses.append("b.branch_id = ?")
+                    params.append(selected_branch_id)
+                except ValueError:
+                    return jsonify({"error": "Choose a valid branch."}), 400
     status_lookup = {
         "pending": "Pending",
         "approved": "Approved",
@@ -5189,9 +5212,9 @@ def api_calendar_search_clients():
         params.append(f"%{phone_query}%")
     match_clause += ")"
     clauses = ["u.role = 'student'", "u.is_active = 1", match_clause]
-    if current_user.role == "instructor":
+    if _portal_branch_id() is not None:
         clauses.append("u.branch_id = ?")
-        params.append(current_user.branch_id)
+        params.append(_portal_branch_id())
     clients = []
     emitted_client_ids = set()
     with get_db() as conn:
@@ -5283,8 +5306,13 @@ def client_create():
 
 def _client_access_row(conn, client_id):
     if current_user.role in {"admin", "booking_agent"}:
+        branch_clause = ""
+        params = [client_id]
+        if _portal_branch_id() is not None:
+            branch_clause = " AND u.branch_id = ?"
+            params.append(_portal_branch_id())
         row = conn.execute(
-            """
+            f"""
             SELECT u.*, br.name AS branch_name,
                    cp.secondary_phone, cp.secondary_email, cp.birthday,
                    cp.gender, cp.zip_code, cp.city, cp.street,
@@ -5295,9 +5323,9 @@ def _client_access_row(conn, client_id):
             FROM users u
             LEFT JOIN branches br ON br.id = u.branch_id
             LEFT JOIN client_profiles cp ON cp.user_id = u.id
-            WHERE u.id = ? AND u.role = 'student'
+            WHERE u.id = ? AND u.role = 'student' {branch_clause}
             """,
-            (client_id,),
+            params,
         ).fetchone()
     else:
         row = conn.execute(
@@ -5336,6 +5364,9 @@ def clients_directory():
     query = " ".join((request.args.get("q") or "").split())[:100]
     params = []
     clauses = ["u.role = 'student'"]
+    if _portal_branch_id() is not None:
+        clauses.append("u.branch_id = ?")
+        params.append(_portal_branch_id())
     if current_user.role == "instructor":
         clauses.append("u.is_active = 1")
         clauses.append(
@@ -6373,6 +6404,10 @@ def _admin_resources_context(conn):
             (today,),
         ).fetchall()
     ]
+    if _portal_branch_id() is not None:
+        portal_id = _portal_branch_id()
+        branches = [item for item in branches if item["id"] == portal_id]
+        machines = [item for item in machines if item["branch_id"] == portal_id]
     return {
         "branches": branches,
         "machines": machines,
@@ -8157,6 +8192,7 @@ def initialise_application():
     init_db()
     if os.environ.get("A2Z_SEED_REFERENCE_DATA", "1") == "1":
         seed_reference_data()
+    seed_portal_accounts()
 
 
 initialise_application()
