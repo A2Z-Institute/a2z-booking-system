@@ -1067,13 +1067,23 @@
         const originY = pointerEvent.clientY;
         const duration = Math.max(15, minutes(event.end_time) - minutes(event.start_time));
         let started = false;
+        const requiresLongPress = pointerEvent.pointerType === "touch";
+        let dragArmed = !requiresLongPress;
+        let longPressTimer = null;
         let targetSlot = null;
+
+        if (requiresLongPress) {
+          longPressTimer = window.setTimeout(() => {
+            dragArmed = true;
+          }, 450);
+        }
 
         const clearTarget = () => {
           targetSlot?.classList.remove("is-drop-target");
           targetSlot = null;
         };
         const cleanup = () => {
+          window.clearTimeout(longPressTimer);
           window.removeEventListener("pointermove", movePointer);
           window.removeEventListener("pointerup", finishPointer);
           window.removeEventListener("pointercancel", cancelPointer);
@@ -1086,7 +1096,15 @@
           if (activePointerDragCleanup === cleanup) activePointerDragCleanup = null;
         };
         const movePointer = (moveEvent) => {
-          if (!started && Math.hypot(moveEvent.clientX - originX, moveEvent.clientY - originY) < 7) return;
+          const distance = Math.hypot(moveEvent.clientX - originX, moveEvent.clientY - originY);
+          // Touch screens need an intentional press-and-hold before a booking
+          // can move. A normal swipe stays available for scrolling and a tap
+          // still opens the booking editor.
+          if (!dragArmed) {
+            if (distance >= 9) window.clearTimeout(longPressTimer);
+            return;
+          }
+          if (!started && distance < 7) return;
           if (!started) {
             started = true;
             draggedEvent = event;
@@ -1183,11 +1201,24 @@
         const slotHeight = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--calendar-quarter-height")) || 21;
         let nextEnd = originalEnd;
         let didResize = false;
+        const requiresLongPress = pointerEvent.pointerType === "touch";
+        let resizeArmed = !requiresLongPress;
+        let resizeLongPressTimer = null;
+        if (requiresLongPress) {
+          resizeLongPressTimer = window.setTimeout(() => {
+            resizeArmed = true;
+          }, 450);
+        }
         resizeHandle.setPointerCapture?.(pointerEvent.pointerId);
         const move = (moveEvent) => {
+          const distance = Math.abs(moveEvent.clientY - originY);
+          if (!resizeArmed) {
+            if (distance >= 9) window.clearTimeout(resizeLongPressTimer);
+            return;
+          }
           // Ignore normal clicks and tiny hand movements on the grip. A resize
           // begins only after a deliberate vertical movement.
-          if (!didResize && Math.abs(moveEvent.clientY - originY) < 6) return;
+          if (!didResize && distance < 6) return;
           didResize = true;
           const steps = Math.round((moveEvent.clientY - originY) / slotHeight);
           nextEnd = Math.max(minutes(event.start_time) + 15, Math.min(STAFF_DAY_END, originalEnd + (steps * 15)));
@@ -1200,6 +1231,7 @@
           button.classList.add("is-resizing");
         };
         const finish = async (finishEvent) => {
+          window.clearTimeout(resizeLongPressTimer);
           resizeHandle.removeEventListener("pointermove", move);
           resizeHandle.removeEventListener("pointerup", finish);
           resizeHandle.removeEventListener("pointercancel", cancel);
@@ -1218,6 +1250,7 @@
           });
         };
         const cancel = (cancelEvent) => {
+          window.clearTimeout(resizeLongPressTimer);
           resizeHandle.removeEventListener("pointermove", move);
           resizeHandle.removeEventListener("pointerup", finish);
           resizeHandle.removeEventListener("pointercancel", cancel);
