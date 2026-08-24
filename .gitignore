@@ -28,6 +28,8 @@ env/
 *.sqlite3
 data/
 backups/
+imports/
+*.xlsx
 *.log
 *.zip
 
