@@ -15,6 +15,11 @@ from pathlib import Path
 from werkzeug.security import generate_password_hash
 
 
+def postgres_url() -> str | None:
+    """Return the internal PostgreSQL URL when the production backend uses it."""
+    return os.environ.get("A2Z_POSTGRES_URL") or None
+
+
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = BASE_DIR / "a2z_booking.db"
 
@@ -26,6 +31,20 @@ def database_path() -> Path:
 
 @contextmanager
 def get_db():
+    if postgres_url():
+        # Imported lazily: local SQLite development needs no PostgreSQL driver.
+        from postgres_runtime import connect
+
+        conn = connect(postgres_url())
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return
     database_path().parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(database_path(), timeout=15)
     conn.row_factory = sqlite3.Row
@@ -219,7 +238,7 @@ def _rebuild_legacy_account_tables(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys = ON")
 
 
-def init_db() -> None:
+def _init_sqlite_db() -> None:
     """Create a new database or safely upgrade the original prototype schema."""
     with get_db() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
@@ -1069,6 +1088,21 @@ def init_db() -> None:
         )
 
 
+def init_db() -> None:
+    """Initialise the selected database backend.
+
+    SQLite retains the existing in-place upgrade path. PostgreSQL is always a
+    separately provisioned database: it receives the reviewed schema only and
+    never touches the SQLite file used by the live KVM 4 portal.
+    """
+    if not postgres_url():
+        _init_sqlite_db()
+        return
+    schema = (BASE_DIR / "postgres_schema.sql").read_text(encoding="utf-8")
+    with get_db() as conn:
+        conn._connection.execute(schema)
+
+
 def seed_reference_data() -> None:
     """Seed public branch/resources and, only when requested, demo people.
 
@@ -1077,6 +1111,10 @@ def seed_reference_data() -> None:
     unverifiable list. The legacy demo roster remains available behind an
     explicit development flag so old tests and disposable demos can run.
     """
+    if postgres_url():
+        # Production records are copied by migrate_sqlite_to_postgres.py. Never
+        # seed sample data into the new company database.
+        return
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(
