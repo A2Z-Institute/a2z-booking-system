@@ -46,7 +46,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from backup_database import backup_directory, verify_database
-from database import database_path, get_db, init_db, seed_portal_accounts, seed_reference_data
+from database import database_path, get_db, init_db, postgres_url, seed_portal_accounts, seed_reference_data
 from free_slots import WORK_WINDOWS, compute_free_slots, intersect_free_slots
 from gemini_insights import (
     GeminiInsightsError,
@@ -8162,11 +8162,16 @@ def admin_dashboard():
 def health():
     try:
         with get_db() as conn:
-            result = conn.execute("PRAGMA quick_check(1)").fetchone()[0]
-            if result != "ok":
-                raise sqlite3.DatabaseError(result)
+            if postgres_url():
+                # PostgreSQL does not support SQLite's PRAGMA commands. A
+                # lightweight SELECT verifies the production connection.
+                conn.execute("SELECT 1").fetchone()
+            else:
+                result = conn.execute("PRAGMA quick_check(1)").fetchone()[0]
+                if result != "ok":
+                    raise sqlite3.DatabaseError(result)
         return jsonify({"status": "ok"})
-    except sqlite3.Error:
+    except Exception:
         return jsonify({"status": "unavailable"}), 503
 
 
