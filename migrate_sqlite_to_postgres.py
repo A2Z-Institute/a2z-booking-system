@@ -94,7 +94,11 @@ def copy_table(source: sqlite3.Connection, target, table: str) -> int:
         sql.SQL(", ").join(sql.Placeholder() for _ in columns),
     )
     # Psycopg accepts SQLite's None/int/text/blob values directly.
-    target.executemany(statement, [tuple(row[column] for column in columns) for row in rows])
+    with target.cursor() as cursor:
+        cursor.executemany(
+            statement,
+            [tuple(row[column] for column in columns) for row in rows],
+        )
     return len(rows)
 
 

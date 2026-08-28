@@ -27,8 +27,6 @@ class CompatibleRow(dict):
 
 def compatible_row(cursor) -> RowFactory[CompatibleRow]:
     # DDL and other commands without a result set have no column metadata.
-    # Psycopg still asks the configured row factory for a row maker, so return
-    # a harmless compatible mapping instead of iterating over ``None``.
     if cursor.description is None:
         return lambda _values: CompatibleRow()
 

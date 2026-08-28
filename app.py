@@ -8163,8 +8163,6 @@ def health():
     try:
         with get_db() as conn:
             if postgres_url():
-                # PostgreSQL does not support SQLite's PRAGMA commands. A
-                # lightweight SELECT verifies the production connection.
                 conn.execute("SELECT 1").fetchone()
             else:
                 result = conn.execute("PRAGMA quick_check(1)").fetchone()[0]
