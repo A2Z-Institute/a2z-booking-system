@@ -151,7 +151,6 @@
   document.querySelectorAll("[data-role-form]").forEach((form) => {
     const roleSelect = form.querySelector("[data-role-select]");
     const phone = form.querySelector("[data-role-phone]");
-    const phoneOptional = form.querySelector("[data-phone-optional]");
     const branch = form.querySelector("[data-role-branch]");
     const instructorOnly = form.querySelectorAll("[data-instructor-only]");
     const studentOnly = form.querySelectorAll("[data-student-only]");
@@ -188,8 +187,7 @@
           control.disabled = role !== "student";
         });
       });
-      if (phone) phone.required = role === "student" || role === "instructor";
-      if (phoneOptional) phoneOptional.hidden = role === "student" || role === "instructor";
+      if (phone) phone.required = false;
       syncInstructorChoices();
     };
 

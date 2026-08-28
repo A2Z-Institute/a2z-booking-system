@@ -2007,11 +2007,9 @@ def admin_users():
             )
         full_name = _validate_full_name(request.form.get("full_name"))
         username = _validate_username(request.form.get("username"))
-        email = _validate_email(request.form.get("email"))
+        email = _optional_email(request.form.get("email"))
         phone = (request.form.get("phone") or "").strip()
-        if role in {"student", "instructor"}:
-            phone = _normalise_phone(phone)
-        elif phone:
+        if phone:
             phone = _normalise_phone(phone)
         password = request.form.get("password") or ""
         if not password:
@@ -2239,11 +2237,9 @@ def admin_user_edit(user_id):
                 )
             full_name = _validate_full_name(request.form.get("full_name"))
             username = _validate_username(request.form.get("username"))
-            email = _validate_email(request.form.get("email"))
+            email = _optional_email(request.form.get("email"))
             phone = (request.form.get("phone") or "").strip()
-            if user["role"] in {"student", "instructor"}:
-                phone = _normalise_phone(phone)
-            elif phone:
+            if phone:
                 phone = _normalise_phone(phone)
             branch_id = _validate_branch(conn, request.form.get("branch_id"))
             _ensure_identity_available(

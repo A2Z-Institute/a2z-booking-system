@@ -266,12 +266,12 @@
             <input id="edit-username" name="username" type="text" value="{{ request.form.get('username', editing_user.username) }}" minlength="3" maxlength="50" pattern="[A-Za-z0-9._-]+" autocapitalize="none" spellcheck="false" required>
           </div>
           <div class="field">
-            <label for="edit-email">Email address</label>
-            <input id="edit-email" name="email" type="email" value="{{ request.form.get('email', editing_user.email) }}" required>
+            <label for="edit-email">Email address <span class="text-muted">(optional)</span></label>
+            <input id="edit-email" name="email" type="email" value="{{ request.form.get('email', editing_user.email|default('', true)) }}">
           </div>
           <div class="field">
-            <label for="edit-phone">Mobile number{% if editing_user.role in ['admin', 'booking_agent'] %} <span class="text-muted">(optional)</span>{% endif %}</label>
-            <input id="edit-phone" name="phone" type="tel" value="{{ request.form.get('phone', editing_user.phone|default('', true)) }}" inputmode="tel" {% if editing_user.role not in ['admin', 'booking_agent'] %}required{% endif %}>
+            <label for="edit-phone">Mobile number <span class="text-muted">(optional)</span></label>
+            <input id="edit-phone" name="phone" type="tel" value="{{ request.form.get('phone', editing_user.phone|default('', true)) }}" inputmode="tel">
           </div>
           <div class="field">
             <label for="edit-branch">Branch</label>
@@ -347,11 +347,11 @@
             <span class="field-hint">Letters, numbers, dots, dashes, and underscores.</span>
           </div>
           <div class="field">
-            <label for="new-email">Email address</label>
-            <input id="new-email" name="email" type="email" value="{{ request.form.get('email', '') }}" autocomplete="off" required>
+            <label for="new-email">Email address <span class="text-muted">(optional)</span></label>
+            <input id="new-email" name="email" type="email" value="{{ request.form.get('email', '') }}" autocomplete="off">
           </div>
           <div class="field">
-            <label for="new-phone">Mobile number <span class="text-muted" data-phone-optional>(optional for Booking and Administrator accounts)</span></label>
+            <label for="new-phone">Mobile number <span class="text-muted">(optional)</span></label>
             <input id="new-phone" name="phone" type="tel" value="{{ request.form.get('phone', '') }}" inputmode="tel" autocomplete="off" data-role-phone>
           </div>
           <div class="field">
