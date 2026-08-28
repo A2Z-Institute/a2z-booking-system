@@ -60,10 +60,17 @@ def counts(conn: sqlite3.Connection) -> OrderedDict[str, int]:
     )
 
 
-def target_counts(conn) -> OrderedDict[str, int]:
+def target_counts(conn, tables=TABLE_ORDER) -> OrderedDict[str, int]:
+    """Return counts for the requested target tables.
+
+    Older live SQLite databases legitimately predate some additive A2Z tables
+    (for example ``schema_migrations`` and lunch/break exception tables).
+    Verification must compare the imported source table set, rather than fail
+    because PostgreSQL correctly has those newer empty tables in its schema.
+    """
     return OrderedDict(
         (table, conn.execute(sql.SQL("SELECT COUNT(*) FROM {}").format(sql.Identifier(table))).fetchone()[0])
-        for table in TABLE_ORDER
+        for table in tables
     )
 
 
@@ -160,7 +167,7 @@ def main() -> int:
                 copied = copy_table(src, pg, table)
                 print(f"Imported {table}: {copied:,}")
             reset_sequences(pg)
-            after = target_counts(pg)
+            after = target_counts(pg, before.keys())
             if before != after:
                 print_counts("\nExpected totals:", before)
                 print_counts("Actual PostgreSQL totals:", after)
