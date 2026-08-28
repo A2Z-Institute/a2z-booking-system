@@ -95,10 +95,7 @@ def copy_table(source: sqlite3.Connection, target, table: str) -> int:
     )
     # Psycopg accepts SQLite's None/int/text/blob values directly.
     with target.cursor() as cursor:
-        cursor.executemany(
-            statement,
-            [tuple(row[column] for column in columns) for row in rows],
-        )
+        cursor.executemany(statement, [tuple(row[column] for column in columns) for row in rows])
     return len(rows)
 
 
@@ -106,6 +103,13 @@ def reset_sequences(target) -> None:
     # All identity columns are named id. setval keeps the next inserted record
     # above the imported ids instead of reusing an existing record id.
     for table in TABLE_ORDER:
+        has_id = target.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = %s AND column_name = 'id'",
+            (table,),
+        ).fetchone()
+        if not has_id:
+            continue
         target.execute(
             "SELECT setval(pg_get_serial_sequence(%s, 'id'), "
             "COALESCE((SELECT MAX(id) FROM " + table + "), 1), true) "

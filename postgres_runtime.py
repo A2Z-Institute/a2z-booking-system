@@ -26,7 +26,6 @@ class CompatibleRow(dict):
 
 
 def compatible_row(cursor) -> RowFactory[CompatibleRow]:
-    # DDL and other commands without a result set have no column metadata.
     if cursor.description is None:
         return lambda _values: CompatibleRow()
 
