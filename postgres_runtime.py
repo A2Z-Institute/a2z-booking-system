@@ -38,11 +38,19 @@ def compatible_row(cursor) -> RowFactory[CompatibleRow]:
 
 
 _INSERT_OR_IGNORE = re.compile(r"^\s*INSERT\s+OR\s+IGNORE\s+", re.IGNORECASE)
+_SQLITE_BEGIN = re.compile(
+    r"^\s*BEGIN\s+(?:IMMEDIATE|EXCLUSIVE)\s*;?\s*$", re.IGNORECASE
+)
 
 
 def translate_sql(statement: str) -> str:
     """Translate the few SQLite dialect pieces used by A2Z routes."""
     sql = statement
+    # SQLite write routes use BEGIN IMMEDIATE to reserve the database before
+    # changing rows. PostgreSQL provides transaction isolation and row locks,
+    # and accepts BEGIN but not SQLite's IMMEDIATE/EXCLUSIVE modifiers.
+    if _SQLITE_BEGIN.match(sql):
+        sql = "BEGIN"
     if _INSERT_OR_IGNORE.match(sql):
         sql = _INSERT_OR_IGNORE.sub("INSERT ", sql)
         sql = sql.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
