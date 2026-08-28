@@ -47,6 +47,9 @@ def translate_sql(statement: str) -> str:
         sql = _INSERT_OR_IGNORE.sub("INSERT ", sql)
         sql = sql.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
     sql = sql.replace("date('now')", "CURRENT_DATE::text")
+    # SQLite calls its string aggregate ``group_concat``. PostgreSQL uses the
+    # equivalent ``string_agg`` with the same two-argument form used by A2Z.
+    sql = re.sub(r"\bgroup_concat\s*\(", "string_agg(", sql, flags=re.IGNORECASE)
     sql = re.sub(
         r"CAST\(strftime\('%w',\s*([^)]+)\)\s+AS\s+INTEGER\)",
         r"EXTRACT(DOW FROM \1)::INTEGER",

@@ -5416,7 +5416,8 @@ def clients_directory():
                 LEFT JOIN client_profiles cp ON cp.user_id = u.id
                 LEFT JOIN bookings b ON b.student_user_id = u.id
                 WHERE {" AND ".join(clauses)}
-                GROUP BY u.id
+                GROUP BY u.id, u.full_name, u.email, u.phone, u.is_active,
+                         u.branch_id, br.name
                 ORDER BY u.is_active DESC, lower(u.full_name)
                 LIMIT 300
                 """,
