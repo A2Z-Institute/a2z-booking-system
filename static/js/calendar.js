@@ -31,6 +31,7 @@
   const machineInput = editor.querySelector("[data-editor-machine]");
   const serviceChecks = Array.from(editor.querySelectorAll("[data-editor-service]"));
   const servicePicker = editor.querySelector("[data-service-picker]");
+  const servicePickerOpenButton = editor.querySelector("[data-service-picker-open]");
   const serviceTriggerTitle = editor.querySelector("[data-service-trigger-title]");
   const serviceTotal = editor.querySelector("[data-service-total]");
   const additionalDetails = editor.querySelector("[data-editor-additional]");
@@ -2008,7 +2009,7 @@
     });
   });
   machineInput.addEventListener("change", applyTrailerDefaultFinish);
-  editor.querySelector("[data-service-picker-open]")?.addEventListener("click", () => {
+  servicePickerOpenButton?.addEventListener("click", () => {
     if (!servicePicker) return;
     servicePickerSnapshot = selectedServiceIds().map(String);
     servicePicker.hidden = false;
@@ -2023,7 +2024,7 @@
       }
       if (servicePicker) servicePicker.hidden = true;
       updateServiceTrigger();
-      editor.querySelector("[data-service-picker-open]")?.focus();
+      servicePickerOpenButton?.focus();
     });
   });
   additionalToggle?.addEventListener("click", () => {
@@ -2185,6 +2186,29 @@
     whatsappConfirmationEvent = null;
     if (whatsappConfirmationButton) whatsappConfirmationButton.hidden = true;
     lastFocused?.focus?.();
+  });
+  dialog.addEventListener("click", (event) => {
+    // A click on the dialog element itself is a click on its backdrop. Keep
+    // clicks anywhere inside the appointment form working normally.
+    if (event.target === dialog && !saveInFlight) dialog.close();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!(event.target instanceof Node)) return;
+    if (
+      servicePicker
+      && !servicePicker.hidden
+      && !servicePicker.contains(event.target)
+      && !servicePickerOpenButton?.contains(event.target)
+    ) {
+      servicePicker.hidden = true;
+      updateServiceTrigger();
+    }
+    if (
+      clientTypeahead
+      && !clientTypeahead.hidden
+      && !clientTypeahead.contains(event.target)
+      && !clientContactInputs.some((input) => input.contains(event.target))
+    ) hideClientMatches();
   });
   document.querySelector("[data-add-appointment]")?.addEventListener("click", (event) => {
     prepareNewEditor(

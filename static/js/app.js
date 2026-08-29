@@ -4,6 +4,16 @@
   const navToggle = document.querySelector("[data-nav-toggle]");
   const siteNav = document.querySelector("[data-site-nav]");
 
+  // Native <details> menus do not close automatically when the user clicks
+  // elsewhere. Close calendar filters, account menus, and action menus when
+  // focus moves outside the currently open menu.
+  document.addEventListener("pointerdown", (event) => {
+    if (!(event.target instanceof Node)) return;
+    document.querySelectorAll("details[open]").forEach((details) => {
+      if (!details.contains(event.target)) details.open = false;
+    });
+  });
+
   const setNavigationOpen = (open) => {
     if (!navToggle || !siteNav) return;
     navToggle.setAttribute("aria-expanded", String(open));
