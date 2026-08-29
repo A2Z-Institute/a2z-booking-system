@@ -125,12 +125,42 @@
   let clientSearchRequest;
   let fillingClient = false;
   let servicePickerSnapshot = [];
-  let resetHorizontalScroll = true;
+  let resetHorizontalScroll = false;
+  let restoreHorizontalScroll = true;
   let saveInFlight = false;
   let moveInFlight = false;
   let trailerFinishAuto = false;
   let reconcileTimer = null;
   let whatsappConfirmationEvent = null;
+
+  // Remember the agent's horizontal position for this calendar view. This
+  // prevents an edit, background refresh, or browser refresh from jumping
+  // back to the first instructor column.
+  const horizontalScrollStorageKey = () => [
+    "a2z-calendar-scroll-v1",
+    window.location.pathname,
+    dateInput.value,
+    viewFilter.value,
+    instructorFilter.value || "all",
+  ].join(":");
+
+  const storedHorizontalScroll = () => {
+    try {
+      const value = Number(window.sessionStorage.getItem(horizontalScrollStorageKey()));
+      return Number.isFinite(value) && value > 0 ? value : 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const rememberHorizontalScroll = () => {
+    if (!calendarScroll) return;
+    try {
+      window.sessionStorage.setItem(horizontalScrollStorageKey(), String(calendarScroll.scrollLeft));
+    } catch {
+      // The calendar remains usable when browser storage is unavailable.
+    }
+  };
 
   // The server response is applied immediately.  A short, quiet follow-up
   // sync keeps a multi-user calendar accurate without making an agent wait
@@ -1565,6 +1595,10 @@
       if (resetHorizontalScroll && calendarScroll) {
         calendarScroll.scrollLeft = 0;
         resetHorizontalScroll = false;
+        restoreHorizontalScroll = false;
+      } else if (restoreHorizontalScroll && calendarScroll) {
+        calendarScroll.scrollLeft = storedHorizontalScroll();
+        restoreHorizontalScroll = false;
       }
       openInitialClientEditor();
       return true;
@@ -1882,8 +1916,10 @@
       mergeSavedEvents(result?.savedEvents || []);
       const savedDate = result?.savedEvents?.[0]?.date;
       if (/^\d{4}-\d{2}-\d{2}$/.test(String(savedDate || ""))) {
-        dateInput.value = savedDate;
-        resetHorizontalScroll = true;
+        if (dateInput.value !== savedDate) {
+          dateInput.value = savedDate;
+          resetHorizontalScroll = true;
+        }
       }
       dialog.close();
       announce(result?.message || result);
@@ -2182,6 +2218,8 @@
     resetHorizontalScroll = true;
     loadEvents();
   });
+
+  calendarScroll?.addEventListener("scroll", rememberHorizontalScroll, { passive: true });
 
   if (compactScreen()) viewFilter.value = "day";
   loadEvents();
