@@ -5610,27 +5610,44 @@ def client_detail(client_id):
         branches = []
         available_instructors = []
         assigned_instructor_ids = []
+        direct_booking_count = conn.execute(
+            "SELECT count(*) FROM bookings WHERE student_user_id = ?",
+            (client_id,),
+        ).fetchone()[0]
         if current_user.role == "admin":
+            branch_clause = ""
+            branch_params = []
+            instructor_branch_clause = ""
+            instructor_branch_params = []
+            if _portal_branch_id() is not None:
+                branch_clause = " WHERE id = ?"
+                branch_params.append(_portal_branch_id())
+                instructor_branch_clause = " AND i.branch_id = ?"
+                instructor_branch_params.append(_portal_branch_id())
             branches = [
                 dict(row)
                 for row in conn.execute(
-                    """
+                    f"""
                     SELECT id, name, is_active FROM branches
+                    {branch_clause}
                     ORDER BY is_active DESC, lower(name)
-                    """
+                    """,
+                    branch_params,
                 ).fetchall()
             ]
             available_instructors = [
                 dict(row)
                 for row in conn.execute(
-                    """
+                    f"""
                     SELECT i.id, i.name, i.branch_id, br.name AS branch_name
                     FROM instructors i
                     JOIN branches br ON br.id = i.branch_id
                     WHERE i.is_active = 1
                       AND i.verification_status = 'verified'
+                      {instructor_branch_clause}
                     ORDER BY br.name, lower(i.name)
-                    """
+                    """,
+                    instructor_branch_params,
                 ).fetchall()
             ]
             assigned_instructor_ids = [
@@ -5691,6 +5708,11 @@ def client_detail(client_id):
         branches=branches,
         available_instructors=available_instructors,
         assigned_instructor_ids=assigned_instructor_ids,
+        can_delete_client=(
+            current_user.role in {"admin", "booking_agent"}
+            and current_user.has_permission("write_access")
+            and direct_booking_count == 0
+        ),
         today=today,
     )
 
@@ -5959,13 +5981,7 @@ def client_toggle(client_id):
     today = datetime.now(IST).date().isoformat()
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        client = conn.execute(
-            """
-            SELECT id, full_name, is_active FROM users
-            WHERE id = ? AND role = 'student'
-            """,
-            (client_id,),
-        ).fetchone()
+        client = _client_access_row(conn, client_id)
         if not client:
             abort(404)
         deactivating = bool(client["is_active"])
@@ -6015,6 +6031,62 @@ def client_toggle(client_id):
         "success",
     )
     return redirect(url_for("client_detail", client_id=client_id))
+
+
+@app.post("/clients/<int:client_id>/delete")
+@role_required("admin", "booking_agent")
+def client_delete(client_id):
+    """Permanently remove an unused duplicate client from the current portal."""
+    try:
+        with get_db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            client = _client_access_row(conn, client_id)
+            if not client:
+                abort(404)
+            booking_count = conn.execute(
+                "SELECT count(*) FROM bookings WHERE student_user_id = ?",
+                (client_id,),
+            ).fetchone()[0]
+            if booking_count:
+                raise ValueError(
+                    "This client has appointment history and cannot be permanently deleted. "
+                    "Archive the client instead so the booking records remain safe."
+                )
+            actor_reference_count = conn.execute(
+                "SELECT count(*) FROM audit_events WHERE actor_user_id = ?",
+                (client_id,),
+            ).fetchone()[0]
+            if actor_reference_count:
+                raise ValueError(
+                    "This account has audit history and cannot be permanently deleted."
+                )
+            conn.execute(
+                "DELETE FROM student_instructor_assignments WHERE student_user_id = ?",
+                (client_id,),
+            )
+            conn.execute(
+                "UPDATE client_profiles SET updated_by = NULL WHERE updated_by = ?",
+                (client_id,),
+            )
+            conn.execute("DELETE FROM client_profiles WHERE user_id = ?", (client_id,))
+            conn.execute(
+                "DELETE FROM users WHERE id = ? AND role = 'student'",
+                (client_id,),
+            )
+            _audit(
+                conn,
+                "duplicate_client_deleted",
+                details={
+                    "client_id": client_id,
+                    "client_name": client["full_name"],
+                    "branch_id": client["branch_id"],
+                },
+            )
+        flash("Duplicate client record permanently deleted.", "success")
+        return redirect(url_for("clients_directory"))
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("client_detail", client_id=client_id))
 
 
 @app.get("/intake-files/<int:value_id>")

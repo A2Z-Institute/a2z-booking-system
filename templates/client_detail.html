@@ -37,6 +37,16 @@
         >{{ 'Archive client' if client.is_active else 'Reactivate client' }}</button>
       </form>
     {% endif %}
+    {% if can_delete_client %}
+      <form class="inline-form" method="post" action="{{ url_for('client_delete', client_id=client.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button
+          class="button button-danger button-small"
+          type="submit"
+          data-confirm="Permanently delete this unused duplicate client? This action cannot be undone."
+        >Delete duplicate</button>
+      </form>
+    {% endif %}
   </div>
 </header>
 
