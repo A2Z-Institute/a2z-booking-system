@@ -1,4 +1,4 @@
-# A2Z Scheduler v12 — Client deletion and branch isolation
+# A2Z Scheduler v13 — Instant calendar synchronization
 
 This update makes the existing `admin` account the only Super Admin. Other
 administrator accounts remain branch administrators and are restricted to
@@ -13,6 +13,11 @@ duplicate client from the client details page. The action is limited to their
 own branch. It is automatically hidden and rejected when the client has any
 appointment history; those clients must be archived instead.
 
+Calendar saves now synchronize immediately. Creating or editing an appointment,
+creating a booking slot, moving/resizing an event, changing status, or deleting
+an item reloads the committed database state without requiring a browser
+refresh. Older background requests can no longer overwrite a newer save.
+
 ## Deploy from Windows PowerShell
 
 1. Extract this ZIP.
@@ -23,7 +28,7 @@ appointment history; those clients must be archived instead.
 ```powershell
 cd C:\Users\Shili\a2z-booking-system
 git add app.py database.py postgres_runtime.py postgres_schema.sql templates\admin_users.html templates\base.html templates\admin_dashboard.html templates\admin_resources.html templates\calendar.html templates\client_detail.html static\js\app.js static\js\calendar.js
-git commit -m "Add protected duplicate client deletion"
+git commit -m "Fix instant calendar synchronization"
 git push
 ```
 
@@ -38,6 +43,8 @@ git push
 - Sign in as `admin_technical`: only A2Z Technical records are visible.
 - Open an unused client as an administrator or booking agent: **Delete duplicate** is available.
 - Open a client with booking history: permanent deletion is unavailable; Archive remains safe.
+- Create a booking slot and immediately click it: the appointment form should initialize correctly.
+- Save or move an appointment: the updated calendar must appear without pressing Refresh.
 - Try opening another branch's staff or booking through a copied direct URL; the
   request must be rejected.
 

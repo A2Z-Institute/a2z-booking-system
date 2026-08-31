@@ -113,6 +113,7 @@
   let events = [];
   let loadRequest;
   let loadInFlight = false;
+  let loadGeneration = 0;
   let draggedEvent = null;
   let dragTimePreview = null;
   let activePointerDragCleanup = null;
@@ -1375,7 +1376,7 @@
       if (data.event) mergeSavedEvents([data.event]);
       announce(isBookingSlot ? "Booking slot moved." : isBusyTime ? "Busy time moved." : "Appointment moved.");
       message.hidden = true;
-      // Reconcile in the background in case another user changed the same day.
+      await loadEvents({ silent: true, force: true });
       queueCalendarReconcile();
     } catch (error) {
       // Restore the server-backed size and position after a rejected resize/drop.
@@ -1558,8 +1559,10 @@
 
   async function loadEvents({ silent = false, force = false } = {}) {
     if (loadInFlight && !force) return false;
-    if (loadRequest) loadRequest.abort();
-    loadRequest = new AbortController();
+    loadRequest?.abort();
+    const requestController = new AbortController();
+    const requestGeneration = ++loadGeneration;
+    loadRequest = requestController;
     loadInFlight = true;
     // Keep the selected day in the URL. A normal refresh then asks Flask for
     // this same day instead of falling back to today's calendar.
@@ -1576,15 +1579,17 @@
     const query = new URLSearchParams({ start, end });
     if (instructorFilter.value) query.set("instructor_id", instructorFilter.value);
     if (statusFilter.value) query.set("status", statusFilter.value);
+    query.set("_sync", String(Date.now()));
     try {
       const response = await fetch(`${calendar.dataset.eventsUrl}?${query}`, {
         headers: { Accept: "application/json" },
         credentials: "same-origin",
         cache: "no-store",
-        signal: loadRequest.signal,
+        signal: requestController.signal,
       });
       const data = await parseJson(response);
       if (!response.ok) throw new Error(data.error || "The calendar could not be loaded.");
+      if (requestGeneration !== loadGeneration) return false;
       // A silent background refresh must never rebuild the calendar while a
       // pointer drag or resize is active; doing so creates duplicate trackers.
       if (silent && (activePointerDragCleanup || draggedEvent || resizingEventId !== null)) {
@@ -1614,7 +1619,10 @@
       message.textContent = error.message || "The calendar could not be loaded.";
       return false;
     } finally {
-      loadInFlight = false;
+      if (requestGeneration === loadGeneration) {
+        loadInFlight = false;
+        if (loadRequest === requestController) loadRequest = null;
+      }
     }
   }
 
@@ -1924,8 +1932,7 @@
       }
       dialog.close();
       announce(result?.message || result);
-      // The returned event is already on screen.  Reconcile later rather than
-      // rebuilding every calendar column while the agent continues working.
+      await loadEvents({ silent: true, force: true });
       queueCalendarReconcile();
     } catch (error) {
       showError(error.message || "The schedule item could not be saved.");
@@ -2077,7 +2084,7 @@
       if (!response.ok) throw new Error(data.error || "The appointment could not be deleted.");
       dialog.close();
       announce(permanentlyDelete ? "Appointment deleted. The time is now available." : "Appointment cancelled.");
-      await loadEvents();
+      await loadEvents({ force: true });
     } catch (error) {
       showError(error.message || "The appointment could not be deleted.");
     }
@@ -2105,7 +2112,7 @@
       if (!response.ok) throw new Error(data.error || "The appointment could not be deleted.");
       dialog.close();
       announce("Appointment permanently deleted.");
-      await loadEvents();
+      await loadEvents({ force: true });
     } catch (error) {
       showError(error.message || "The appointment could not be deleted.");
     }
@@ -2127,7 +2134,7 @@
       if (!response.ok) throw new Error(data.error || "The busy time could not be deleted.");
       dialog.close();
       announce("Busy time deleted.");
-      await loadEvents();
+      await loadEvents({ force: true });
     } catch (error) {
       showError(error.message || "The busy time could not be deleted.");
     }
@@ -2175,7 +2182,7 @@
       if (!response.ok) throw new Error(data.error || "The booking slot could not be deleted.");
       dialog.close();
       announce("Booking slot deleted.");
-      await loadEvents();
+      await loadEvents({ force: true });
     } catch (error) {
       showError(error.message || "The booking slot could not be deleted.");
     }
@@ -2222,25 +2229,25 @@
   calendar.querySelector("[data-calendar-previous]")?.addEventListener("click", () => {
     dateInput.value = toInputDate(addDays(toDate(dateInput.value), viewFilter.value === "week" ? -7 : -1));
     resetHorizontalScroll = true;
-    loadEvents();
+    loadEvents({ force: true });
   });
   calendar.querySelector("[data-calendar-next]")?.addEventListener("click", () => {
     dateInput.value = toInputDate(addDays(toDate(dateInput.value), viewFilter.value === "week" ? 7 : 1));
     resetHorizontalScroll = true;
-    loadEvents();
+    loadEvents({ force: true });
   });
   calendar.querySelector("[data-calendar-today]")?.addEventListener("click", () => {
     dateInput.value = toInputDate(new Date());
     resetHorizontalScroll = true;
-    loadEvents();
+    loadEvents({ force: true });
   });
-  dateInput.addEventListener("change", () => { resetHorizontalScroll = true; loadEvents(); });
-  statusFilter.addEventListener("change", loadEvents);
-  viewFilter.addEventListener("change", () => { resetHorizontalScroll = true; loadEvents(); });
+  dateInput.addEventListener("change", () => { resetHorizontalScroll = true; loadEvents({ force: true }); });
+  statusFilter.addEventListener("change", () => loadEvents({ force: true }));
+  viewFilter.addEventListener("change", () => { resetHorizontalScroll = true; loadEvents({ force: true }); });
   instructorFilter.addEventListener("change", () => {
     viewFilter.value = instructorFilter.value && !compactScreen() ? "week" : "day";
     resetHorizontalScroll = true;
-    loadEvents();
+    loadEvents({ force: true });
   });
 
   calendarScroll?.addEventListener("scroll", rememberHorizontalScroll, { passive: true });
