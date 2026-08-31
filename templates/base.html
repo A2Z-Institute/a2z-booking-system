@@ -63,11 +63,13 @@
                   <a href="{{ url_for('admin_dashboard') }}" {% if request.endpoint == 'admin_dashboard' %}aria-current="page"{% endif %}>Appointment records</a>
                   <a href="{{ url_for('instructor_availability') }}" {% if request.endpoint and (request.endpoint.startswith('instructor_availability') or request.endpoint.startswith('instructor_time_off')) %}aria-current="page"{% endif %}>Instructor availability</a>
                   <a href="{{ url_for('admin_reminders') }}" {% if request.endpoint and request.endpoint.startswith('admin_reminder') %}aria-current="page"{% endif %}>Reminders</a>
-                  <a href="{{ url_for('import_clients_view') }}">Import clients</a>
                   <a href="{{ url_for('export_appointments_csv') }}">Export appointments</a>
                   <a href="{{ url_for('export_clients_csv') }}">Export clients</a>
-                  <a href="{{ url_for('export_activity_csv') }}">Export activity log</a>
-                  <a href="{{ url_for('download_database_backup') }}">Download backup</a>
+                  {% if current_user.is_super_admin %}
+                    <a href="{{ url_for('import_clients_view') }}">Import clients</a>
+                    <a href="{{ url_for('export_activity_csv') }}">Export activity log</a>
+                    <a href="{{ url_for('download_database_backup') }}">Download backup</a>
+                  {% endif %}
                 </div>
               </details>
             {% endif %}
@@ -76,7 +78,7 @@
           <div class="account-menu">
             <div class="account-copy">
               <span class="account-name">{{ current_user.full_name|default(current_user.username|default('Your account')) }}</span>
-              <span class="role-badge">{{ 'Booking' if user_role == 'booking_agent' else user_role|replace('_', ' ')|title }}</span>
+              <span class="role-badge">{{ 'Super Admin' if current_user.is_super_admin else ('Branch Admin' if user_role == 'admin' else ('Booking' if user_role == 'booking_agent' else user_role|replace('_', ' ')|title)) }}</span>
             </div>
             <details class="account-dropdown">
               <summary aria-label="Open account menu">{{ current_user.full_name[:1]|default('A')|upper }}</summary>
@@ -122,7 +124,7 @@
   </footer>
 
   <div class="sr-only" aria-live="polite" aria-atomic="true" id="app-announcer"></div>
-  <script src="{{ url_for('static', filename='js/app.js', v='20260821-1') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/app.js', v='20260831-1') }}" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

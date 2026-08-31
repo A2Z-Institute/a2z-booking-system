@@ -153,7 +153,7 @@
                     {% if managed.phone %}<span class="cell-detail">{{ managed.phone }}</span>{% endif %}
                   </td>
                   <td>
-                    <span class="role-chip role-{{ managed.role }}">{{ 'Booking' if managed.role == 'booking_agent' else managed.role|replace('_', ' ')|title }}</span>
+                    <span class="role-chip role-{{ managed.role }}">{{ 'Super Admin' if managed.is_super_admin else ('Branch Admin' if managed.role == 'admin' else ('Booking' if managed.role == 'booking_agent' else managed.role|replace('_', ' ')|title)) }}</span>
                     {% if managed.role == 'instructor' %}
                       <span class="status-badge {{ 'status-approved' if managed.verification_status == 'verified' else 'status-pending' }}">{{ 'Verified' if managed.verification_status == 'verified' else 'Needs verification' }}</span>
                     {% endif %}
@@ -198,7 +198,7 @@
               <span class="status-badge {{ 'status-approved' if managed.is_active else 'status-cancelled' }}">{{ 'Active' if managed.is_active else 'Archived' }}</span>
             </div>
             <dl class="meta-grid">
-              <div><dt>Role</dt><dd>{{ 'Booking' if managed.role == 'booking_agent' else managed.role|replace('_', ' ')|title }}</dd></div>
+              <div><dt>Role</dt><dd>{{ 'Super Admin' if managed.is_super_admin else ('Branch Admin' if managed.role == 'admin' else ('Booking' if managed.role == 'booking_agent' else managed.role|replace('_', ' ')|title)) }}</dd></div>
               <div><dt>Branch</dt><dd>{{ managed.branch_name|default('Not assigned', true) }}</dd></div>
               {% if managed.role == 'instructor' %}
                 <div class="field-span-2"><dt>Verification</dt><dd>{{ 'Verified' if managed.verification_status == 'verified' else 'Needs verification' }}</dd></div>
@@ -250,10 +250,15 @@
           {% if editing_user.role in ['admin', 'booking_agent'] %}
           <div class="field">
             <label for="edit-role">Access role</label>
+            {% if current_user.is_super_admin %}
             <select id="edit-role" name="role" data-permission-role required>
               <option value="booking_agent" {% if request.form.get('role', editing_user.role) == 'booking_agent' %}selected{% endif %}>Booking</option>
               <option value="admin" {% if request.form.get('role', editing_user.role) == 'admin' %}selected{% endif %}>Administrator</option>
             </select>
+            {% else %}
+            <input type="hidden" name="role" value="{{ editing_user.role }}">
+            <input id="edit-role" value="Branch Administrator" disabled>
+            {% endif %}
             <span class="field-hint">Booking can manage appointments and clients but cannot create, edit, resize, or drag blue booking slots.</span>
           </div>
           {% endif %}
@@ -334,7 +339,7 @@
               {% if student_self_booking_enabled %}<option value="student" {% if selected_role == 'student' %}selected{% endif %}>Student</option>{% endif %}
               <option value="booking_agent" {% if selected_role == 'booking_agent' %}selected{% endif %}>Booking</option>
               <option value="instructor" {% if selected_role == 'instructor' %}selected{% endif %}>Instructor</option>
-              <option value="admin" {% if selected_role == 'admin' %}selected{% endif %}>Administrator</option>
+              {% if current_user.is_super_admin %}<option value="admin" {% if selected_role == 'admin' %}selected{% endif %}>Administrator</option>{% endif %}
             </select>
           </div>
           <div class="field">

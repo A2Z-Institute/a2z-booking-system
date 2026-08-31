@@ -1413,6 +1413,24 @@ def seed_reference_data() -> None:
 
 def seed_portal_accounts() -> None:
     """Create the optional Driving School portal without touching live data."""
+    super_admin_username = os.environ.get("A2Z_SUPER_ADMIN_USERNAME", "admin")
+    with get_db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            """
+            UPDATE users
+            SET is_super_admin = CASE WHEN lower(username) = lower(?) THEN 1 ELSE 0 END
+            WHERE role = 'admin'
+            """,
+            (super_admin_username,),
+        )
+        conn.execute(
+            """
+            UPDATE users SET full_name = 'Super Admin'
+            WHERE lower(username) = lower(?) AND role = 'admin'
+            """,
+            (super_admin_username,),
+        )
     if os.environ.get("A2Z_ENABLE_DRIVING_SCHOOL_PORTAL", "0") != "1":
         return
     admin_password = os.environ.get("A2Z_DRIVING_SCHOOL_ADMIN_PASSWORD")
@@ -1453,11 +1471,6 @@ def seed_portal_accounts() -> None:
                     """,
                     (username, generate_password_hash(password), role, full_name, branch_id),
                 )
-        super_admin_username = os.environ.get("A2Z_SUPER_ADMIN_USERNAME", "admin")
-        conn.execute(
-            "UPDATE users SET is_super_admin = 1 WHERE lower(username) = lower(?) AND role = 'admin'",
-            (super_admin_username,),
-        )
 
 
 # Backwards-compatible name used by the original project.

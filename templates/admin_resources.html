@@ -12,7 +12,7 @@
     <p>Keep locations and physical training resources accurate. Archiving retains appointment history and is blocked while active work depends on a record.</p>
   </div>
   <div class="management-panel-actions">
-    <a class="button button-secondary button-small" href="#new-branch">+ Add branch</a>
+    {% if current_user.is_super_admin %}<a class="button button-secondary button-small" href="#new-branch">+ Add branch</a>{% endif %}
     <a class="button button-primary button-small" href="#new-equipment">+ Add equipment</a>
   </div>
 </header>
@@ -41,6 +41,7 @@
 </section>
 
 <div class="content-grid">
+  {% if current_user.is_super_admin %}
   <details class="management-panel service-create-panel" id="new-branch">
     <summary>+ Add a branch</summary>
     <div class="section-body">
@@ -89,6 +90,7 @@
       </form>
     </div>
   </details>
+  {% endif %}
 
   <details class="management-panel service-create-panel" id="new-equipment">
     <summary>+ Add equipment</summary>
@@ -162,6 +164,7 @@
             <div><dt>Future appointments</dt><dd>{{ branch.active_future_booking_count }} active</dd></div>
           </dl>
           <div class="action-row">
+            {% if current_user.is_super_admin %}
             <details class="inline-editor">
               <summary class="button button-secondary button-small">Edit branch</summary>
               <form method="post" action="{{ url_for('admin_branch_update', branch_id=branch.id) }}">
@@ -214,6 +217,7 @@
                 data-confirm="{{ 'Archive this branch? Active future work and operational resources must be cleared first.' if branch.is_active else 'Reactivate this branch?' }}"
               >{{ 'Archive' if branch.is_active else 'Reactivate' }}</button>
             </form>
+            {% endif %}
           </div>
         </article>
       {% endfor %}
