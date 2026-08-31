@@ -210,10 +210,12 @@ Changing a seed password after the database exists does not reset an account. Us
 - A complete Smart Scheduling backup (Clients, Services, and staff history sheets) can be restored idempotently with:
 
 ```powershell
-.\.venv\Scripts\python.exe import_smartscheduling_backup.py backup.xlsx --database a2z_booking.db --report restore-report.json
+.\.venv\Scripts\python.exe import_smartscheduling_backup.py backup.xlsx --database a2z_booking.db --branch "Technical" --namespace technical --report restore-report.json
 ```
 
-  The restore keeps appointments, long booking-slot bands, breaks/busy time,
+  The target branch is mandatory. Matching source records are preserved and
+  skipped by default, so rerunning the same import cannot duplicate or replace
+  an existing appointment. The restore keeps appointments, long booking-slot bands, breaks/busy time,
   statuses, multi-service rows, staff assignments, client contacts, manual
   start/finish times, notes, prices, and series references. Back up the current
   database before importing into a live installation.

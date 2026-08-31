@@ -15,7 +15,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from database import database_path, init_db, seed_reference_data
+from database import database_path, init_db
 
 
 HEADERS = (
@@ -49,13 +49,12 @@ def created_value(value):
     return value.isoformat(sep=" ", timespec="seconds") if isinstance(value, datetime) else None
 
 
-def import_clients(source):
+def import_clients(source, *, branch_id=None, source_namespace="default", preserve_existing=False):
     source = Path(source).expanduser().resolve()
     if not source.is_file():
         raise ValueError(f"Workbook not found: {source}")
 
     init_db()
-    seed_reference_data()
     workbook = load_workbook(source, read_only=True, data_only=True)
     sheet = workbook["Clients"] if "Clients" in workbook.sheetnames else workbook.active
     rows = sheet.iter_rows(values_only=True)
@@ -69,7 +68,9 @@ def import_clients(source):
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     branch = connection.execute(
-        "SELECT id FROM branches WHERE is_active=1 ORDER BY id LIMIT 1"
+        "SELECT id FROM branches WHERE id=? AND is_active=1" if branch_id is not None
+        else "SELECT id FROM branches WHERE is_active=1 ORDER BY id LIMIT 1",
+        (branch_id,) if branch_id is not None else (),
     ).fetchone()
     if not branch:
         raise ValueError("No active branch exists.")
@@ -80,7 +81,8 @@ def import_clients(source):
         for row_number, row in enumerate(rows, 2):
             source_id = clean(row[column["Id"]]) or f"row-{row_number}"
             stable_id = re.sub(r"[^0-9A-Za-z_-]+", "-", source_id).strip("-") or str(row_number)
-            username = f"smart-client-{stable_id}".lower()
+            namespace = re.sub(r"[^0-9A-Za-z_-]+", "-", source_namespace).strip("-").lower() or "default"
+            username = f"smart-client-{namespace}-{stable_id}".lower()
             first = clean(row[column["First Name"]])
             last = clean(row[column["Last Name"]])
             full_name = " ".join(value for value in (first, last) if value) or f"Client {source_id}"
@@ -95,10 +97,11 @@ def import_clients(source):
             ).fetchone()
             if existing:
                 user_id = existing["id"]
-                connection.execute(
-                    "UPDATE users SET full_name=?,email=?,phone=?,branch_id=?,is_active=1,login_enabled=0,must_change_password=0,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                    (full_name, email, phone, branch["id"], user_id),
-                )
+                if not preserve_existing:
+                    connection.execute(
+                        "UPDATE users SET full_name=?,email=?,phone=?,branch_id=?,is_active=1,login_enabled=0,must_change_password=0,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                        (full_name, email, phone, branch["id"], user_id),
+                    )
                 updated += 1
             else:
                 user_id = connection.execute(
@@ -109,6 +112,8 @@ def import_clients(source):
                     (username, full_name, email, phone, branch["id"], created_value(row[column["Created"]])),
                 ).lastrowid
                 added += 1
+            if existing and preserve_existing:
+                continue
             connection.execute(
                 """INSERT INTO client_profiles
                    (user_id,secondary_phone,secondary_email,birthday,gender,zip_code,
@@ -130,7 +135,7 @@ def import_clients(source):
                     clean(row[column["City"]]) or None,
                     clean(row[column["Street"]]) or None,
                     clean(row[column["Notes"]]) or None,
-                    "email" if email else "sms", source_id,
+                    "email" if email else "sms", f"smart:{namespace}:client:{source_id}",
                 ),
             )
         connection.commit()

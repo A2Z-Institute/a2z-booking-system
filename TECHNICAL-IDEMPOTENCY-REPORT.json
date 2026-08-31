@@ -1,0 +1,12 @@
+{
+  "database": "/workspace/scratch/f396cebe08e2/work/a2z-booking-system/a2z_booking.db",
+  "counts": {
+    "clients_added": 0,
+    "clients_updated": 6525,
+    "services": 17,
+    "appointments_skipped_existing": 47261,
+    "busy_skipped_existing": 4259,
+    "slots_skipped_existing": 1118
+  },
+  "errors": []
+}

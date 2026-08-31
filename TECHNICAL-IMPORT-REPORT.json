@@ -1,0 +1,21 @@
+{
+  "database": "/workspace/scratch/f396cebe08e2/work/a2z-booking-system/a2z_booking.db",
+  "counts": {
+    "clients_added": 6525,
+    "clients_updated": 0,
+    "services": 17,
+    "appointments": 47261,
+    "status_Approved": 14692,
+    "status_Completed": 27160,
+    "status_Pending": 5008,
+    "busy": 4259,
+    "appointment_clients_created": 4624,
+    "slots": 1118,
+    "status_Rescheduled": 123,
+    "status_No-show": 164,
+    "status_Cancelled": 94,
+    "status_Arrived": 1,
+    "status_Running Late": 19
+  },
+  "errors": []
+}
