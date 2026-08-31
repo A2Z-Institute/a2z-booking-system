@@ -349,6 +349,7 @@
     ];
     if (equipment && equipment !== service) lines.push(`Equipment: ${equipment}`);
     lines.push("Please arrive on time. Thank you.");
+    lines.push("", "Note: Instructors may vary based on availability.");
     window.open(`https://wa.me/${number}?text=${encodeURIComponent(lines.join("\n"))}`, "_blank", "noopener");
   };
   const formatDay = (value, includeYear = false) => new Intl.DateTimeFormat("en-IN", {

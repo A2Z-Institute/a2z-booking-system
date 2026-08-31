@@ -1,4 +1,4 @@
-# A2Z Scheduler v13 — Instant calendar synchronization
+# A2Z Scheduler v14 — WhatsApp instructor availability note
 
 This update makes the existing `admin` account the only Super Admin. Other
 administrator accounts remain branch administrators and are restricted to
@@ -18,6 +18,10 @@ creating a booking slot, moving/resizing an event, changing status, or deleting
 an item reloads the committed database state without requiring a browser
 refresh. Older background requests can no longer overwrite a newer save.
 
+WhatsApp appointment confirmations now end with:
+
+`Note: Instructors may vary based on availability.`
+
 ## Deploy from Windows PowerShell
 
 1. Extract this ZIP.
@@ -28,7 +32,7 @@ refresh. Older background requests can no longer overwrite a newer save.
 ```powershell
 cd C:\Users\Shili\a2z-booking-system
 git add app.py database.py postgres_runtime.py postgres_schema.sql templates\admin_users.html templates\base.html templates\admin_dashboard.html templates\admin_resources.html templates\calendar.html templates\client_detail.html static\js\app.js static\js\calendar.js
-git commit -m "Fix instant calendar synchronization"
+git commit -m "Add instructor availability note to WhatsApp confirmation"
 git push
 ```
 
