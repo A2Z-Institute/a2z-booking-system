@@ -1,0 +1,36 @@
+A2Z Technical PostgreSQL Migration
+==================================
+
+Safety
+------
+This package imports only into the exact branch named "A2Z Technical".
+It never truncates PostgreSQL. Existing source references are skipped.
+Keep the verified pg_dump made before this migration.
+
+Files
+-----
+import_technical_postgres.py  Branch-only idempotent importer
+technical-backup.xlsx         Technical services and calendar history
+technical-clients.xlsx        Latest Technical client export
+
+Run inside the a2z-postgres-staging application container
+----------------------------------------------------------
+1. Preview (does not write):
+
+python /tmp/technical-migration/import_technical_postgres.py \
+  --backup /tmp/technical-migration/technical-backup.xlsx \
+  --clients /tmp/technical-migration/technical-clients.xlsx \
+  --branch "A2Z Technical"
+
+2. Apply only after the preview identifies branch 121 with zero records:
+
+python /tmp/technical-migration/import_technical_postgres.py \
+  --backup /tmp/technical-migration/technical-backup.xlsx \
+  --clients /tmp/technical-migration/technical-clients.xlsx \
+  --branch "A2Z Technical" --apply \
+  --report /tmp/technical-migration/technical-import-report.json
+
+3. Rerun the preview/verification query after completion. Expected imported
+calendar totals are 47,261 appointments, 4,259 breaks/time-off entries, and
+1,118 booking-slot bands. The latest source contains 6,526 named client rows;
+additional appointment-only client accounts may also be created.
