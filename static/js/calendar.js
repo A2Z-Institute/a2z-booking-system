@@ -136,6 +136,38 @@
   let reconcileTimer = null;
   let whatsappConfirmationEvent = null;
 
+  const calendarStateStorageKey = [
+    "a2z-calendar-state-v1",
+    window.location.pathname,
+  ].join(":");
+
+  const restoreCalendarState = () => {
+    const locationUrl = new URL(window.location.href);
+    let stored = {};
+    try {
+      stored = JSON.parse(window.sessionStorage.getItem(calendarStateStorageKey) || "{}");
+    } catch {
+      stored = {};
+    }
+    const requestedDate = locationUrl.searchParams.get("date") || stored.date || "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) dateInput.value = requestedDate;
+
+    const requestedView = locationUrl.searchParams.get("view") || stored.view || "";
+    if (["day", "week"].includes(requestedView)) viewFilter.value = requestedView;
+
+    const requestedInstructor = locationUrl.searchParams.get("instructor_id")
+      ?? stored.instructorId
+      ?? "";
+    if (Array.from(instructorFilter.options).some((option) => option.value === String(requestedInstructor))) {
+      instructorFilter.value = String(requestedInstructor);
+    }
+
+    const requestedStatus = locationUrl.searchParams.get("status") ?? stored.status ?? "";
+    if (Array.from(statusFilter.options).some((option) => option.value === String(requestedStatus))) {
+      statusFilter.value = String(requestedStatus);
+    }
+  };
+
   // Remember the agent's horizontal position for this calendar view. This
   // prevents an edit, background refresh, or browser refresh from jumping
   // back to the first instructor column.
@@ -183,8 +215,28 @@
     const selectedDate = String(dateInput?.value || "");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) return;
     const locationUrl = new URL(window.location.href);
-    if (locationUrl.searchParams.get("date") === selectedDate) return;
     locationUrl.searchParams.set("date", selectedDate);
+    locationUrl.searchParams.set("view", viewFilter.value);
+    if (instructorFilter.value) {
+      locationUrl.searchParams.set("instructor_id", instructorFilter.value);
+    } else {
+      locationUrl.searchParams.delete("instructor_id");
+    }
+    if (statusFilter.value) {
+      locationUrl.searchParams.set("status", statusFilter.value);
+    } else {
+      locationUrl.searchParams.delete("status");
+    }
+    try {
+      window.sessionStorage.setItem(calendarStateStorageKey, JSON.stringify({
+        date: selectedDate,
+        view: viewFilter.value,
+        instructorId: instructorFilter.value,
+        status: statusFilter.value,
+      }));
+    } catch {
+      // URL state still makes refresh reliable when browser storage is unavailable.
+    }
     window.history.replaceState({}, "", locationUrl);
   };
 
@@ -2300,7 +2352,12 @@
   });
 
   calendarScroll?.addEventListener("scroll", rememberHorizontalScroll, { passive: true });
+  window.addEventListener("pagehide", () => {
+    rememberHorizontalScroll();
+    persistCalendarDate();
+  });
 
+  restoreCalendarState();
   if (compactScreen()) viewFilter.value = "day";
   loadEvents();
 
