@@ -23,7 +23,6 @@
   const viewFilter = calendar.querySelector("[data-calendar-view]");
   const statusFilter = calendar.querySelector("[data-calendar-status]");
   const rangeLabel = calendar.querySelector("[data-calendar-range]");
-  const deleteInstructorDayButton = calendar.querySelector("[data-delete-instructor-day]");
 
   const bookingIdInput = editor.querySelector("[data-editor-booking-id]");
   const revisionInput = editor.querySelector("[data-editor-revision]");
@@ -79,6 +78,7 @@
   const errorText = editor.querySelector("[data-editor-error-text]");
   const saveButton = editor.querySelector("[data-editor-save]");
   const cancelAppointmentButton = editor.querySelector("[data-editor-cancel]");
+  const deleteClientUpcomingButton = editor.querySelector("[data-editor-delete-client-upcoming]");
   const permanentDeleteButton = editor.querySelector("[data-editor-permanent-delete]");
   const bookingMenu = editor.querySelector("[data-editor-booking-menu]");
   const clientDetailsLink = editor.querySelector("[data-editor-client-details]");
@@ -2120,56 +2120,50 @@
     }
   });
 
-  deleteInstructorDayButton?.addEventListener("click", async () => {
-    const instructorId = instructorFilter.value;
-    const selectedOption = instructorFilter.selectedOptions[0];
-    const instructorName = selectedOption?.textContent?.trim() || "this instructor";
-    const targetDate = dateInput.value;
-    if (!instructorId) {
-      window.alert("Select one instructor first. This action cannot be used with All instructors.");
-      instructorFilter.focus();
-      return;
-    }
-    if (!targetDate) {
-      window.alert("Choose the date whose bookings should be deleted.");
-      dateInput.focus();
-      return;
-    }
-
-    const url = new URL(calendar.dataset.instructorDayDeleteUrl, window.location.origin);
-    url.searchParams.set("instructor_id", instructorId);
-    url.searchParams.set("date", targetDate);
+  deleteClientUpcomingButton?.addEventListener("click", async () => {
+    if (!editingEvent || editingEvent.type !== "appointment") return;
+    clearError();
+    const url = replaceId(
+      calendar.dataset.clientUpcomingDeleteUrlTemplate,
+      editingEvent.id,
+    );
     try {
       const previewResponse = await fetch(url, {
         headers: { Accept: "application/json" },
         credentials: "same-origin",
       });
       const preview = await parseJson(previewResponse);
-      if (!previewResponse.ok) throw new Error(preview.error || "The bookings could not be checked.");
+      if (!previewResponse.ok) {
+        throw new Error(preview.error || "The client's upcoming bookings could not be checked.");
+      }
       if (!preview.count) {
-        window.alert(`${instructorName} has no bookings on ${targetDate}.`);
+        window.alert(`${preview.client_name || editingEvent.student_name} has no active bookings from ${preview.from_date}.`);
         return;
       }
       const confirmed = window.confirm(
-        `Permanently delete all ${preview.count} bookings for ${instructorName} on ${targetDate}?\n\n` +
-        "Only this instructor and this date will be affected. This cannot be undone.",
+        `Permanently delete ${preview.count} active booking${preview.count === 1 ? "" : "s"} ` +
+        `for ${preview.client_name || editingEvent.student_name} from ${preview.from_date} onward?\n\n` +
+        "Earlier bookings and other clients will not be changed. This cannot be undone.",
       );
       if (!confirmed) return;
 
-      deleteInstructorDayButton.disabled = true;
+      deleteClientUpcomingButton.disabled = true;
       const deleteResponse = await fetch(url, {
         method: "DELETE",
         headers: { Accept: "application/json", "X-CSRF-Token": csrf },
         credentials: "same-origin",
       });
       const result = await parseJson(deleteResponse);
-      if (!deleteResponse.ok) throw new Error(result.error || "The bookings could not be deleted.");
-      announce(`${result.deleted_count || 0} bookings deleted for ${instructorName} on ${targetDate}.`);
+      if (!deleteResponse.ok) {
+        throw new Error(result.error || "The client's upcoming bookings could not be deleted.");
+      }
+      dialog.close();
+      announce(`${result.deleted_count || 0} upcoming client bookings deleted.`);
       await loadEvents({ force: true });
     } catch (error) {
-      showError(error.message || "The instructor's bookings could not be deleted.");
+      showError(error.message || "The client's upcoming bookings could not be deleted.");
     } finally {
-      deleteInstructorDayButton.disabled = false;
+      deleteClientUpcomingButton.disabled = false;
     }
   });
 

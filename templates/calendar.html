@@ -32,7 +32,7 @@
   data-client-search-url="{{ url_for('api_calendar_search_clients') }}"
   data-cancel-url-template="{{ url_for('api_calendar_cancel_appointment', booking_id=0) }}"
   data-delete-url-template="{{ url_for('api_calendar_delete_appointment', booking_id=0) }}"
-  data-instructor-day-delete-url="{{ url_for('api_calendar_delete_instructor_day_appointments') }}"
+  data-client-upcoming-delete-url-template="{{ url_for('api_calendar_delete_client_upcoming_appointments', booking_id=0) }}"
   data-instructor-status-url-template="{{ url_for('api_calendar_instructor_status', booking_id=0) }}"
   data-busy-create-url="{{ url_for('api_calendar_create_busy_time') }}"
   data-busy-update-url-template="{{ url_for('api_calendar_update_busy_time', time_off_id=0) }}"
@@ -84,11 +84,6 @@
           <a class="icon-button" href="{{ url_for('export_appointments_csv') }}" aria-label="Export appointments" title="Export appointments">⇩</a>
         {% endif %}
         <button class="icon-button" type="button" aria-label="Print calendar" title="Print calendar" data-calendar-print>Print</button>
-        {% if current_user.role == 'admin' %}
-          <button class="button button-danger button-small" type="button" data-delete-instructor-day>
-            Delete instructor date
-          </button>
-        {% endif %}
       </div>
 
       <label class="calendar-staff-control" for="calendar-instructor">
@@ -519,6 +514,9 @@
         <summary class="button button-quiet">Actions</summary>
         <div class="editor-booking-popover">
           <button type="button" data-editor-cancel>Delete</button>
+          {% if current_user.role in ['admin', 'booking_agent'] %}
+            <button type="button" data-editor-delete-client-upcoming>Delete upcoming client bookings</button>
+          {% endif %}
           <a href="#" data-editor-client-details {% if current_user.role == 'booking_agent' %}target="_blank" rel="noopener"{% endif %}>Client Details</a>
           <a href="#" data-editor-client-notes>Client Notes</a>
           {% if current_user.role in ['admin', 'booking_agent'] and current_user.has_permission('contact_details') %}

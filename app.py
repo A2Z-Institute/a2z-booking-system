@@ -5046,44 +5046,53 @@ def api_calendar_delete_appointment(booking_id):
     return jsonify({"success": True})
 
 
-@app.route("/api/calendar/appointments/instructor-day", methods=["GET", "DELETE"])
-@role_required("admin")
-def api_calendar_delete_instructor_day_appointments():
-    """Preview or permanently delete one instructor's bookings on one date."""
-    try:
-        instructor_id = int(request.args.get("instructor_id", ""))
-        target = date.fromisoformat(request.args.get("date", ""))
-    except (TypeError, ValueError):
-        return jsonify({"error": "Choose a valid instructor and date."}), 400
-
+@app.route(
+    "/api/calendar/appointments/<int:booking_id>/client-upcoming",
+    methods=["GET", "DELETE"],
+)
+@role_required("admin", "booking_agent")
+def api_calendar_delete_client_upcoming_appointments(booking_id):
+    """Preview or delete active client bookings from the selected booking onward."""
     with get_db() as conn:
         if request.method == "DELETE":
             conn.execute("BEGIN IMMEDIATE")
-        instructor = conn.execute(
-            "SELECT id, name, branch_id FROM instructors WHERE id = ?",
-            (instructor_id,),
-        ).fetchone()
-        if not instructor:
-            return jsonify({"error": "That instructor was not found."}), 404
-        _require_branch_access(instructor["branch_id"])
-
-        rows = conn.execute(
+        selected = conn.execute(
             """
-            SELECT id FROM bookings
-            WHERE instructor_id = ? AND branch_id = ? AND target_date = ?
-            ORDER BY id
+            SELECT id, branch_id, student_user_id, student_name, target_date
+            FROM bookings WHERE id = ?
             """,
-            (instructor_id, instructor["branch_id"], target.isoformat()),
+            (booking_id,),
+        ).fetchone()
+        if not selected:
+            abort(404)
+        _require_branch_access(selected["branch_id"])
+        if not selected["student_user_id"]:
+            return jsonify(
+                {"error": "This appointment is not linked to a client record."}
+            ), 409
+
+        status_placeholders = ",".join("?" for _ in ACTIVE_BOOKING_STATUSES)
+        rows = conn.execute(
+            f"""
+            SELECT id FROM bookings
+            WHERE branch_id = ? AND student_user_id = ? AND target_date >= ?
+              AND validation_status IN ({status_placeholders})
+            ORDER BY target_date, start_time, id
+            """,
+            (
+                selected["branch_id"],
+                selected["student_user_id"],
+                selected["target_date"],
+                *ACTIVE_BOOKING_STATUSES,
+            ),
         ).fetchall()
         booking_ids = [int(row["id"]) for row in rows]
-        count = len(booking_ids)
-
         result = {
             "success": True,
-            "instructor_id": instructor_id,
-            "instructor_name": instructor["name"],
-            "date": target.isoformat(),
-            "count": count,
+            "client_id": selected["student_user_id"],
+            "client_name": selected["student_name"],
+            "from_date": selected["target_date"],
+            "count": len(booking_ids),
         }
         if request.method == "GET" or not booking_ids:
             return jsonify(result)
@@ -5099,17 +5108,18 @@ def api_calendar_delete_instructor_day_appointments():
         )
         _audit(
             conn,
-            "instructor_day_appointments_deleted",
+            "client_upcoming_appointments_deleted",
             details={
-                "instructor_id": instructor_id,
-                "instructor_name": instructor["name"],
-                "branch_id": instructor["branch_id"],
-                "target_date": target.isoformat(),
-                "deleted_count": count,
+                "client_id": selected["student_user_id"],
+                "client_name": selected["student_name"],
+                "branch_id": selected["branch_id"],
+                "from_date": selected["target_date"],
+                "deleted_count": len(booking_ids),
+                "selected_booking_id": booking_id,
                 "deleted_by_role": current_user.role,
             },
         )
-        result["deleted_count"] = count
+        result["deleted_count"] = len(booking_ids)
         return jsonify(result)
 
 
