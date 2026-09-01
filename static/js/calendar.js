@@ -23,6 +23,7 @@
   const viewFilter = calendar.querySelector("[data-calendar-view]");
   const statusFilter = calendar.querySelector("[data-calendar-status]");
   const rangeLabel = calendar.querySelector("[data-calendar-range]");
+  const deleteInstructorDayButton = calendar.querySelector("[data-delete-instructor-day]");
 
   const bookingIdInput = editor.querySelector("[data-editor-booking-id]");
   const revisionInput = editor.querySelector("[data-editor-revision]");
@@ -2116,6 +2117,59 @@
       await loadEvents({ force: true });
     } catch (error) {
       showError(error.message || "The appointment could not be deleted.");
+    }
+  });
+
+  deleteInstructorDayButton?.addEventListener("click", async () => {
+    const instructorId = instructorFilter.value;
+    const selectedOption = instructorFilter.selectedOptions[0];
+    const instructorName = selectedOption?.textContent?.trim() || "this instructor";
+    const targetDate = dateInput.value;
+    if (!instructorId) {
+      window.alert("Select one instructor first. This action cannot be used with All instructors.");
+      instructorFilter.focus();
+      return;
+    }
+    if (!targetDate) {
+      window.alert("Choose the date whose bookings should be deleted.");
+      dateInput.focus();
+      return;
+    }
+
+    const url = new URL(calendar.dataset.instructorDayDeleteUrl, window.location.origin);
+    url.searchParams.set("instructor_id", instructorId);
+    url.searchParams.set("date", targetDate);
+    try {
+      const previewResponse = await fetch(url, {
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+      });
+      const preview = await parseJson(previewResponse);
+      if (!previewResponse.ok) throw new Error(preview.error || "The bookings could not be checked.");
+      if (!preview.count) {
+        window.alert(`${instructorName} has no bookings on ${targetDate}.`);
+        return;
+      }
+      const confirmed = window.confirm(
+        `Permanently delete all ${preview.count} bookings for ${instructorName} on ${targetDate}?\n\n` +
+        "Only this instructor and this date will be affected. This cannot be undone.",
+      );
+      if (!confirmed) return;
+
+      deleteInstructorDayButton.disabled = true;
+      const deleteResponse = await fetch(url, {
+        method: "DELETE",
+        headers: { Accept: "application/json", "X-CSRF-Token": csrf },
+        credentials: "same-origin",
+      });
+      const result = await parseJson(deleteResponse);
+      if (!deleteResponse.ok) throw new Error(result.error || "The bookings could not be deleted.");
+      announce(`${result.deleted_count || 0} bookings deleted for ${instructorName} on ${targetDate}.`);
+      await loadEvents({ force: true });
+    } catch (error) {
+      showError(error.message || "The instructor's bookings could not be deleted.");
+    } finally {
+      deleteInstructorDayButton.disabled = false;
     }
   });
 
