@@ -1430,12 +1430,12 @@ def _booking_client_identity_fields(full_name, admission_number):
 def _related_client_ids(conn, client_id):
     """Return client ids that are unquestionably the same person.
 
-    We only relate records with the exact normalized full name *and* primary
-    phone.  This deliberately avoids phone-only matching, which could join
-    relatives sharing a number.
+    We only relate records in the same branch with the exact normalized full
+    name *and* primary phone. This deliberately avoids joining branch-specific
+    client records or relatives who share a number.
     """
     current = conn.execute(
-        "SELECT id, full_name, phone FROM users WHERE id = ? AND role = 'student'",
+        "SELECT id, full_name, phone, branch_id FROM users WHERE id = ? AND role = 'student'",
         (client_id,),
     ).fetchone()
     if not current:
@@ -1448,10 +1448,11 @@ def _related_client_ids(conn, client_id):
         SELECT id, full_name, phone
         FROM users
         WHERE role = 'student'
+          AND branch_id = ?
           AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone, ''), ' ', ''), '-', ''), '(', ''), ')', ''), '+', '') = ?
         ORDER BY id
         """,
-        (key[1],),
+        (current["branch_id"], key[1]),
     ).fetchall()
     related = [
         row["id"] for row in rows
@@ -3646,29 +3647,54 @@ def api_calendar_events():
 
 
 def _staff_booking_resources(conn, student_id, instructor_id, machine_id):
-    row = conn.execute(
+    student = conn.execute(
         """
-        SELECT s.id AS student_id, s.full_name, s.phone, s.branch_id,
-               i.id AS instructor_id, i.name AS instructor_name,
-               m.id AS machine_id
-        FROM users s
-        JOIN instructors i ON i.id = ?
-        JOIN machines m ON m.id = ?
-        WHERE s.id = ? AND s.role = 'student' AND s.is_active = 1
-          AND i.is_active = 1 AND i.verification_status = 'verified'
-          AND m.is_active = 1
-          AND s.branch_id = i.branch_id AND i.branch_id = m.branch_id
+        SELECT id, full_name, phone, branch_id
+        FROM users
+        WHERE id = ? AND role = 'student' AND is_active = 1
         """,
-        (instructor_id, machine_id, student_id),
+        (student_id,),
     ).fetchone()
-    if not row:
+    if not student:
+        raise ValueError("Choose an active client.")
+
+    instructor = conn.execute(
+        """
+        SELECT id, name, branch_id
+        FROM instructors
+        WHERE id = ? AND is_active = 1 AND verification_status = 'verified'
+        """,
+        (instructor_id,),
+    ).fetchone()
+    if not instructor:
+        raise ValueError("The instructor selected from this calendar is not active.")
+
+    machine = conn.execute(
+        "SELECT id, branch_id FROM machines WHERE id = ? AND is_active = 1",
+        (machine_id,),
+    ).fetchone()
+    if not machine:
+        raise ValueError("Choose active equipment for this appointment.")
+
+    if not (
+        student["branch_id"] == instructor["branch_id"] == machine["branch_id"]
+    ):
         raise ValueError(
-            "Choose an active client, instructor, and equipment from the same branch."
+            "The client, clicked instructor, and equipment must belong to the same branch."
         )
-    _require_branch_access(row["branch_id"])
+
+    _require_branch_access(student["branch_id"])
     if current_user.role == "instructor" and instructor_id != current_user.instructor_id:
         abort(403)
-    return row
+    return {
+        "student_id": student["id"],
+        "full_name": student["full_name"],
+        "phone": student["phone"],
+        "branch_id": student["branch_id"],
+        "instructor_id": instructor["id"],
+        "instructor_name": instructor["name"],
+        "machine_id": machine["id"],
+    }
 
 
 def _busy_time_range(start_value, end_value):
