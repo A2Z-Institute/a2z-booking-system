@@ -207,15 +207,14 @@
         <fieldset class="editor-section">
           <legend class="sr-only">Staff and time</legend>
           <div class="form-grid smart-appointment-grid">
-            <div class="field">
-              <label for="editor-instructor">Staff Member</label>
-              <select id="editor-instructor" name="instructor_id" data-editor-instructor required>
-                <option value="">Choose an instructor</option>
-                {% for instructor in instructors %}
-                  <option value="{{ instructor.id }}" data-branch-id="{{ instructor.branch_id }}">{{ instructor.name }}</option>
-                {% endfor %}
-              </select>
-            </div>
+            {# The clicked calendar cell already identifies the instructor. Keep
+               the value for validation and saving without asking twice. #}
+            <select id="editor-instructor" name="instructor_id" data-editor-instructor hidden aria-hidden="true" tabindex="-1">
+              <option value="">Choose an instructor</option>
+              {% for instructor in instructors %}
+                <option value="{{ instructor.id }}" data-branch-id="{{ instructor.branch_id }}">{{ instructor.name }}</option>
+              {% endfor %}
+            </select>
             <div class="field field-span-all">
               <label for="editor-notes">Notes</label>
               <input id="editor-notes" name="notes" maxlength="500" data-editor-notes required>
@@ -538,5 +537,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('static', filename='js/calendar.js', v='20260902-1') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/calendar.js', v='20260902-2') }}" defer></script>
 {% endblock %}
