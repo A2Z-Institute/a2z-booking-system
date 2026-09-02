@@ -1379,15 +1379,41 @@
     try {
       const isBookingSlot = event.type === "slot";
       const isBusyTime = event.type === "busy";
+      const isAppointment = !isBookingSlot && !isBusyTime;
       const updateUrl = isBookingSlot
         ? replaceId(calendar.dataset.slotUpdateUrlTemplate, event.id)
         : isBusyTime
           ? replaceId(calendar.dataset.busyUpdateUrlTemplate, event.id)
           : replaceId(calendar.dataset.updateUrlTemplate, event.id);
       let currentEvent = event;
+      let allowDoubleBooking = Boolean(event.allow_double_booking);
+      let allowPastAppointment = false;
+      if (isAppointment) {
+        const now = new Date();
+        const localToday = toInputDate(now);
+        const currentMinutes = (now.getHours() * 60) + now.getMinutes();
+        const movingIntoPast = target.date < localToday || (
+          target.date === localToday && minutes(target.start) < currentMinutes
+        );
+        if (movingIntoPast) {
+          if (currentRole !== "admin") {
+            throw new Error("Past appointments can be moved only by an administrator.");
+          }
+          const confirmed = window.confirm(
+            `This moves the appointment to ${target.date} at ${formatClock(target.start)}, which has already passed.\n\n` +
+            "Do you want to save it as a past appointment?",
+          );
+          if (!confirmed) {
+            renderCalendar();
+            message.hidden = true;
+            return;
+          }
+          allowPastAppointment = true;
+        }
+      }
       let response;
       let data;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
         response = await fetch(updateUrl, {
           method: "PATCH",
           headers: {
@@ -1403,6 +1429,8 @@
             ...(target.end ? { end_time: target.end } : {}),
             instructor_id: Number(target.instructorId),
             machine_id: Number(target.machineId || currentEvent.machine_id),
+            ...(isAppointment && allowPastAppointment ? { allow_past_appointment: true } : {}),
+            ...(isAppointment ? { allow_double_booking: allowDoubleBooking } : {}),
             ...(isBusyTime ? {
               break_type: currentEvent.busy_kind || "busy",
               title: currentEvent.title || "Busy time",
@@ -1413,18 +1441,34 @@
         data = await parseJson(response);
         const revisionConflict = response.status === 409
           && /changed in another window|refresh and try again/i.test(data.error || "");
-        if (!revisionConflict || attempt > 0) break;
-
-        // Another browser saved first. Pull its current revision immediately,
-        // then retry this explicit drag once without asking for a page refresh.
-        await loadEvents({ silent: true, force: true });
-        const freshEvent = events.find((item) => (
-          String(item.id) === String(event.id) && item.type === event.type
-        ));
-        if (!freshEvent) {
-          throw new Error(`This ${isBookingSlot ? "booking slot" : isBusyTime ? "busy time" : "appointment"} no longer exists.`);
+        if (revisionConflict) {
+          // Another browser saved first. Pull its current revision immediately,
+          // then retry this explicit drag without asking for a page refresh.
+          await loadEvents({ silent: true, force: true });
+          const freshEvent = events.find((item) => (
+            String(item.id) === String(event.id) && item.type === event.type
+          ));
+          if (!freshEvent) {
+            throw new Error(`This ${isBookingSlot ? "booking slot" : isBusyTime ? "busy time" : "appointment"} no longer exists.`);
+          }
+          currentEvent = freshEvent;
+          continue;
         }
-        currentEvent = freshEvent;
+        const canOverrideConflict = isAppointment
+          && response.status === 409
+          && data.conflict_type === "schedule"
+          && data.can_override
+          && !allowDoubleBooking;
+        if (canOverrideConflict) {
+          const approved = window.confirm(
+            `${data.error}\n\nMove it anyway and record this as an allowed double booking?`,
+          );
+          if (approved) {
+            allowDoubleBooking = true;
+            continue;
+          }
+        }
+        break;
       }
       if (!response.ok) throw new Error(data.error || `The ${isBookingSlot ? "booking slot" : isBusyTime ? "busy time" : "appointment"} could not be moved.`);
       if (data.event) mergeSavedEvents([data.event]);
