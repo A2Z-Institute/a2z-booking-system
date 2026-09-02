@@ -224,6 +224,17 @@ class User(UserMixin):
     def has_permission(self, permission):
         if permission == "administrator":
             return self.role == "admin"
+        # Every operational staff login must be able to call the customers on
+        # its permitted schedule. Older imported accounts can carry a stale
+        # permission mask, so contact visibility is a role guarantee rather
+        # than an optional per-account flag. Branch filtering still limits
+        # which customers and appointments each account can access.
+        if permission == "contact_details" and self.role in {
+            "admin",
+            "booking_agent",
+            "instructor",
+        }:
+            return True
         if self.role == "admin":
             return True
         bit = PERMISSION_BITS.get(permission)
