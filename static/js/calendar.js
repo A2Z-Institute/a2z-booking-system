@@ -1778,8 +1778,7 @@
       announce(response.ok ? "Client created and selected." : "Existing client selected.");
       return true;
     } catch (error) {
-      showError(error.message || "The client could not be created.");
-      return false;
+      throw new Error(error.message || "The client could not be created.");
     } finally {
       if (button) button.disabled = false;
     }
@@ -1815,9 +1814,11 @@
     if (!phone) throw new Error("Client phone number is required.");
     if (!payload.notes.trim()) throw new Error("Appointment notes are required.");
     if (!payload.student_id) {
-      const created = await createClient();
-      if (!created) throw new Error("Enter the client details to continue.");
+      await createClient();
       payload = appointmentPayload();
+      if (!payload.student_id) {
+        throw new Error("The client could not be selected. Check the client details and try again.");
+      }
     }
     if (!payload.service_ids.length) throw new Error("Choose at least one service.");
     if (!payload.instructor_id || !payload.machine_id) throw new Error("Choose the instructor and compatible equipment.");

@@ -1341,7 +1341,7 @@ def _appointment_conflict_for_range(
 
 
 def _matching_contact_record(
-    conn, *, emails=(), phones=(), exclude_user_id=None
+    conn, *, emails=(), phones=(), exclude_user_id=None, branch_id=None
 ):
     email_values = sorted(
         {str(value).strip().lower() for value in emails if value}
@@ -1371,12 +1371,17 @@ def _matching_contact_record(
         params.extend((phone, phone))
     if not contact_clauses:
         return None
+    branch_clause = ""
+    if branch_id is not None:
+        branch_clause = " AND u.branch_id = ?"
+        params.append(branch_id)
     return conn.execute(
         f"""
         SELECT u.id, u.full_name, u.username, u.role
         FROM users u
         LEFT JOIN client_profiles cp ON cp.user_id = u.id
         WHERE u.id != ? AND ({" OR ".join(contact_clauses)})
+          {branch_clause}
         ORDER BY u.is_active DESC, u.id
         LIMIT 1
         """,
@@ -5303,6 +5308,7 @@ def _create_client_record(conn, payload):
         conn,
         emails=(contacts["email"], contacts["secondary_email"]),
         phones=(contacts["phone"], contacts["secondary_phone"]),
+        branch_id=branch_id,
     )
     if duplicate:
         raise DuplicateClientError(duplicate)
@@ -5850,6 +5856,7 @@ def client_profile_update(client_id):
                 emails=(contacts["email"], contacts["secondary_email"]),
                 phones=(contacts["phone"], contacts["secondary_phone"]),
                 exclude_user_id=client_id,
+                branch_id=existing["branch_id"],
             )
             if duplicate:
                 raise DuplicateClientError(duplicate)
