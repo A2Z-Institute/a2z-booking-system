@@ -136,6 +136,11 @@
   let trailerFinishAuto = false;
   let reconcileTimer = null;
   let whatsappConfirmationEvent = null;
+  // The calendar column is the authoritative instructor selection. Keep it
+  // outside the hidden form control so branch filtering or form resets cannot
+  // discard the instructor while a new client is being created.
+  let appointmentInstructorId = "";
+  let appointmentBranchId = "";
 
   const calendarStateStorageKey = [
     "a2z-calendar-state-v1",
@@ -498,6 +503,15 @@
       branchId: option.dataset.branchId || "",
     }));
 
+  const setAppointmentInstructor = (instructorId, branchId = "") => {
+    const requestedId = String(instructorId || "");
+    const instructor = instructors.find((item) => item.id === requestedId);
+    appointmentInstructorId = instructor?.id || requestedId;
+    appointmentBranchId = String(instructor?.branchId || branchId || "").trim();
+    instructorInput.value = appointmentInstructorId;
+    editor.dataset.appointmentBranchId = appointmentBranchId;
+  };
+
   const period = () => {
     const anchor = toDate(dateInput.value);
     if (viewFilter.value === "week") {
@@ -654,7 +668,9 @@
   };
 
   const syncMachines = () => {
-    const branchId = instructorInput.selectedOptions[0]?.dataset.branchId || "";
+    const branchId = appointmentBranchId
+      || instructorInput.selectedOptions[0]?.dataset.branchId
+      || "";
     let compatible = null;
     selectedServices().forEach((service) => {
       const ids = new Set((service.dataset.machineIds || "").split(",").filter(Boolean));
@@ -679,7 +695,8 @@
   const syncEditorOptions = () => {
     const normaliseBranch = (value) => String(value || "").trim();
     const instructorBranch = normaliseBranch(
-      instructorInput.selectedOptions[0]?.dataset.branchId
+      appointmentBranchId
+      || instructorInput.selectedOptions[0]?.dataset.branchId
       || editor.dataset.appointmentBranchId,
     );
     const clientBranch = normaliseBranch(clientInput.selectedOptions[0]?.dataset.branchId);
@@ -692,13 +709,14 @@
       option.disabled = !allowed;
       if (!allowed && option.selected) clientInput.value = "";
     });
+    // Do not filter or clear the instructor from client data. The clicked
+    // calendar column wins; a client from another branch is cleared above.
     Array.from(instructorInput.options).forEach((option, index) => {
       if (index === 0) return;
-      const allowed = !clientBranch || normaliseBranch(option.dataset.branchId) === clientBranch;
-      option.hidden = !allowed;
-      option.disabled = !allowed;
-      if (!allowed && option.selected) instructorInput.value = "";
+      option.hidden = false;
+      option.disabled = false;
     });
+    if (appointmentInstructorId) instructorInput.value = appointmentInstructorId;
     serviceChecks.forEach((input) => {
       // Staff-managed appointments can be transferred to another instructor.
       // Keep the service when both records belong to the same branch.
@@ -760,8 +778,7 @@
     bookingIdInput.value = event.id;
     revisionInput.value = event.revision || "";
     clientInput.value = String(event.client_id || event.student_user_id || "");
-    instructorInput.value = String(event.instructor_id || "");
-    editor.dataset.appointmentBranchId = String(event.branch_id || "");
+    setAppointmentInstructor(event.instructor_id, event.branch_id);
     machineInput.value = String(event.machine_id || "");
     editorDate.value = event.date;
     editorStart.value = event.start_time;
@@ -850,10 +867,7 @@
     if (existingSummary) existingSummary.hidden = true;
     if (whatsappConfirmationButton) whatsappConfirmationButton.hidden = true;
     setServiceSelection([]);
-    instructorInput.value = String(instructorId || instructorFilter.value || instructors[0]?.id || "");
-    editor.dataset.appointmentBranchId = instructors.find(
-      (item) => item.id === instructorInput.value,
-    )?.branchId || "";
+    setAppointmentInstructor(instructorId || instructorFilter.value || instructors[0]?.id || "");
     clientInput.value = String(selectedClientId || "");
     editorDate.value = targetDate || dateInput.value;
     editorStart.value = start || "09:00";
@@ -1746,7 +1760,9 @@
     const admissionNumber = editor.querySelector("[data-new-client-last-name]")?.value.trim() || "";
     const phone = editor.querySelector("[data-new-client-phone]")?.value.trim() || "";
     const email = editor.querySelector("[data-new-client-email]")?.value.trim() || "";
-    const branchId = instructorInput.selectedOptions[0]?.dataset.branchId || "";
+    const branchId = appointmentBranchId
+      || instructorInput.selectedOptions[0]?.dataset.branchId
+      || "";
     if (!fullName || !admissionNumber || !phone) {
       throw new Error("Enter the client's full name, admission number, and phone number.");
     }
@@ -1771,7 +1787,7 @@
           phone,
           email,
           branch_id: Number(branchId),
-          instructor_id: Number(instructorInput.value),
+          instructor_id: Number(appointmentInstructorId || instructorInput.value),
         }),
       });
       const data = await parseJson(response);
@@ -1806,7 +1822,7 @@
     const repeat = repeatInput?.value || "none";
     return {
       student_id: Number(clientInput.value),
-      instructor_id: Number(instructorInput.value),
+      instructor_id: Number(appointmentInstructorId || instructorInput.value),
       machine_id: Number(machineInput.value),
       service_ids: selectedServiceIds(),
       target_date: editorDate.value,
@@ -2112,7 +2128,10 @@
   busyRepeat?.addEventListener("change", () => syncRepeatCount(busyRepeat, busyRepeatCount));
   slotRepeat?.addEventListener("change", () => syncRepeatCount(slotRepeat, slotRepeatCount));
   instructorInput.addEventListener("change", () => {
-    editor.dataset.appointmentBranchId = instructorInput.selectedOptions[0]?.dataset.branchId || "";
+    setAppointmentInstructor(
+      instructorInput.value,
+      instructorInput.selectedOptions[0]?.dataset.branchId || "",
+    );
     syncEditorOptions();
     if (busyInstructor && !editingEvent) busyInstructor.value = instructorInput.value;
   });
