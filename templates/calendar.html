@@ -173,8 +173,11 @@
               <button class="icon-button" type="button" aria-label="Close services" data-service-picker-close>×</button>
             </div>
             <div class="service-checkbox-list">
+              <p class="service-picker-empty" data-service-picker-empty hidden>
+                No active services are configured for this instructor's branch.
+              </p>
             {% for group in services|groupby('category', default='SERVICES') %}
-              <section class="service-picker-group">
+              <section class="service-picker-group" data-service-picker-group>
                 <h4>{{ group.grouper|default('SERVICES', true)|upper }}</h4>
                 {% for service in group.list %}
                   <label class="service-checkbox-option">
@@ -537,5 +540,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('static', filename='js/calendar.js', v='20260902-3') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20260902-5') }}" defer></script>
 {% endblock %}

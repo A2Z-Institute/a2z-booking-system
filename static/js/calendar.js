@@ -31,6 +31,7 @@
   const machineInput = editor.querySelector("[data-editor-machine]");
   const serviceChecks = Array.from(editor.querySelectorAll("[data-editor-service]"));
   const servicePicker = editor.querySelector("[data-service-picker]");
+  const servicePickerEmpty = editor.querySelector("[data-service-picker-empty]");
   const servicePickerOpenButton = editor.querySelector("[data-service-picker-open]");
   const serviceTriggerTitle = editor.querySelector("[data-service-trigger-title]");
   const serviceTotal = editor.querySelector("[data-service-total]");
@@ -676,20 +677,24 @@
   };
 
   const syncEditorOptions = () => {
-    const instructorBranch = instructorInput.selectedOptions[0]?.dataset.branchId || "";
-    const clientBranch = clientInput.selectedOptions[0]?.dataset.branchId || "";
+    const normaliseBranch = (value) => String(value || "").trim();
+    const instructorBranch = normaliseBranch(
+      instructorInput.selectedOptions[0]?.dataset.branchId
+      || editor.dataset.appointmentBranchId,
+    );
+    const clientBranch = normaliseBranch(clientInput.selectedOptions[0]?.dataset.branchId);
     const branchId = instructorBranch || clientBranch;
 
     Array.from(clientInput.options).forEach((option, index) => {
       if (index === 0) return;
-      const allowed = !instructorBranch || option.dataset.branchId === instructorBranch;
+      const allowed = !instructorBranch || normaliseBranch(option.dataset.branchId) === instructorBranch;
       option.hidden = !allowed;
       option.disabled = !allowed;
       if (!allowed && option.selected) clientInput.value = "";
     });
     Array.from(instructorInput.options).forEach((option, index) => {
       if (index === 0) return;
-      const allowed = !clientBranch || option.dataset.branchId === clientBranch;
+      const allowed = !clientBranch || normaliseBranch(option.dataset.branchId) === clientBranch;
       option.hidden = !allowed;
       option.disabled = !allowed;
       if (!allowed && option.selected) instructorInput.value = "";
@@ -697,11 +702,19 @@
     serviceChecks.forEach((input) => {
       // Staff-managed appointments can be transferred to another instructor.
       // Keep the service when both records belong to the same branch.
-      const allowed = !branchId || input.dataset.branchId === branchId;
+      const allowed = !branchId || normaliseBranch(input.dataset.branchId) === branchId;
       input.disabled = !allowed;
       input.closest("label")?.toggleAttribute("hidden", !allowed);
       if (!allowed) input.checked = false;
     });
+    editor.querySelectorAll("[data-service-picker-group]").forEach((group) => {
+      const hasAvailableService = Array.from(group.querySelectorAll("[data-editor-service]"))
+        .some((input) => !input.disabled);
+      group.hidden = !hasAvailableService;
+    });
+    if (servicePickerEmpty) {
+      servicePickerEmpty.hidden = serviceChecks.some((input) => !input.disabled);
+    }
     syncMachines();
     updateDuration();
   };
@@ -748,6 +761,7 @@
     revisionInput.value = event.revision || "";
     clientInput.value = String(event.client_id || event.student_user_id || "");
     instructorInput.value = String(event.instructor_id || "");
+    editor.dataset.appointmentBranchId = String(event.branch_id || "");
     machineInput.value = String(event.machine_id || "");
     editorDate.value = event.date;
     editorStart.value = event.start_time;
@@ -837,6 +851,9 @@
     if (whatsappConfirmationButton) whatsappConfirmationButton.hidden = true;
     setServiceSelection([]);
     instructorInput.value = String(instructorId || instructorFilter.value || instructors[0]?.id || "");
+    editor.dataset.appointmentBranchId = instructors.find(
+      (item) => item.id === instructorInput.value,
+    )?.branchId || "";
     clientInput.value = String(selectedClientId || "");
     editorDate.value = targetDate || dateInput.value;
     editorStart.value = start || "09:00";
@@ -1731,12 +1748,10 @@
     const email = editor.querySelector("[data-new-client-email]")?.value.trim() || "";
     const branchId = instructorInput.selectedOptions[0]?.dataset.branchId || "";
     if (!fullName || !admissionNumber || !phone) {
-      showError("Enter the client's full name, admission number, and phone number.");
-      return;
+      throw new Error("Enter the client's full name, admission number, and phone number.");
     }
     if (!branchId) {
-      showError("Choose the instructor before creating the client.");
-      return;
+      throw new Error("Choose the instructor before creating the client.");
     }
     const button = editor.querySelector("[data-new-client-save]");
     if (button) button.disabled = true;
@@ -1776,7 +1791,10 @@
       clientInput.value = option.value;
       syncEditorOptions();
       announce(response.ok ? "Client created and selected." : "Existing client selected.");
-      return true;
+      // Return the authoritative server id as well as updating the hidden
+      // selector. Branch filtering can rebuild/clear that selector, but it
+      // must never discard the client that was just created for this save.
+      return Number(record.id);
     } catch (error) {
       throw new Error(error.message || "The client could not be created.");
     } finally {
@@ -1814,8 +1832,9 @@
     if (!phone) throw new Error("Client phone number is required.");
     if (!payload.notes.trim()) throw new Error("Appointment notes are required.");
     if (!payload.student_id) {
-      await createClient();
+      const createdClientId = await createClient();
       payload = appointmentPayload();
+      payload.student_id = Number(payload.student_id || createdClientId);
       if (!payload.student_id) {
         throw new Error("The client could not be selected. Check the client details and try again.");
       }
@@ -2093,6 +2112,7 @@
   busyRepeat?.addEventListener("change", () => syncRepeatCount(busyRepeat, busyRepeatCount));
   slotRepeat?.addEventListener("change", () => syncRepeatCount(slotRepeat, slotRepeatCount));
   instructorInput.addEventListener("change", () => {
+    editor.dataset.appointmentBranchId = instructorInput.selectedOptions[0]?.dataset.branchId || "";
     syncEditorOptions();
     if (busyInstructor && !editingEvent) busyInstructor.value = instructorInput.value;
   });
@@ -2117,6 +2137,9 @@
   machineInput.addEventListener("change", applyTrailerDefaultFinish);
   servicePickerOpenButton?.addEventListener("click", () => {
     if (!servicePicker) return;
+    // Re-evaluate branch visibility whenever the picker opens. This also
+    // repairs stale hidden states after switching branches or calendar cells.
+    syncEditorOptions();
     servicePickerSnapshot = selectedServiceIds().map(String);
     servicePicker.hidden = false;
     servicePicker.querySelector("input:not(:disabled)")?.focus();
