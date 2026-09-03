@@ -89,6 +89,7 @@ PERMISSION_BITS = {
     "export_appointments": 16,
     "contact_details": 32,
     "client_notes": 64,
+    "manage_own_booking_slots": 128,
 }
 PERMISSION_OPTIONS = (
     ("everyone_schedule", "Everyone's Schedule", "View schedules for every instructor instead of only the linked schedule."),
@@ -98,6 +99,11 @@ PERMISSION_OPTIONS = (
     ("export_appointments", "Export Appointments", "Download appointment data as a CSV file."),
     ("contact_details", "Contact Details", "See client email addresses and phone numbers."),
     ("client_notes", "Client Notes", "See private client notes in staff views."),
+    (
+        "manage_own_booking_slots",
+        "Manage Own Booking Slots",
+        "Create, repeat, move, edit, and delete booking slots only on this instructor's own calendar.",
+    ),
 )
 ALL_STAFF_PERMISSIONS = sum(PERMISSION_BITS.values())
 DEFAULT_ROLE_PERMISSIONS = {
@@ -3416,7 +3422,14 @@ def _calendar_slot_event(row):
         "repeat_rule": row.get("repeat_rule") or "none",
         "series_position": row.get("series_position") or 1,
         "series_count": row.get("series_count") or 1,
-        "can_edit": current_user.role == "admin",
+        "can_edit": (
+            current_user.role == "admin"
+            or (
+                current_user.role == "instructor"
+                and current_user.has_permission("manage_own_booking_slots")
+                and int(row["instructor_id"]) == int(current_user.instructor_id or 0)
+            )
+        ),
     }
 
 
@@ -4394,12 +4407,29 @@ def _slot_resource(conn, instructor_id, machine_id):
     return row
 
 
+def _require_booking_slot_management(instructor_id=None):
+    """Allow administrators, or a permitted instructor acting only for self."""
+    if current_user.role == "admin":
+        return
+    if (
+        current_user.role != "instructor"
+        or not current_user.has_permission("manage_own_booking_slots")
+    ):
+        abort(403)
+    if (
+        instructor_id is not None
+        and int(instructor_id) != int(current_user.instructor_id or 0)
+    ):
+        abort(404)
+
+
 @app.post("/api/calendar/booking-slots")
-@role_required("admin")
+@role_required("admin", "instructor")
 def api_calendar_create_booking_slot():
     payload = request.get_json(silent=True) or {}
     try:
         instructor_id = int(payload.get("instructor_id"))
+        _require_booking_slot_management(instructor_id)
         machine_id = int(payload.get("machine_id"))
         target = _validate_booking_date(payload.get("target_date"), enforce_online_window=False)
         start_time, end_time, start_minutes, end_minutes = _busy_time_range(payload.get("start_time"), payload.get("end_time"))
@@ -4439,7 +4469,7 @@ def api_calendar_create_booking_slot():
 
 
 @app.patch("/api/calendar/booking-slots/<int:slot_id>")
-@role_required("admin")
+@role_required("admin", "instructor")
 def api_calendar_update_booking_slot(slot_id):
     payload = request.get_json(silent=True) or {}
     try:
@@ -4450,8 +4480,7 @@ def api_calendar_update_booking_slot(slot_id):
             if not existing:
                 abort(404)
             _require_branch_access(existing["branch_id"])
-            if current_user.role == "instructor" and existing["instructor_id"] != current_user.instructor_id:
-                abort(404)
+            _require_booking_slot_management(existing["instructor_id"])
             if revision != existing["calendar_revision"]:
                 return jsonify({"error": "This slot changed in another window. Refresh and try again."}), 409
             instructor_id = int(payload.get("instructor_id") or existing["instructor_id"])
@@ -4484,7 +4513,7 @@ def api_calendar_update_booking_slot(slot_id):
 
 
 @app.delete("/api/calendar/booking-slots/<int:slot_id>")
-@role_required("admin")
+@role_required("admin", "instructor")
 def api_calendar_delete_booking_slot(slot_id):
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -4492,8 +4521,7 @@ def api_calendar_delete_booking_slot(slot_id):
         if not row:
             abort(404)
         _require_branch_access(row["branch_id"])
-        if current_user.role == "instructor" and row["instructor_id"] != current_user.instructor_id:
-            abort(404)
+        _require_booking_slot_management(row["instructor_id"])
         conn.execute("DELETE FROM booking_slots WHERE id=?", (slot_id,))
         _audit(conn, "booking_slot_deleted", details={"slot_id": slot_id})
     return jsonify({"success": True})

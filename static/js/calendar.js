@@ -99,6 +99,8 @@
   const descriptionText = editor.querySelector("[data-editor-description]");
   const csrf = editor.querySelector('[name="csrf_token"]')?.value || "";
   const currentRole = document.body.dataset.userRole || "";
+  const canManageOwnSlots = calendar.dataset.canManageOwnSlots === "true";
+  const currentInstructorId = String(calendar.dataset.currentInstructorId || "");
 
   if (
     !grid
@@ -717,6 +719,17 @@
     if (saveButton) saveButton.textContent = editorType === "busy" ? "Save busy time" : editorType === "slot" ? "Save slot" : "Save appointment";
   };
 
+  const syncSlotMachines = () => {
+    const branchId = slotInstructor?.selectedOptions[0]?.dataset.branchId || "";
+    Array.from(slotMachine?.options || []).forEach((option, index) => {
+      if (index === 0) return;
+      const allowed = !branchId || option.dataset.branchId === branchId;
+      option.hidden = !allowed;
+      option.disabled = !allowed;
+      if (!allowed && option.selected) slotMachine.value = "";
+    });
+  };
+
   const syncMachines = () => {
     const branchId = appointmentBranchId
       || instructorInput.selectedOptions[0]?.dataset.branchId
@@ -904,7 +917,12 @@
     selectedClientId = "",
     bookingSlot = null,
   ) => {
-    if (currentRole === "instructor") return;
+    if (currentRole === "instructor") {
+      const isOwnSlot = initialType === "slot"
+        && canManageOwnSlots
+        && String(instructorId || "") === currentInstructorId;
+      if (!isOwnSlot) return;
+    }
     lastFocused = trigger || document.activeElement;
     editingEvent = null;
     whatsappConfirmationEvent = null;
@@ -943,13 +961,18 @@
     if (slotRepeat) slotRepeat.value = "none";
     if (slotRepeatCount) slotRepeatCount.value = "1";
     if (slotNotes) slotNotes.value = "";
+    syncSlotMachines();
     syncRepeatCount(slotRepeat, slotRepeatCount);
     if (eyebrowText) eyebrowText.textContent = "New schedule item";
-    if (titleText) titleText.textContent = initialType === "busy" ? "Add busy time" : "Add appointment";
+    if (titleText) titleText.textContent = initialType === "busy"
+      ? "Add busy time"
+      : initialType === "slot" ? "Add booking slot" : "Add appointment";
     if (descriptionText) {
       descriptionText.textContent = initialType === "busy"
         ? "Block time that staff should not use for appointments."
-        : "Create a confirmed appointment while speaking with the client.";
+        : initialType === "slot"
+          ? "Mark equipment availability on your own calendar."
+          : "Create a confirmed appointment while speaking with the client.";
     }
     if (cancelAppointmentButton) cancelAppointmentButton.hidden = true;
     if (permanentDeleteButton) permanentDeleteButton.hidden = true;
@@ -962,6 +985,7 @@
     if (saveButton) saveButton.hidden = false;
     setEditorType(initialType);
     syncEditorOptions();
+    if (currentRole === "instructor" && slotInstructor) slotInstructor.disabled = true;
     if (initialType === "appointment" && bookingSlot) {
       const machineId = String(bookingSlot.machine_id || "");
       const normalise = (value) => String(value || "")
@@ -1034,6 +1058,7 @@
       if (slotNotes) slotNotes.value = event.notes || "";
       if (slotRepeat) slotRepeat.value = "none";
       if (slotRepeatCount) slotRepeatCount.value = "1";
+      syncSlotMachines();
       if (eyebrowText) eyebrowText.textContent = "Booking slot";
       if (titleText) titleText.textContent = event.title || "Edit booking slot";
       if (descriptionText) descriptionText.textContent = "Appointments remain bookable inside this slot band.";
@@ -1046,6 +1071,7 @@
       if (deleteSlotButton) deleteSlotButton.hidden = !event.can_edit;
       if (saveButton) saveButton.hidden = !event.can_edit;
       setEditorType("slot");
+      if (currentRole === "instructor" && slotInstructor) slotInstructor.disabled = true;
     } else if (event.type === "busy") {
       bookingIdInput.value = String(event.id);
       revisionInput.value = String(event.revision || "");
@@ -1128,7 +1154,7 @@
       && !["Cancelled", "Rejected", "Completed", "No-show"].includes(event.status);
     const canDragEvent = Boolean(event.can_edit) && (
       event.type === "appointment"
-      || (isSlot && currentRole === "admin")
+      || (isSlot && (currentRole === "admin" || canManageOwnSlots))
       || (isBusy && currentRole === "admin")
     );
     button.draggable = false;
@@ -1155,7 +1181,7 @@
       "--event-duration",
       `calc(${durationMinutes / 15} * var(--calendar-quarter-height))`,
     );
-    if (isSlot && currentRole !== "admin") {
+    if (isSlot && !event.can_edit) {
       button.setAttribute("aria-readonly", "true");
       button.title = "Book an appointment in this admin-managed slot";
     }
@@ -1218,7 +1244,7 @@
         );
         return;
       }
-      if (isSlot && currentRole === "instructor") return;
+      if (isSlot && currentRole === "instructor" && !event.can_edit) return;
       openEditorForEvent(event, button);
     });
     if (canDragEvent) {
@@ -1454,7 +1480,7 @@
   const moveEvent = async (event, target) => {
     if (
       !event?.can_edit
-      || (event.type === "slot" && currentRole !== "admin")
+      || (event.type === "slot" && currentRole !== "admin" && !canManageOwnSlots)
       || moveInFlight
     ) return;
     moveInFlight = true;
@@ -1590,6 +1616,11 @@
     slot.setAttribute("aria-disabled", String(disabled || occupied));
     const canReceiveDraggedEvent = () => {
       if (!draggedEvent) return false;
+      if (
+        draggedEvent.type === "slot"
+        && currentRole === "instructor"
+        && String(column.instructorId) !== currentInstructorId
+      ) return false;
       const duration = Math.max(15, minutes(draggedEvent.end_time) - minutes(draggedEvent.start_time));
       if (minutes(start) + duration > STAFF_DAY_END) return false;
       // Let the server validate occupied destinations so the user receives the
@@ -1628,10 +1659,14 @@
       });
     });
     if (disabled || occupied) return;
+    const instructorOwnSlotMode = currentRole === "instructor"
+      && canManageOwnSlots
+      && String(column.instructorId) === currentInstructorId;
+    if (currentRole === "instructor" && !instructorOwnSlotMode) return;
     // A visible plus affordance makes it clear that an empty white cell can
     // start a booking. The server still checks conflicts and asks authorised
     // staff before recording an allowed double booking.
-    slot.dataset.bookLabel = `+ Book ${formatClock(start)}`;
+    slot.dataset.bookLabel = `${instructorOwnSlotMode ? "+ Slot" : "+ Book"} ${formatClock(start)}`;
     let longPressTimer;
     let longPressed = false;
     slot.addEventListener("pointerdown", (event) => {
@@ -1639,7 +1674,7 @@
       longPressed = false;
       longPressTimer = window.setTimeout(() => {
         longPressed = true;
-        prepareNewEditor(column.date, column.instructorId, start, slot, "appointment", "", bookingSlot);
+        prepareNewEditor(column.date, column.instructorId, start, slot, instructorOwnSlotMode ? "slot" : "appointment", "", bookingSlot);
       }, 500);
     });
     ["pointerup", "pointercancel", "pointerleave"].forEach((name) => {
@@ -1650,12 +1685,12 @@
         longPressed = false;
         return;
       }
-      prepareNewEditor(column.date, column.instructorId, start, slot, "appointment", "", bookingSlot);
+      prepareNewEditor(column.date, column.instructorId, start, slot, instructorOwnSlotMode ? "slot" : "appointment", "", bookingSlot);
     });
     slot.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      prepareNewEditor(column.date, column.instructorId, start, slot, "appointment", "", bookingSlot);
+      prepareNewEditor(column.date, column.instructorId, start, slot, instructorOwnSlotMode ? "slot" : "appointment", "", bookingSlot);
     });
   };
 
@@ -2198,14 +2233,7 @@
     if (busyInstructor && !editingEvent) busyInstructor.value = instructorInput.value;
   });
   slotInstructor?.addEventListener("change", () => {
-    const branchId = slotInstructor.selectedOptions[0]?.dataset.branchId || "";
-    Array.from(slotMachine?.options || []).forEach((option, index) => {
-      if (index === 0) return;
-      const allowed = !branchId || option.dataset.branchId === branchId;
-      option.hidden = !allowed;
-      option.disabled = !allowed;
-      if (!allowed && option.selected) slotMachine.value = "";
-    });
+    syncSlotMachines();
   });
   serviceChecks.forEach((input) => {
     input.addEventListener("change", () => {

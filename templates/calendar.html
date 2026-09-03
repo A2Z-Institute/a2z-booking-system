@@ -42,6 +42,8 @@
   data-slot-create-url="{{ url_for('api_calendar_create_booking_slot') }}"
   data-slot-update-url-template="{{ url_for('api_calendar_update_booking_slot', slot_id=0) }}"
   data-slot-delete-url-template="{{ url_for('api_calendar_delete_booking_slot', slot_id=0) }}"
+  data-can-manage-own-slots="{{ 'true' if current_user.has_permission('manage_own_booking_slots') else 'false' }}"
+  data-current-instructor-id="{{ current_user.instructor_id|default('', true) }}"
   data-selected-instructor="{{ selected_instructor|default('', true) }}"
   data-selected-client="{{ selected_client_id|default('', true) }}"
   data-initial-client-id="{{ selected_client_id|default('', true) }}"
@@ -148,7 +150,7 @@
     <header class="appointment-editor-header">
       <div class="appointment-editor-tabs" role="tablist" aria-label="Schedule item type">
         <button class="appointment-editor-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="appointment-panel" data-editor-tab="appointment">Appointment</button>
-        {% if current_user.role == 'admin' %}<button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="booking-slot-panel" data-editor-tab="slot">Booking Slot</button>{% endif %}
+        {% if current_user.role == 'admin' or (current_user.role == 'instructor' and current_user.has_permission('manage_own_booking_slots')) %}<button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="booking-slot-panel" data-editor-tab="slot">Booking Slot</button>{% endif %}
         {% if current_user.role == 'admin' %}<button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="busy-time-panel" data-editor-tab="busy">Event / Busy Time</button>{% endif %}
       </div>
       <button class="icon-button editor-close-button" type="button" aria-label="Close appointment editor" data-editor-close>×</button>
@@ -575,5 +577,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20260903-4') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20260903-5') }}" defer></script>
 {% endblock %}
