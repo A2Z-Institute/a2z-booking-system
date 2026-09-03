@@ -86,6 +86,7 @@
   const clientNotesLink = editor.querySelector("[data-editor-client-notes]");
   const whatsappConfirmationButton = editor.querySelector("[data-editor-whatsapp]");
   const deleteBusyButton = editor.querySelector("[data-editor-busy-delete]");
+  const deleteUpcomingBusyButton = editor.querySelector("[data-editor-busy-delete-upcoming]");
   const deleteBusyForAllButton = editor.querySelector("[data-editor-busy-delete-all]");
   const deleteSlotButton = editor.querySelector("[data-editor-slot-delete]");
   const durationText = editor.querySelector("[data-editor-duration]");
@@ -906,6 +907,7 @@
     if (bookingMenu) bookingMenu.hidden = true;
     if (serviceTotal) serviceTotal.hidden = true;
     if (deleteBusyButton) deleteBusyButton.hidden = true;
+    if (deleteUpcomingBusyButton) deleteUpcomingBusyButton.hidden = true;
     if (deleteBusyForAllButton) deleteBusyForAllButton.hidden = true;
     if (deleteSlotButton) deleteSlotButton.hidden = true;
     if (saveButton) saveButton.hidden = false;
@@ -990,6 +992,7 @@
       if (permanentDeleteButton) permanentDeleteButton.hidden = true;
       if (bookingMenu) bookingMenu.hidden = true;
       if (deleteBusyButton) deleteBusyButton.hidden = true;
+      if (deleteUpcomingBusyButton) deleteUpcomingBusyButton.hidden = true;
       if (deleteBusyForAllButton) deleteBusyForAllButton.hidden = true;
       if (deleteSlotButton) deleteSlotButton.hidden = !event.can_edit;
       if (saveButton) saveButton.hidden = !event.can_edit;
@@ -1014,6 +1017,7 @@
       if (permanentDeleteButton) permanentDeleteButton.hidden = true;
       if (bookingMenu) bookingMenu.hidden = true;
       if (deleteBusyButton) deleteBusyButton.hidden = !event.can_edit;
+      if (deleteUpcomingBusyButton) deleteUpcomingBusyButton.hidden = !event.can_edit;
       if (deleteBusyForAllButton) {
         deleteBusyForAllButton.hidden = !event.can_edit
           || !["breakfast", "lunch", "tea"].includes(event.busy_kind);
@@ -1038,6 +1042,7 @@
       }
       if (bookingMenu) bookingMenu.hidden = !event.can_edit;
       if (deleteBusyButton) deleteBusyButton.hidden = true;
+      if (deleteUpcomingBusyButton) deleteUpcomingBusyButton.hidden = true;
       if (deleteBusyForAllButton) deleteBusyForAllButton.hidden = true;
       if (deleteSlotButton) deleteSlotButton.hidden = true;
       if (saveButton) {
@@ -2325,6 +2330,54 @@
       await loadEvents({ force: true });
     } catch (error) {
       showError(error.message || "The busy time could not be deleted.");
+    }
+  });
+
+  deleteUpcomingBusyButton?.addEventListener("click", async () => {
+    if (!editingEvent || editingEvent.type !== "busy") return;
+    const url = replaceId(
+      calendar.dataset.busyUpcomingDeleteUrlTemplate || "",
+      editingEvent.id,
+    );
+    if (!url) return;
+    clearError();
+    try {
+      const previewResponse = await fetch(url, {
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+      });
+      const preview = await parseJson(previewResponse);
+      if (!previewResponse.ok) {
+        throw new Error(preview.error || "Upcoming busy time could not be checked.");
+      }
+      if (!preview.count) {
+        window.alert(`${preview.instructor_name || editingEvent.instructor_name} has no busy time from ${preview.from_date}.`);
+        return;
+      }
+      const confirmed = window.confirm(
+        `Delete ${preview.count} busy-time record${preview.count === 1 ? "" : "s"} for `
+        + `${preview.instructor_name || editingEvent.instructor_name} from ${preview.from_date} onward?\n\n`
+        + "Earlier busy time, other instructors, and appointments will remain. This cannot be undone.",
+      );
+      if (!confirmed) return;
+
+      deleteUpcomingBusyButton.disabled = true;
+      const deleteResponse = await fetch(url, {
+        method: "DELETE",
+        headers: { Accept: "application/json", "X-CSRF-Token": csrf },
+        credentials: "same-origin",
+      });
+      const result = await parseJson(deleteResponse);
+      if (!deleteResponse.ok) {
+        throw new Error(result.error || "Upcoming busy time could not be deleted.");
+      }
+      dialog.close();
+      announce(`${result.deleted_count || 0} upcoming busy-time records deleted.`);
+      await loadEvents({ force: true });
+    } catch (error) {
+      showError(error.message || "Upcoming busy time could not be deleted.");
+    } finally {
+      deleteUpcomingBusyButton.disabled = false;
     }
   });
 

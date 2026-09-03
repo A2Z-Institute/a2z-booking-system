@@ -4187,6 +4187,80 @@ def api_calendar_delete_busy_time(time_off_id):
     return jsonify({"success": True})
 
 
+@app.route(
+    "/api/calendar/busy-times/<int:time_off_id>/upcoming",
+    methods=["GET", "DELETE"],
+)
+@role_required("admin")
+def api_calendar_delete_upcoming_busy_times(time_off_id):
+    """Preview or delete one instructor's busy time from this date onward."""
+    with get_db() as conn:
+        if request.method == "DELETE":
+            conn.execute("BEGIN IMMEDIATE")
+        selected = conn.execute(
+            """
+            SELECT t.*, i.name AS instructor_name, i.branch_id
+            FROM instructor_time_off t
+            JOIN instructors i ON i.id = t.instructor_id
+            WHERE t.id = ?
+            """,
+            (time_off_id,),
+        ).fetchone()
+        if not selected:
+            abort(404)
+        _require_branch_access(selected["branch_id"])
+        rows = conn.execute(
+            """
+            SELECT id, target_date, reason, source_reference
+            FROM instructor_time_off
+            WHERE instructor_id = ? AND target_date >= ?
+            ORDER BY target_date, start_time, id
+            """,
+            (selected["instructor_id"], selected["target_date"]),
+        ).fetchall()
+        preview = {
+            "count": len(rows),
+            "instructor_id": selected["instructor_id"],
+            "instructor_name": selected["instructor_name"],
+            "from_date": selected["target_date"],
+        }
+        if request.method == "GET":
+            return jsonify(preview)
+
+        # Record exceptions for generated standard breaks so deleted dates do
+        # not immediately reappear when the calendar refreshes.
+        for row in rows:
+            break_kind = _standard_break_kind(
+                row["source_reference"], row["reason"]
+            )
+            if break_kind:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO default_break_exceptions
+                        (instructor_id, target_date, break_kind)
+                    VALUES (?, ?, ?)
+                    """,
+                    (selected["instructor_id"], row["target_date"], break_kind),
+                )
+        deleted = conn.execute(
+            """
+            DELETE FROM instructor_time_off
+            WHERE instructor_id = ? AND target_date >= ?
+            """,
+            (selected["instructor_id"], selected["target_date"]),
+        ).rowcount
+        _audit(
+            conn,
+            "upcoming_busy_times_deleted",
+            details={
+                "instructor_id": selected["instructor_id"],
+                "from_date": selected["target_date"],
+                "deleted_count": deleted,
+            },
+        )
+    return jsonify({"success": True, "deleted_count": deleted, **preview})
+
+
 @app.delete("/api/calendar/default-breaks/<break_kind>")
 @role_required("admin")
 def api_calendar_delete_default_break_for_all(break_kind):

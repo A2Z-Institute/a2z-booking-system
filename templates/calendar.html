@@ -37,6 +37,7 @@
   data-busy-create-url="{{ url_for('api_calendar_create_busy_time') }}"
   data-busy-update-url-template="{{ url_for('api_calendar_update_busy_time', time_off_id=0) }}"
   data-busy-delete-url-template="{{ url_for('api_calendar_delete_busy_time', time_off_id=0) }}"
+  data-busy-upcoming-delete-url-template="{{ url_for('api_calendar_delete_upcoming_busy_times', time_off_id=0) }}"
   data-busy-bulk-delete-url-template="{{ url_for('api_calendar_delete_default_break_for_all', break_kind='__BREAK_KIND__') }}"
   data-slot-create-url="{{ url_for('api_calendar_create_booking_slot') }}"
   data-slot-update-url-template="{{ url_for('api_calendar_update_booking_slot', slot_id=0) }}"
@@ -546,6 +547,7 @@
         </div>
       </details>
       <button type="button" data-editor-busy-delete hidden>Delete busy time</button>
+      <button class="button button-danger" type="button" data-editor-busy-delete-upcoming hidden>Delete all upcoming busy time</button>
       <button class="button button-danger" type="button" data-editor-busy-delete-all hidden>Delete this break for all instructors</button>
       <button type="button" data-editor-slot-delete hidden>Delete slot</button>
       <div class="appointment-editor-actions">
@@ -559,5 +561,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20260903-1') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20260903-2') }}" defer></script>
 {% endblock %}
