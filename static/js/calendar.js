@@ -2351,13 +2351,14 @@
         throw new Error(preview.error || "Upcoming busy time could not be checked.");
       }
       if (!preview.count) {
-        window.alert(`${preview.instructor_name || editingEvent.instructor_name} has no busy time from ${preview.from_date}.`);
+        window.alert(`There are no upcoming occurrences of this busy slot from ${preview.from_date}.`);
         return;
       }
       const confirmed = window.confirm(
-        `Delete ${preview.count} busy-time record${preview.count === 1 ? "" : "s"} for `
-        + `${preview.instructor_name || editingEvent.instructor_name} from ${preview.from_date} onward?\n\n`
-        + "Earlier busy time, other instructors, and appointments will remain. This cannot be undone.",
+        `Delete ${preview.count} occurrence${preview.count === 1 ? "" : "s"} of `
+        + `${preview.busy_title || editingEvent.title} (${formatClock(preview.start_time)}–${formatClock(preview.end_time)}) `
+        + `for ${preview.instructor_name || editingEvent.instructor_name} from ${preview.from_date} onward?\n\n`
+        + "Other busy slots, earlier occurrences, other instructors, and all appointments will remain. This cannot be undone.",
       );
       if (!confirmed) return;
 
@@ -2372,7 +2373,7 @@
         throw new Error(result.error || "Upcoming busy time could not be deleted.");
       }
       dialog.close();
-      announce(`${result.deleted_count || 0} upcoming busy-time records deleted.`);
+      announce(`${result.deleted_count || 0} upcoming occurrences of this busy slot deleted.`);
       await loadEvents({ force: true });
     } catch (error) {
       showError(error.message || "Upcoming busy time could not be deleted.");

@@ -4193,7 +4193,7 @@ def api_calendar_delete_busy_time(time_off_id):
 )
 @role_required("admin")
 def api_calendar_delete_upcoming_busy_times(time_off_id):
-    """Preview or delete one instructor's busy time from this date onward."""
+    """Preview or delete only this recurring busy slot from this date onward."""
     with get_db() as conn:
         if request.method == "DELETE":
             conn.execute("BEGIN IMMEDIATE")
@@ -4209,20 +4209,44 @@ def api_calendar_delete_upcoming_busy_times(time_off_id):
         if not selected:
             abort(404)
         _require_branch_access(selected["branch_id"])
+        # Prefer the explicit repeat-series id. Imported or individually
+        # created rows may not have one, so match only the same title and
+        # visible time in that case. Never select other busy slots or bookings.
+        if selected["series_id"]:
+            scope_clause = "series_id = ?"
+            scope_params = (selected["series_id"],)
+        else:
+            scope_clause = (
+                "lower(trim(COALESCE(reason, ''))) = lower(trim(?)) "
+                "AND start_time = ? AND end_time = ?"
+            )
+            scope_params = (
+                selected["reason"] or "",
+                selected["start_time"],
+                selected["end_time"],
+            )
         rows = conn.execute(
-            """
+            f"""
             SELECT id, target_date, reason, source_reference
             FROM instructor_time_off
             WHERE instructor_id = ? AND target_date >= ?
+              AND {scope_clause}
             ORDER BY target_date, start_time, id
             """,
-            (selected["instructor_id"], selected["target_date"]),
+            (
+                selected["instructor_id"],
+                selected["target_date"],
+                *scope_params,
+            ),
         ).fetchall()
         preview = {
             "count": len(rows),
             "instructor_id": selected["instructor_id"],
             "instructor_name": selected["instructor_name"],
             "from_date": selected["target_date"],
+            "busy_title": selected["reason"] or "Busy time",
+            "start_time": selected["start_time"],
+            "end_time": selected["end_time"],
         }
         if request.method == "GET":
             return jsonify(preview)
@@ -4243,11 +4267,16 @@ def api_calendar_delete_upcoming_busy_times(time_off_id):
                     (selected["instructor_id"], row["target_date"], break_kind),
                 )
         deleted = conn.execute(
-            """
+            f"""
             DELETE FROM instructor_time_off
             WHERE instructor_id = ? AND target_date >= ?
+              AND {scope_clause}
             """,
-            (selected["instructor_id"], selected["target_date"]),
+            (
+                selected["instructor_id"],
+                selected["target_date"],
+                *scope_params,
+            ),
         ).rowcount
         _audit(
             conn,
@@ -4255,6 +4284,9 @@ def api_calendar_delete_upcoming_busy_times(time_off_id):
             details={
                 "instructor_id": selected["instructor_id"],
                 "from_date": selected["target_date"],
+                "busy_title": selected["reason"] or "Busy time",
+                "start_time": selected["start_time"],
+                "end_time": selected["end_time"],
                 "deleted_count": deleted,
             },
         )

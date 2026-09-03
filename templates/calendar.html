@@ -547,7 +547,7 @@
         </div>
       </details>
       <button type="button" data-editor-busy-delete hidden>Delete busy time</button>
-      <button class="button button-danger" type="button" data-editor-busy-delete-upcoming hidden>Delete all upcoming busy time</button>
+      <button class="button button-danger" type="button" data-editor-busy-delete-upcoming hidden>Delete this busy slot on upcoming days</button>
       <button class="button button-danger" type="button" data-editor-busy-delete-all hidden>Delete this break for all instructors</button>
       <button type="button" data-editor-slot-delete hidden>Delete slot</button>
       <div class="appointment-editor-actions">
@@ -561,5 +561,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20260903-2') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20260903-3') }}" defer></script>
 {% endblock %}
