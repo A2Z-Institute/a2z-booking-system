@@ -409,7 +409,26 @@
                 {% endfor %}
               </select>
             </div>
-            <div class="field"><label for="slot-repeat">Repeat</label><select id="slot-repeat" data-editor-slot-repeat><option value="none">Does not repeat</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option></select></div>
+            <div class="field">
+              <label for="slot-repeat">Repeat</label>
+              <select id="slot-repeat" data-editor-slot-repeat>
+                <option value="none">Does not repeat</option>
+                <option value="daily">Daily</option>
+                <option value="weekdays">Weekdays</option>
+                <option value="mwf">Monday, Wednesday &amp; Friday</option>
+                <option value="tuth">Tuesday &amp; Thursday</option>
+                <option value="weekly">Weekly</option>
+                <option value="fortnightly">Every 2 weeks</option>
+                <option value="every_3_weeks">Every 3 weeks</option>
+                <option value="every_4_weeks">Every 4 weeks</option>
+                <option value="every_5_weeks">Every 5 weeks</option>
+                <option value="every_6_weeks">Every 6 weeks</option>
+                <option value="every_8_weeks">Every 8 weeks</option>
+                <option value="monthly">Monthly</option>
+                <option value="every_2_months">Every 2 months</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </div>
             <div class="field"><label for="slot-repeat-count">Occurrences</label><input id="slot-repeat-count" type="number" min="1" max="52" value="1" data-editor-slot-repeat-count></div>
             <div class="field field-span-2"><label for="slot-notes">Note <span class="text-muted">(optional)</span></label><textarea id="slot-notes" maxlength="500" data-editor-slot-notes></textarea></div>
           </div>
@@ -540,5 +559,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20260902-7') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20260903-1') }}" defer></script>
 {% endblock %}

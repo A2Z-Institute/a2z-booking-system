@@ -665,6 +665,28 @@ def _init_sqlite_db() -> None:
                 "INSERT INTO schema_migrations (migration_key) VALUES (?)",
                 (padding_migration,),
             )
+        # Imports may have been run after the first padding migration. Apply a
+        # second idempotent cleanup so every restored booking also follows the
+        # visible-time-only scheduling rule.
+        imported_padding_migration = "20260903_remove_imported_private_padding"
+        if not conn.execute(
+            "SELECT 1 FROM schema_migrations WHERE migration_key = ?",
+            (imported_padding_migration,),
+        ).fetchone():
+            conn.execute(
+                "UPDATE services SET buffer_before_minutes = 0, "
+                "buffer_after_minutes = 0, updated_at = CURRENT_TIMESTAMP "
+                "WHERE buffer_before_minutes != 0 OR buffer_after_minutes != 0"
+            )
+            conn.execute(
+                "UPDATE bookings SET buffer_before_minutes = 0, "
+                "buffer_after_minutes = 0, updated_at = CURRENT_TIMESTAMP "
+                "WHERE buffer_before_minutes != 0 OR buffer_after_minutes != 0"
+            )
+            conn.execute(
+                "INSERT INTO schema_migrations (migration_key) VALUES (?)",
+                (imported_padding_migration,),
+            )
         _ensure_columns(
             conn,
             "client_profiles",
@@ -1101,6 +1123,19 @@ def init_db() -> None:
     schema = (BASE_DIR / "postgres_schema.sql").read_text(encoding="utf-8")
     with get_db() as conn:
         conn._connection.execute(schema)
+        # PostgreSQL does not use the SQLite migration block above. Keep the
+        # production database aligned with the same no-padding policy. The
+        # WHERE clauses make this a no-op after the first corrected startup.
+        conn.execute(
+            "UPDATE services SET buffer_before_minutes = 0, "
+            "buffer_after_minutes = 0, updated_at = CURRENT_TIMESTAMP "
+            "WHERE buffer_before_minutes != 0 OR buffer_after_minutes != 0"
+        )
+        conn.execute(
+            "UPDATE bookings SET buffer_before_minutes = 0, "
+            "buffer_after_minutes = 0, updated_at = CURRENT_TIMESTAMP "
+            "WHERE buffer_before_minutes != 0 OR buffer_after_minutes != 0"
+        )
 
 
 def seed_reference_data() -> None:

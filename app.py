@@ -1601,7 +1601,8 @@ def _available_slots(
         exclude_params = (exclude_booking_id,)
     machine_bookings = conn.execute(
         f"""
-        SELECT start_time, end_time, buffer_before_minutes, buffer_after_minutes
+        SELECT start_time, end_time, 0 AS buffer_before_minutes,
+               0 AS buffer_after_minutes
         FROM bookings
         WHERE branch_id = ? AND target_date = ?
           AND validation_status IN ({status_placeholders}) AND machine_id = ?
@@ -1611,7 +1612,8 @@ def _available_slots(
     ).fetchall()
     instructor_bookings = conn.execute(
         f"""
-        SELECT start_time, end_time, buffer_before_minutes, buffer_after_minutes
+        SELECT start_time, end_time, 0 AS buffer_before_minutes,
+               0 AS buffer_after_minutes
         FROM bookings
         WHERE branch_id = ? AND target_date = ?
           AND validation_status IN ({status_placeholders}) AND instructor_id = ?
@@ -3790,7 +3792,8 @@ def _assert_busy_time_available(
     active_placeholders = ",".join("?" for _ in ACTIVE_BOOKING_STATUSES)
     bookings = conn.execute(
         f"""
-        SELECT start_time, end_time, buffer_before_minutes, buffer_after_minutes
+        SELECT start_time, end_time, 0 AS buffer_before_minutes,
+               0 AS buffer_after_minutes
         FROM bookings
         WHERE instructor_id = ? AND target_date = ?
           AND validation_status IN ({active_placeholders})
@@ -3806,7 +3809,7 @@ def _assert_busy_time_available(
         )
         if start_minutes < occupied_end and end_minutes > occupied_start:
             raise AppointmentConflictError(
-                "That busy time overlaps an existing appointment or its private padding."
+                "That busy time overlaps the visible time of an existing appointment."
             )
     params = [instructor_id, target.isoformat()]
     exclude_clause = ""
