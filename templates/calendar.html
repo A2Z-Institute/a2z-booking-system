@@ -23,7 +23,7 @@
 </header>
 
 <section
-  class="calendar-shell"
+  class="calendar-shell{% if current_user.is_super_admin %} is-super-admin-calendar{% endif %}"
   data-calendar
   data-events-url="{{ url_for('api_calendar_events') }}"
   data-create-url="{{ url_for('api_calendar_create_appointment') }}"
@@ -87,6 +87,19 @@
         <button class="icon-button" type="button" aria-label="Print calendar" title="Print calendar" data-calendar-print>Print</button>
       </div>
 
+      {% if current_user.is_super_admin %}
+      <label class="calendar-branch-control" for="calendar-branch">
+        <span class="sr-only">Branch</span>
+        <select id="calendar-branch" data-calendar-branch aria-label="Filter calendar by branch">
+          <option value="">All branches</option>
+          {% for branch_group in instructors|groupby('branch_id') %}
+            {% set branch_instructor = branch_group.list|first %}
+            <option value="{{ branch_group.grouper }}">{{ branch_instructor.branch_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+
       <label class="calendar-staff-control" for="calendar-instructor">
         <span class="sr-only">Instructor</span>
         <select id="calendar-instructor" data-calendar-instructor>
@@ -95,8 +108,9 @@
             <option
               value="{{ instructor.id }}"
               data-branch-id="{{ instructor.branch_id }}"
+              data-branch-name="{{ instructor.branch_name }}"
               {% if selected_instructor|string == instructor.id|string %}selected{% endif %}
-            >{{ instructor.name }}</option>
+            >{{ instructor.name }}{% if current_user.is_super_admin %} · {{ instructor.branch_name }}{% endif %}</option>
           {% endfor %}
         </select>
       </label>
@@ -216,7 +230,7 @@
             <select id="editor-instructor" name="instructor_id" data-editor-instructor hidden aria-hidden="true" tabindex="-1">
               <option value="">Choose an instructor</option>
               {% for instructor in instructors %}
-                <option value="{{ instructor.id }}" data-branch-id="{{ instructor.branch_id }}">{{ instructor.name }}</option>
+                <option value="{{ instructor.id }}" data-branch-id="{{ instructor.branch_id }}" data-branch-name="{{ instructor.branch_name }}">{{ instructor.name }}</option>
               {% endfor %}
             </select>
             <div class="field field-span-all">
@@ -561,5 +575,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20260903-3') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20260903-4') }}" defer></script>
 {% endblock %}

@@ -19,6 +19,7 @@
   const calendarScroll = calendar.querySelector("[data-calendar-scroll]");
   const message = calendar.querySelector("[data-calendar-message]");
   const dateInput = calendar.querySelector("[data-calendar-date]");
+  const branchFilter = calendar.querySelector("[data-calendar-branch]");
   const instructorFilter = calendar.querySelector("[data-calendar-instructor]");
   const viewFilter = calendar.querySelector("[data-calendar-view]");
   const statusFilter = calendar.querySelector("[data-calendar-status]");
@@ -162,12 +163,22 @@
     const requestedView = locationUrl.searchParams.get("view") || stored.view || "";
     if (["day", "week"].includes(requestedView)) viewFilter.value = requestedView;
 
+    const requestedBranch = locationUrl.searchParams.get("branch_id")
+      ?? stored.branchId
+      ?? "";
+    if (branchFilter instanceof HTMLSelectElement
+      && Array.from(branchFilter.options).some((option) => option.value === String(requestedBranch))) {
+      branchFilter.value = String(requestedBranch);
+      syncInstructorFilterForBranch();
+    }
+
     const requestedInstructor = locationUrl.searchParams.get("instructor_id")
       ?? stored.instructorId
       ?? "";
-    if (Array.from(instructorFilter.options).some((option) => option.value === String(requestedInstructor))) {
-      instructorFilter.value = String(requestedInstructor);
-    }
+    const requestedInstructorOption = Array.from(instructorFilter.options).find(
+      (option) => option.value === String(requestedInstructor) && !option.disabled,
+    );
+    if (requestedInstructorOption) instructorFilter.value = String(requestedInstructor);
 
     const requestedStatus = locationUrl.searchParams.get("status") ?? stored.status ?? "";
     if (Array.from(statusFilter.options).some((option) => option.value === String(requestedStatus))) {
@@ -183,6 +194,7 @@
     window.location.pathname,
     dateInput.value,
     viewFilter.value,
+    branchFilter?.value || "all-branches",
     instructorFilter.value || "all",
   ].join(":");
 
@@ -224,6 +236,11 @@
     const locationUrl = new URL(window.location.href);
     locationUrl.searchParams.set("date", selectedDate);
     locationUrl.searchParams.set("view", viewFilter.value);
+    if (branchFilter?.value) {
+      locationUrl.searchParams.set("branch_id", branchFilter.value);
+    } else {
+      locationUrl.searchParams.delete("branch_id");
+    }
     if (instructorFilter.value) {
       locationUrl.searchParams.set("instructor_id", instructorFilter.value);
     } else {
@@ -238,6 +255,7 @@
       window.sessionStorage.setItem(calendarStateStorageKey, JSON.stringify({
         date: selectedDate,
         view: viewFilter.value,
+        branchId: branchFilter?.value || "",
         instructorId: instructorFilter.value,
         status: statusFilter.value,
       }));
@@ -502,7 +520,20 @@
       id: option.value,
       name: option.textContent.trim(),
       branchId: option.dataset.branchId || "",
+      branchName: option.dataset.branchName || "",
     }));
+
+  const syncInstructorFilterForBranch = () => {
+    if (!(branchFilter instanceof HTMLSelectElement)) return;
+    const branchId = String(branchFilter.value || "");
+    Array.from(instructorFilter.options).forEach((option) => {
+      if (!option.value) return;
+      const allowed = !branchId || option.dataset.branchId === branchId;
+      option.hidden = !allowed;
+      option.disabled = !allowed;
+      if (!allowed && option.selected) instructorFilter.value = "";
+    });
+  };
 
   const setAppointmentInstructor = (instructorId, branchId = "") => {
     const requestedId = String(instructorId || "");
@@ -524,13 +555,17 @@
 
   const columnsForView = () => {
     const { start } = period();
+    const selectedBranchId = branchFilter?.value || "";
+    const branchInstructors = instructors.filter(
+      (item) => !selectedBranchId || item.branchId === selectedBranchId,
+    );
     if (viewFilter.value === "week") {
       let instructorId = instructorFilter.value;
-      if (!instructorId && instructors.length) {
-        instructorId = instructors[0].id;
+      if (!instructorId && branchInstructors.length) {
+        instructorId = branchInstructors[0].id;
         instructorFilter.value = instructorId;
       }
-      const instructor = instructors.find((item) => item.id === instructorId);
+      const instructor = branchInstructors.find((item) => item.id === instructorId);
       if (!instructor) return [];
       return Array.from({ length: 7 }, (_, index) => {
         const target = addDays(start, index);
@@ -539,12 +574,14 @@
           instructorId: instructor.id,
           title: formatDay(target),
           subtitle: instructor.name,
+          branchId: instructor.branchId,
+          branchName: instructor.branchName,
           nonWorking: false,
         };
       });
     }
     const targetDate = toInputDate(start);
-    const visible = instructors.filter(
+    const visible = branchInstructors.filter(
       (item) => !instructorFilter.value || item.id === instructorFilter.value,
     );
     return visible.map((instructor) => ({
@@ -552,6 +589,8 @@
       instructorId: instructor.id,
       title: instructor.name,
       subtitle: formatDay(start),
+      branchId: instructor.branchId,
+      branchName: instructor.branchName,
       nonWorking: false,
     }));
   };
@@ -588,6 +627,16 @@
       hash = ((hash * 31) + text.charCodeAt(index)) >>> 0;
     }
     return INSTRUCTOR_EVENT_COLOURS[hash % INSTRUCTOR_EVENT_COLOURS.length];
+  };
+
+  const branchColour = (branchId) => {
+    const palette = ["#185FA5", "#0F766E", "#9A3412", "#6D28D9", "#A21CAF"];
+    const text = String(branchId || "");
+    let hash = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      hash = ((hash * 31) + text.charCodeAt(index)) >>> 0;
+    }
+    return palette[hash % palette.length];
   };
 
   const assignOverlapLanes = (columnEvents, hasBookingSlot) => {
@@ -1642,6 +1691,7 @@
       section.dataset.date = column.date;
       section.dataset.instructorId = column.instructorId;
       section.style.setProperty("--instructor-colour", instructorEventColour(column.instructorId));
+      section.style.setProperty("--branch-colour", branchColour(column.branchId));
       const columnEvents = events.filter((item) => (
         item.date === column.date
         && String(item.instructor_id) === String(column.instructorId)
@@ -1656,6 +1706,12 @@
       title.textContent = column.title;
       subtitle.textContent = column.subtitle;
       header.append(title, subtitle);
+      if (branchFilter instanceof HTMLSelectElement && column.branchName) {
+        const branchBadge = document.createElement("small");
+        branchBadge.className = "calendar-branch-badge";
+        branchBadge.textContent = column.branchName;
+        header.append(branchBadge);
+      }
       section.append(header);
       slots.forEach((start) => {
         const slot = document.createElement("div");
@@ -1711,6 +1767,7 @@
       message.textContent = "Loading appointments…";
     }
     const query = new URLSearchParams({ start, end });
+    if (branchFilter?.value) query.set("branch_id", branchFilter.value);
     if (instructorFilter.value) query.set("instructor_id", instructorFilter.value);
     if (statusFilter.value) query.set("status", statusFilter.value);
     query.set("_sync", String(Date.now()));
@@ -2488,6 +2545,12 @@
   viewFilter.addEventListener("change", () => { resetHorizontalScroll = true; loadEvents({ force: true }); });
   instructorFilter.addEventListener("change", () => {
     viewFilter.value = instructorFilter.value && !compactScreen() ? "week" : "day";
+    resetHorizontalScroll = true;
+    loadEvents({ force: true });
+  });
+  branchFilter?.addEventListener("change", () => {
+    syncInstructorFilterForBranch();
+    viewFilter.value = "day";
     resetHorizontalScroll = true;
     loadEvents({ force: true });
   });

@@ -193,6 +193,31 @@
   white-space: nowrap;
 }
 
+.calendar-column-header .calendar-branch-badge {
+  justify-self: start;
+  overflow: hidden;
+  max-width: 100%;
+  padding: 0.08rem 0.36rem;
+  border: 1px solid color-mix(in srgb, var(--branch-colour, #667085) 38%, white);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--branch-colour, #667085) 12%, white);
+  color: var(--branch-colour, #667085);
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-branch-control select {
+  min-width: 160px;
+  font-weight: 750;
+}
+
+.calendar-shell.is-super-admin-calendar .calendar-column-header {
+  height: 58px;
+}
+
 .calendar-timezone {
   z-index: 25;
   padding: 0;
