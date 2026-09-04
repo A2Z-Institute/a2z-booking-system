@@ -772,12 +772,15 @@
       option.disabled = !allowed;
       if (!allowed && option.selected) clientInput.value = "";
     });
-    // Do not filter or clear the instructor from client data. The clicked
-    // calendar column wins; a client from another branch is cleared above.
+    // Existing appointments can be transferred within their original branch.
+    // New appointments retain the instructor from the clicked calendar cell.
+    const transferBranch = editingEvent?.type === "appointment"
+      ? String(editingEvent.branch_id || instructorBranch) : "";
     Array.from(instructorInput.options).forEach((option, index) => {
       if (index === 0) return;
-      option.hidden = false;
-      option.disabled = false;
+      const allowed = !transferBranch || option.dataset.branchId === transferBranch;
+      option.hidden = !allowed;
+      option.disabled = !allowed;
     });
     if (appointmentInstructorId) instructorInput.value = appointmentInstructorId;
     serviceChecks.forEach((input) => {
@@ -925,6 +928,7 @@
     }
     lastFocused = trigger || document.activeElement;
     editingEvent = null;
+    editor.querySelector("[data-editor-instructor-field]").hidden = true;
     whatsappConfirmationEvent = null;
     editor.reset();
     trailerFinishAuto = false;
@@ -1044,6 +1048,10 @@
   const openEditorForEvent = (event, trigger) => {
     lastFocused = trigger || document.activeElement;
     editingEvent = event;
+    editor.querySelector("[data-editor-instructor-field]").hidden = !(
+      event.type === "appointment" && event.can_edit
+      && ["admin", "booking_agent"].includes(currentRole)
+    );
     editor.reset();
     clearError();
     updateSeriesSummary(event);
