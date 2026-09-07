@@ -2501,58 +2501,6 @@ textarea:focus {
   background: var(--service-colour, var(--blue-600));
 }
 
-.service-colour-swatches {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.55rem;
-}
-
-.service-colour-swatch,
-.service-colour-custom {
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  border: 1px solid color-mix(in srgb, var(--swatch-colour, #667085) 34%, #98a2b3);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--swatch-colour, #667085) 34%, white);
-  box-shadow: 0 1px 3px rgba(14, 14, 16, 0.12);
-  cursor: pointer;
-}
-
-.service-colour-swatch[aria-pressed="true"] {
-  position: relative;
-  outline: 3px solid color-mix(in srgb, var(--swatch-colour) 55%, white);
-  outline-offset: 2px;
-}
-
-.service-colour-swatch[aria-pressed="true"]::after {
-  content: "\2713";
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: #344054;
-  font-size: 1.1rem;
-  font-weight: 900;
-}
-
-.service-colour-custom {
-  position: relative;
-  overflow: hidden;
-  border-style: dashed;
-  background: conic-gradient(#e88ba0, #e6b800, #56b870, #5bc7c7, #2a9bcb, #a970d6, #e88ba0);
-}
-
-.service-colour-custom input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-}
-
 .service-admin-heading p {
   margin: 0.15rem 0 0;
   color: var(--ink-600);
