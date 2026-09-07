@@ -15,6 +15,11 @@ from pathlib import Path
 from werkzeug.security import generate_password_hash
 
 
+def postgres_url() -> str | None:
+    """Return the internal PostgreSQL URL when the production backend uses it."""
+    return os.environ.get("A2Z_POSTGRES_URL") or None
+
+
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = BASE_DIR / "a2z_booking.db"
 
@@ -26,6 +31,20 @@ def database_path() -> Path:
 
 @contextmanager
 def get_db():
+    if postgres_url():
+        # Imported lazily: local SQLite development needs no PostgreSQL driver.
+        from postgres_runtime import connect
+
+        conn = connect(postgres_url())
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return
     database_path().parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(database_path(), timeout=15)
     conn.row_factory = sqlite3.Row
@@ -219,7 +238,7 @@ def _rebuild_legacy_account_tables(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys = ON")
 
 
-def init_db() -> None:
+def _init_sqlite_db() -> None:
     """Create a new database or safely upgrade the original prototype schema."""
     with get_db() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
@@ -646,6 +665,28 @@ def init_db() -> None:
                 "INSERT INTO schema_migrations (migration_key) VALUES (?)",
                 (padding_migration,),
             )
+        # Imports may have been run after the first padding migration. Apply a
+        # second idempotent cleanup so every restored booking also follows the
+        # visible-time-only scheduling rule.
+        imported_padding_migration = "20260903_remove_imported_private_padding"
+        if not conn.execute(
+            "SELECT 1 FROM schema_migrations WHERE migration_key = ?",
+            (imported_padding_migration,),
+        ).fetchone():
+            conn.execute(
+                "UPDATE services SET buffer_before_minutes = 0, "
+                "buffer_after_minutes = 0, updated_at = CURRENT_TIMESTAMP "
+                "WHERE buffer_before_minutes != 0 OR buffer_after_minutes != 0"
+            )
+            conn.execute(
+                "UPDATE bookings SET buffer_before_minutes = 0, "
+                "buffer_after_minutes = 0, updated_at = CURRENT_TIMESTAMP "
+                "WHERE buffer_before_minutes != 0 OR buffer_after_minutes != 0"
+            )
+            conn.execute(
+                "INSERT INTO schema_migrations (migration_key) VALUES (?)",
+                (imported_padding_migration,),
+            )
         _ensure_columns(
             conn,
             "client_profiles",
@@ -1069,6 +1110,34 @@ def init_db() -> None:
         )
 
 
+def init_db() -> None:
+    """Initialise the selected database backend.
+
+    SQLite retains the existing in-place upgrade path. PostgreSQL is always a
+    separately provisioned database: it receives the reviewed schema only and
+    never touches the SQLite file used by the live KVM 4 portal.
+    """
+    if not postgres_url():
+        _init_sqlite_db()
+        return
+    schema = (BASE_DIR / "postgres_schema.sql").read_text(encoding="utf-8")
+    with get_db() as conn:
+        conn._connection.execute(schema)
+        # PostgreSQL does not use the SQLite migration block above. Keep the
+        # production database aligned with the same no-padding policy. The
+        # WHERE clauses make this a no-op after the first corrected startup.
+        conn.execute(
+            "UPDATE services SET buffer_before_minutes = 0, "
+            "buffer_after_minutes = 0, updated_at = CURRENT_TIMESTAMP "
+            "WHERE buffer_before_minutes != 0 OR buffer_after_minutes != 0"
+        )
+        conn.execute(
+            "UPDATE bookings SET buffer_before_minutes = 0, "
+            "buffer_after_minutes = 0, updated_at = CURRENT_TIMESTAMP "
+            "WHERE buffer_before_minutes != 0 OR buffer_after_minutes != 0"
+        )
+
+
 def seed_reference_data() -> None:
     """Seed public branch/resources and, only when requested, demo people.
 
@@ -1077,6 +1146,10 @@ def seed_reference_data() -> None:
     unverifiable list. The legacy demo roster remains available behind an
     explicit development flag so old tests and disposable demos can run.
     """
+    if postgres_url():
+        # Production records are copied by migrate_sqlite_to_postgres.py. Never
+        # seed sample data into the new company database.
+        return
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -1375,6 +1448,24 @@ def seed_reference_data() -> None:
 
 def seed_portal_accounts() -> None:
     """Create the optional Driving School portal without touching live data."""
+    super_admin_username = os.environ.get("A2Z_SUPER_ADMIN_USERNAME", "admin")
+    with get_db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            """
+            UPDATE users
+            SET is_super_admin = CASE WHEN lower(username) = lower(?) THEN 1 ELSE 0 END
+            WHERE role = 'admin'
+            """,
+            (super_admin_username,),
+        )
+        conn.execute(
+            """
+            UPDATE users SET full_name = 'Super Admin'
+            WHERE lower(username) = lower(?) AND role = 'admin'
+            """,
+            (super_admin_username,),
+        )
     if os.environ.get("A2Z_ENABLE_DRIVING_SCHOOL_PORTAL", "0") != "1":
         return
     admin_password = os.environ.get("A2Z_DRIVING_SCHOOL_ADMIN_PASSWORD")
@@ -1415,11 +1506,6 @@ def seed_portal_accounts() -> None:
                     """,
                     (username, generate_password_hash(password), role, full_name, branch_id),
                 )
-        super_admin_username = os.environ.get("A2Z_SUPER_ADMIN_USERNAME", "admin")
-        conn.execute(
-            "UPDATE users SET is_super_admin = 1 WHERE lower(username) = lower(?) AND role = 'admin'",
-            (super_admin_username,),
-        )
 
 
 # Backwards-compatible name used by the original project.

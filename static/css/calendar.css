@@ -1861,10 +1861,10 @@
   background: #6ebdd8 !important;
 }
 
-/* Smart Scheduling-style appointment colours: each staff calendar keeps its
-   own recognisable pastel while status remains a compact neutral label. */
+/* Smart Scheduling-style appointment colours: use each course/equipment's
+   configured Calendar colour while status remains a compact neutral label. */
 .calendar-event:not(.calendar-busy-event):not(.calendar-booking-slot) {
-  background: var(--event-background, color-mix(in srgb, var(--event-colour) 34%, white));
+  background: color-mix(in srgb, var(--event-colour) 34%, white);
   border: 1px solid #9aa4af;
   filter: none;
   opacity: 1;
@@ -1878,10 +1878,9 @@
   max-width: calc(100% - 4px);
   padding: 0 2px;
   overflow: hidden;
-  border: 1px solid #667085;
-  border-radius: 1px;
-  background: #fff;
-  color: #344054;
+  border: 0;
+  background: #667085;
+  color: #fff;
   font-size: 0.5rem;
   font-weight: 800;
   line-height: 1.05;
@@ -1908,7 +1907,7 @@
 
 .calendar-event:hover:not(.calendar-busy-event):not(.calendar-booking-slot),
 .calendar-event:focus-visible:not(.calendar-busy-event):not(.calendar-booking-slot) {
-  background: var(--event-hover-background, color-mix(in srgb, var(--event-colour) 42%, white));
+  background: color-mix(in srgb, var(--event-colour) 42%, white);
 }
 
 .appointment-dialog {

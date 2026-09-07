@@ -4,6 +4,16 @@
 
 {% block content %}
 {% set service_list = services|default([], true) %}
+{% set calendar_palette = [
+  ('#e6b800', 'Yellow'),
+  ('#e88ba0', 'Rose'),
+  ('#9acd32', 'Lime'),
+  ('#56b870', 'Green'),
+  ('#a970d6', 'Purple'),
+  ('#5bc7c7', 'Aqua'),
+  ('#c79a63', 'Sand'),
+  ('#2a9bcb', 'Blue')
+] %}
 <header class="management-panel-header standalone-management-header">
   <div>
     <span class="sr-only">Booking setup</span>
@@ -78,7 +88,18 @@
       </div>
       <div class="field">
         <label for="new-service-color">Calendar colour</label>
-        <input id="new-service-color" name="color" type="color" value="#c8141b">
+        <div class="service-colour-picker" data-service-colour-picker>
+          <input id="new-service-color" name="color" type="hidden" value="#e6b800" data-service-colour-value>
+          <div class="service-colour-swatches" role="group" aria-label="Calendar colour">
+            {% for colour, label in calendar_palette %}
+              <button class="service-colour-swatch" type="button" data-service-colour-swatch data-colour="{{ colour }}" style="--swatch-colour: {{ colour }}" aria-label="{{ label }}" aria-pressed="{{ 'true' if loop.first else 'false' }}"></button>
+            {% endfor %}
+            <label class="service-colour-custom" title="Choose a custom colour">
+              <span class="sr-only">Custom colour</span>
+              <input type="color" value="#e6b800" data-service-colour-custom aria-label="Choose a custom calendar colour">
+            </label>
+          </div>
+        </div>
       </div>
       <fieldset class="choice-field">
         <legend>Available weekdays</legend>
@@ -117,7 +138,7 @@
         <article class="management-panel service-admin-card" id="service-{{ service.id }}">
           <div class="section-header">
             <div class="service-admin-heading">
-              <span class="service-admin-colour service-color-{{ loop.index0 % 7 }}" aria-hidden="true"></span>
+              <span class="service-admin-colour" style="--service-colour: {{ service.color }}" aria-hidden="true"></span>
               <div>
                 <h2>{{ service.name }}</h2>
                 <p>{{ service.category|default('Other services', true) }} · {{ service.branch_name }} · {{ service.duration_minutes }} minutes · {% if service.price_cents %}{{ service.currency }} {{ '%.2f'|format(service.price_cents / 100) }}{% else %}Included in course{% endif %}</p>
@@ -184,7 +205,18 @@
                 </div>
                 <div class="field">
                   <label for="service-color-{{ service.id }}">Calendar colour</label>
-                  <input id="service-color-{{ service.id }}" name="color" type="color" value="{{ service.color }}">
+                  <div class="service-colour-picker" data-service-colour-picker>
+                    <input id="service-color-{{ service.id }}" name="color" type="hidden" value="{{ service.color }}" data-service-colour-value>
+                    <div class="service-colour-swatches" role="group" aria-label="Calendar colour for {{ service.name }}">
+                      {% for colour, label in calendar_palette %}
+                        <button class="service-colour-swatch" type="button" data-service-colour-swatch data-colour="{{ colour }}" style="--swatch-colour: {{ colour }}" aria-label="{{ label }}" aria-pressed="{{ 'true' if service.color|lower == colour else 'false' }}"></button>
+                      {% endfor %}
+                      <label class="service-colour-custom" title="Choose a custom colour">
+                        <span class="sr-only">Custom colour</span>
+                        <input type="color" value="{{ service.color }}" data-service-colour-custom aria-label="Choose a custom calendar colour">
+                      </label>
+                    </div>
+                  </div>
                 </div>
               </div>
               <fieldset class="choice-field">

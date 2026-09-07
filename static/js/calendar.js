@@ -3,8 +3,8 @@
 
   const STAFF_DAY_START = 6 * 60;
   const STAFF_DAY_END = (18 * 60) + 30;
-  // Bookings are coloured by instructor rather than equipment/service. This
-  // makes each staff column easy to scan while keeping the calendar white.
+  // Instructor colours identify column headers. Appointment cards use the
+  // custom Calendar colour saved on their selected course/equipment service.
   const INSTRUCTOR_EVENT_PALETTES = [
     { accent: "#087B9E", background: "#BFE8F3", hover: "#A9DFED" },
     { accent: "#A16207", background: "#FDE99A", hover: "#F9DD72" },
@@ -1180,17 +1180,12 @@
     button.draggable = false;
     button.classList.toggle("is-movable", canDragEvent);
     button.dataset.eventId = event.id;
-    const appointmentPalette = !isBusy && !isSlot
-      ? instructorEventPalette(event.instructor_id)
-      : null;
     button.style.setProperty(
       "--event-colour",
-      appointmentPalette?.accent || event.service_color || "#667085",
+      !isBusy && !isSlot
+        ? (event.service_color || "#C8141B")
+        : (event.service_color || "#667085"),
     );
-    if (appointmentPalette) {
-      button.style.setProperty("--event-background", appointmentPalette.background);
-      button.style.setProperty("--event-hover-background", appointmentPalette.hover);
-    }
     const range = visibleEventRange(event) || {
       start: minutes(event.start_time),
       end: minutes(event.end_time),

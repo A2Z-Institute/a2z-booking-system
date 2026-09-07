@@ -378,6 +378,28 @@
     filterAssignmentInstructors();
   }
 
+  document.querySelectorAll("[data-service-colour-picker]").forEach((picker) => {
+    const valueInput = picker.querySelector("[data-service-colour-value]");
+    const customInput = picker.querySelector("[data-service-colour-custom]");
+    const swatches = Array.from(picker.querySelectorAll("[data-service-colour-swatch]"));
+    if (!(valueInput instanceof HTMLInputElement)) return;
+
+    const selectColour = (colour) => {
+      const normalized = String(colour || "").toLowerCase();
+      valueInput.value = normalized;
+      if (customInput instanceof HTMLInputElement) customInput.value = normalized;
+      swatches.forEach((swatch) => {
+        swatch.setAttribute("aria-pressed", String(swatch.dataset.colour === normalized));
+      });
+    };
+
+    swatches.forEach((swatch) => {
+      swatch.addEventListener("click", () => selectColour(swatch.dataset.colour));
+    });
+    customInput?.addEventListener("input", () => selectColour(customInput.value));
+    selectColour(valueInput.value);
+  });
+
   window.A2Z = {
     announce(message) {
       const announcer = document.getElementById("app-announcer");

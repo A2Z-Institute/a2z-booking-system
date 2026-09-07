@@ -46,7 +46,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from backup_database import backup_directory, verify_database
-from database import database_path, get_db, init_db, seed_portal_accounts, seed_reference_data
+from database import database_path, get_db, init_db, postgres_url, seed_portal_accounts, seed_reference_data
 from free_slots import WORK_WINDOWS, compute_free_slots, intersect_free_slots
 from gemini_insights import (
     GeminiInsightsError,
@@ -89,6 +89,7 @@ PERMISSION_BITS = {
     "export_appointments": 16,
     "contact_details": 32,
     "client_notes": 64,
+    "manage_own_booking_slots": 128,
 }
 PERMISSION_OPTIONS = (
     ("everyone_schedule", "Everyone's Schedule", "View schedules for every instructor instead of only the linked schedule."),
@@ -98,6 +99,11 @@ PERMISSION_OPTIONS = (
     ("export_appointments", "Export Appointments", "Download appointment data as a CSV file."),
     ("contact_details", "Contact Details", "See client email addresses and phone numbers."),
     ("client_notes", "Client Notes", "See private client notes in staff views."),
+    (
+        "manage_own_booking_slots",
+        "Manage Own Booking Slots",
+        "Create, repeat, move, edit, and delete booking slots only on this instructor's own calendar.",
+    ),
 )
 ALL_STAFF_PERMISSIONS = sum(PERMISSION_BITS.values())
 DEFAULT_ROLE_PERMISSIONS = {
@@ -162,7 +168,20 @@ BOOKING_SELECT = """
            m.location AS machine_location,
            i.name AS instructor_name, br.name AS branch_name,
            u.email AS student_email, COALESCE(cp.admission_number, '') AS admission_number,
-           s.color AS service_color
+           COALESCE(
+               s.color,
+               (
+                   SELECT linked_service.color
+                   FROM booking_services linked_booking_service
+                   JOIN services linked_service
+                     ON linked_service.id = linked_booking_service.service_id
+                   WHERE linked_booking_service.booking_id = b.id
+                     AND linked_booking_service.service_id IS NOT NULL
+                   ORDER BY linked_booking_service.sort_order,
+                            linked_booking_service.id
+                   LIMIT 1
+               )
+           ) AS service_color
     FROM bookings b
     JOIN machines m ON m.id = b.machine_id
     JOIN instructors i ON i.id = b.instructor_id
@@ -224,6 +243,17 @@ class User(UserMixin):
     def has_permission(self, permission):
         if permission == "administrator":
             return self.role == "admin"
+        # Every operational staff login must be able to call the customers on
+        # its permitted schedule. Older imported accounts can carry a stale
+        # permission mask, so contact visibility is a role guarantee rather
+        # than an optional per-account flag. Branch filtering still limits
+        # which customers and appointments each account can access.
+        if permission == "contact_details" and self.role in {
+            "admin",
+            "booking_agent",
+            "instructor",
+        }:
+            return True
         if self.role == "admin":
             return True
         bit = PERMISSION_BITS.get(permission)
@@ -235,6 +265,30 @@ def _portal_branch_id():
     if current_user.is_authenticated and not current_user.is_super_admin:
         return current_user.branch_id
     return None
+
+
+def _require_branch_access(branch_id):
+    """Reject access to another portal before any record is read or changed."""
+    portal_branch_id = _portal_branch_id()
+    if (
+        portal_branch_id is not None
+        and int(branch_id or 0) != int(portal_branch_id or 0)
+    ):
+        abort(403)
+
+
+def _require_managed_user_access(user):
+    if not user:
+        abort(404)
+    _require_branch_access(user["branch_id"])
+    if not current_user.is_super_admin and bool(user["is_super_admin"]):
+        abort(403)
+    if (
+        not current_user.is_super_admin
+        and user["role"] == "admin"
+        and int(user["id"]) != int(current_user.id)
+    ):
+        abort(403)
 
 
 @login_manager.user_loader
@@ -294,6 +348,17 @@ def permission_required(*permissions):
         return wrapped
 
     return decorator
+
+
+def super_admin_required(view):
+    @wraps(view)
+    @login_required
+    def wrapped(*args, **kwargs):
+        if current_user.role != "admin" or not current_user.is_super_admin:
+            abort(403)
+        return view(*args, **kwargs)
+
+    return wrapped
 
 
 def _permission_mask_from_form(role):
@@ -1295,7 +1360,7 @@ def _appointment_conflict_for_range(
 
 
 def _matching_contact_record(
-    conn, *, emails=(), phones=(), exclude_user_id=None
+    conn, *, emails=(), phones=(), exclude_user_id=None, branch_id=None
 ):
     email_values = sorted(
         {str(value).strip().lower() for value in emails if value}
@@ -1325,12 +1390,17 @@ def _matching_contact_record(
         params.extend((phone, phone))
     if not contact_clauses:
         return None
+    branch_clause = ""
+    if branch_id is not None:
+        branch_clause = " AND u.branch_id = ?"
+        params.append(branch_id)
     return conn.execute(
         f"""
         SELECT u.id, u.full_name, u.username, u.role
         FROM users u
         LEFT JOIN client_profiles cp ON cp.user_id = u.id
         WHERE u.id != ? AND ({" OR ".join(contact_clauses)})
+          {branch_clause}
         ORDER BY u.is_active DESC, u.id
         LIMIT 1
         """,
@@ -1379,12 +1449,12 @@ def _booking_client_identity_fields(full_name, admission_number):
 def _related_client_ids(conn, client_id):
     """Return client ids that are unquestionably the same person.
 
-    We only relate records with the exact normalized full name *and* primary
-    phone.  This deliberately avoids phone-only matching, which could join
-    relatives sharing a number.
+    We only relate records in the same branch with the exact normalized full
+    name *and* primary phone. This deliberately avoids joining branch-specific
+    client records or relatives who share a number.
     """
     current = conn.execute(
-        "SELECT id, full_name, phone FROM users WHERE id = ? AND role = 'student'",
+        "SELECT id, full_name, phone, branch_id FROM users WHERE id = ? AND role = 'student'",
         (client_id,),
     ).fetchone()
     if not current:
@@ -1397,10 +1467,11 @@ def _related_client_ids(conn, client_id):
         SELECT id, full_name, phone
         FROM users
         WHERE role = 'student'
+          AND branch_id = ?
           AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone, ''), ' ', ''), '-', ''), '(', ''), ')', ''), '+', '') = ?
         ORDER BY id
         """,
-        (key[1],),
+        (current["branch_id"], key[1]),
     ).fetchall()
     related = [
         row["id"] for row in rows
@@ -1549,7 +1620,8 @@ def _available_slots(
         exclude_params = (exclude_booking_id,)
     machine_bookings = conn.execute(
         f"""
-        SELECT start_time, end_time, buffer_before_minutes, buffer_after_minutes
+        SELECT start_time, end_time, 0 AS buffer_before_minutes,
+               0 AS buffer_after_minutes
         FROM bookings
         WHERE branch_id = ? AND target_date = ?
           AND validation_status IN ({status_placeholders}) AND machine_id = ?
@@ -1559,7 +1631,8 @@ def _available_slots(
     ).fetchall()
     instructor_bookings = conn.execute(
         f"""
-        SELECT start_time, end_time, buffer_before_minutes, buffer_after_minutes
+        SELECT start_time, end_time, 0 AS buffer_before_minutes,
+               0 AS buffer_after_minutes
         FROM bookings
         WHERE branch_id = ? AND target_date = ?
           AND validation_status IN ({status_placeholders}) AND instructor_id = ?
@@ -1806,6 +1879,13 @@ def _admin_users_context(conn, *, editing_user_id=None):
             """
         ).fetchall()
     ]
+    portal_branch_id = _portal_branch_id()
+    if portal_branch_id is not None:
+        all_users = [
+            user for user in all_users
+            if int(user.get("branch_id") or 0) == int(portal_branch_id)
+            and not bool(user.get("is_super_admin"))
+        ]
     for managed_user in all_users:
         managed_user["effective_permission_mask"] = (
             DEFAULT_ROLE_PERMISSIONS.get(managed_user["role"], 0)
@@ -1856,6 +1936,11 @@ def _admin_users_context(conn, *, editing_user_id=None):
             "SELECT id, name FROM branches WHERE is_active = 1 ORDER BY name"
         ).fetchall()
     ]
+    if portal_branch_id is not None:
+        branches = [
+            branch for branch in branches
+            if int(branch["id"]) == int(portal_branch_id)
+        ]
     available_instructors = [
         dict(row)
         for row in conn.execute(
@@ -1869,12 +1954,18 @@ def _admin_users_context(conn, *, editing_user_id=None):
             """
         ).fetchall()
     ]
+    if portal_branch_id is not None:
+        available_instructors = [
+            instructor for instructor in available_instructors
+            if int(instructor["branch_id"]) == int(portal_branch_id)
+        ]
     assignments = [
         dict(row)
         for row in conn.execute(
             """
             SELECT a.id, a.student_user_id, a.instructor_id, a.assigned_at,
-                   s.full_name AS student_name, i.name AS instructor_name
+                   s.full_name AS student_name, i.name AS instructor_name,
+                   s.branch_id
             FROM student_instructor_assignments a
             JOIN users s ON s.id = a.student_user_id
             JOIN instructors i ON i.id = a.instructor_id
@@ -1884,6 +1975,11 @@ def _admin_users_context(conn, *, editing_user_id=None):
             """
         ).fetchall()
     ]
+    if portal_branch_id is not None:
+        assignments = [
+            assignment for assignment in assignments
+            if int(assignment["branch_id"]) == int(portal_branch_id)
+        ]
     unlinked_instructors = [
         dict(row)
         for row in conn.execute(
@@ -1898,6 +1994,11 @@ def _admin_users_context(conn, *, editing_user_id=None):
             """
         ).fetchall()
     ]
+    if portal_branch_id is not None:
+        unlinked_instructors = [
+            instructor for instructor in unlinked_instructors
+            if int(instructor["branch_id"]) == int(portal_branch_id)
+        ]
     linking_instructor = None
     try:
         linking_instructor_id = int(request.args.get("link_instructor", ""))
@@ -1941,9 +2042,17 @@ def _admin_users_context(conn, *, editing_user_id=None):
         "linking_instructor": linking_instructor,
         "editing_user": editing_user,
         "roles": (
-            MANAGED_ROLES
-            if app.config["A2Z_STUDENT_SELF_BOOKING"]
-            else ("booking_agent", "instructor", "admin")
+            (
+                MANAGED_ROLES
+                if app.config["A2Z_STUDENT_SELF_BOOKING"]
+                else ("booking_agent", "instructor", "admin")
+            )
+            if current_user.is_super_admin
+            else (
+                ("student", "booking_agent", "instructor")
+                if app.config["A2Z_STUDENT_SELF_BOOKING"]
+                else ("booking_agent", "instructor")
+            )
         ),
         "permission_options": PERMISSION_OPTIONS,
         "permission_bits": PERMISSION_BITS,
@@ -2001,17 +2110,17 @@ def admin_users():
             raise ValueError(
                 "Choose student, Booking, instructor or administrator access."
             )
+        if role == "admin" and not current_user.is_super_admin:
+            abort(403)
         if role == "student" and not app.config["A2Z_STUDENT_SELF_BOOKING"]:
             raise ValueError(
                 "Add clients from the client database. Client records do not need sign-in details."
             )
         full_name = _validate_full_name(request.form.get("full_name"))
         username = _validate_username(request.form.get("username"))
-        email = _validate_email(request.form.get("email"))
+        email = _optional_email(request.form.get("email"))
         phone = (request.form.get("phone") or "").strip()
-        if role in {"student", "instructor"}:
-            phone = _normalise_phone(phone)
-        elif phone:
+        if phone:
             phone = _normalise_phone(phone)
         password = request.form.get("password") or ""
         if not password:
@@ -2157,13 +2266,23 @@ def api_admin_reorder_instructors():
 
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        portal_branch_id = _portal_branch_id()
+        linked_branch_clause = ""
+        all_branch_clause = ""
+        branch_params = []
+        if portal_branch_id is not None:
+            linked_branch_clause = " AND i.branch_id = ?"
+            all_branch_clause = " AND branch_id = ?"
+            branch_params.append(portal_branch_id)
         linked_rows = conn.execute(
-            """
+            f"""
             SELECT DISTINCT i.id
             FROM instructors i
             JOIN users u ON u.instructor_id = i.id
             WHERE u.role = 'instructor'
-            """
+            {linked_branch_clause}
+            """,
+            branch_params,
         ).fetchall()
         linked_ids = {row["id"] for row in linked_rows}
         supplied_ids = set(instructor_ids)
@@ -2171,11 +2290,13 @@ def api_admin_reorder_instructors():
             return jsonify({"error": "One or more instructors could not be found."}), 400
 
         all_rows = conn.execute(
-            """
+            f"""
             SELECT id FROM instructors
             WHERE is_active = 1 AND verification_status = 'verified'
+            {all_branch_clause}
             ORDER BY display_order, id
-            """
+            """,
+            branch_params,
         ).fetchall()
         remaining_ids = [row["id"] for row in all_rows if row["id"] not in supplied_ids]
         final_ids = instructor_ids + remaining_ids
@@ -2201,16 +2322,27 @@ def api_admin_reorder_instructors():
 def admin_user_edit(user_id):
     if request.method == "GET":
         with get_db() as conn:
-            if not conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
-                abort(404)
+            user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            _require_managed_user_access(user)
         return _render_admin_users(editing_user_id=user_id)
     try:
         with get_db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-            if not user:
-                abort(404)
+            _require_managed_user_access(user)
             requested_role = (request.form.get("role") or user["role"]).strip().lower()
+            if (
+                not current_user.is_super_admin
+                and requested_role == "admin"
+                and user["role"] != "admin"
+            ):
+                abort(403)
+            if (
+                not current_user.is_super_admin
+                and user["role"] == "admin"
+                and requested_role != "admin"
+            ):
+                raise ValueError("A branch administrator cannot change their own administrator role.")
             permission_mask = _permission_mask_from_form(requested_role)
             scheduling_roles = {"admin", "booking_agent"}
             if user["role"] in scheduling_roles:
@@ -2239,11 +2371,9 @@ def admin_user_edit(user_id):
                 )
             full_name = _validate_full_name(request.form.get("full_name"))
             username = _validate_username(request.form.get("username"))
-            email = _validate_email(request.form.get("email"))
+            email = _optional_email(request.form.get("email"))
             phone = (request.form.get("phone") or "").strip()
-            if user["role"] in {"student", "instructor"}:
-                phone = _normalise_phone(phone)
-            elif phone:
+            if phone:
                 phone = _normalise_phone(phone)
             branch_id = _validate_branch(conn, request.form.get("branch_id"))
             _ensure_identity_available(
@@ -2381,8 +2511,7 @@ def admin_user_toggle(user_id):
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-        if not user:
-            abort(404)
+        _require_managed_user_access(user)
         deactivating = bool(user["is_active"])
         if deactivating and user_id == current_user.id:
             flash("You cannot archive the account you are currently using.", "warning")
@@ -2463,9 +2592,8 @@ def admin_user_toggle(user_id):
 def admin_user_reset_password(user_id):
     password = _temporary_password()
     with get_db() as conn:
-        user = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
-        if not user:
-            abort(404)
+        user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        _require_managed_user_access(user)
         conn.execute(
             """
             UPDATE users SET password_hash = ?, must_change_password = 1,
@@ -2503,6 +2631,7 @@ def admin_assignment_add():
             ).fetchone()
             if not student or not instructor or student["branch_id"] != instructor["branch_id"]:
                 raise ValueError("Choose an active student and verified instructor in the same branch.")
+            _require_branch_access(student["branch_id"])
             conn.execute(
                 """
                 INSERT INTO student_instructor_assignments
@@ -2537,6 +2666,13 @@ def admin_assignment_remove(assignment_id):
         ).fetchone()
         if not assignment:
             abort(404)
+        student = conn.execute(
+            "SELECT branch_id FROM users WHERE id = ?",
+            (assignment["student_user_id"],),
+        ).fetchone()
+        if not student:
+            abort(404)
+        _require_branch_access(student["branch_id"])
         upcoming = conn.execute(
             """
             SELECT 1 FROM bookings
@@ -3299,7 +3435,14 @@ def _calendar_slot_event(row):
         "repeat_rule": row.get("repeat_rule") or "none",
         "series_position": row.get("series_position") or 1,
         "series_count": row.get("series_count") or 1,
-        "can_edit": current_user.role == "admin",
+        "can_edit": (
+            current_user.role == "admin"
+            or (
+                current_user.role == "instructor"
+                and current_user.has_permission("manage_own_booking_slots")
+                and int(row["instructor_id"]) == int(current_user.instructor_id or 0)
+            )
+        ),
     }
 
 
@@ -3532,28 +3675,54 @@ def api_calendar_events():
 
 
 def _staff_booking_resources(conn, student_id, instructor_id, machine_id):
-    row = conn.execute(
+    student = conn.execute(
         """
-        SELECT s.id AS student_id, s.full_name, s.phone, s.branch_id,
-               i.id AS instructor_id, i.name AS instructor_name,
-               m.id AS machine_id
-        FROM users s
-        JOIN instructors i ON i.id = ?
-        JOIN machines m ON m.id = ?
-        WHERE s.id = ? AND s.role = 'student' AND s.is_active = 1
-          AND i.is_active = 1 AND i.verification_status = 'verified'
-          AND m.is_active = 1
-          AND s.branch_id = i.branch_id AND i.branch_id = m.branch_id
+        SELECT id, full_name, phone, branch_id
+        FROM users
+        WHERE id = ? AND role = 'student' AND is_active = 1
         """,
-        (instructor_id, machine_id, student_id),
+        (student_id,),
     ).fetchone()
-    if not row:
+    if not student:
+        raise ValueError("Choose an active client.")
+
+    instructor = conn.execute(
+        """
+        SELECT id, name, branch_id
+        FROM instructors
+        WHERE id = ? AND is_active = 1 AND verification_status = 'verified'
+        """,
+        (instructor_id,),
+    ).fetchone()
+    if not instructor:
+        raise ValueError("The instructor selected from this calendar is not active.")
+
+    machine = conn.execute(
+        "SELECT id, branch_id FROM machines WHERE id = ? AND is_active = 1",
+        (machine_id,),
+    ).fetchone()
+    if not machine:
+        raise ValueError("Choose active equipment for this appointment.")
+
+    if not (
+        student["branch_id"] == instructor["branch_id"] == machine["branch_id"]
+    ):
         raise ValueError(
-            "Choose an active client, instructor, and equipment from the same branch."
+            "The client, clicked instructor, and equipment must belong to the same branch."
         )
+
+    _require_branch_access(student["branch_id"])
     if current_user.role == "instructor" and instructor_id != current_user.instructor_id:
         abort(403)
-    return row
+    return {
+        "student_id": student["id"],
+        "full_name": student["full_name"],
+        "phone": student["phone"],
+        "branch_id": student["branch_id"],
+        "instructor_id": instructor["id"],
+        "instructor_name": instructor["name"],
+        "machine_id": machine["id"],
+    }
 
 
 def _busy_time_range(start_value, end_value):
@@ -3649,7 +3818,8 @@ def _assert_busy_time_available(
     active_placeholders = ",".join("?" for _ in ACTIVE_BOOKING_STATUSES)
     bookings = conn.execute(
         f"""
-        SELECT start_time, end_time, buffer_before_minutes, buffer_after_minutes
+        SELECT start_time, end_time, 0 AS buffer_before_minutes,
+               0 AS buffer_after_minutes
         FROM bookings
         WHERE instructor_id = ? AND target_date = ?
           AND validation_status IN ({active_placeholders})
@@ -3665,7 +3835,7 @@ def _assert_busy_time_available(
         )
         if start_minutes < occupied_end and end_minutes > occupied_start:
             raise AppointmentConflictError(
-                "That busy time overlaps an existing appointment or its private padding."
+                "That busy time overlaps the visible time of an existing appointment."
             )
     params = [instructor_id, target.isoformat()]
     exclude_clause = ""
@@ -3736,6 +3906,7 @@ def api_calendar_create_busy_time():
             ).fetchone()
             if not instructor:
                 raise ValueError("Choose an active, verified instructor.")
+            _require_branch_access(instructor["branch_id"])
             if (
                 current_user.role == "instructor"
                 and instructor["branch_id"] != current_user.branch_id
@@ -3822,6 +3993,13 @@ def api_calendar_update_busy_time(time_off_id):
             ).fetchone()
             if not existing:
                 abort(404)
+            existing_instructor = conn.execute(
+                "SELECT branch_id FROM instructors WHERE id = ?",
+                (existing["instructor_id"],),
+            ).fetchone()
+            if not existing_instructor:
+                abort(404)
+            _require_branch_access(existing_instructor["branch_id"])
             if (
                 current_user.role == "instructor"
                 and existing["instructor_id"] != current_user.instructor_id
@@ -3888,6 +4066,7 @@ def api_calendar_update_busy_time(time_off_id):
             ).fetchone()
             if not instructor:
                 raise ValueError("Choose an active, verified instructor.")
+            _require_branch_access(instructor["branch_id"])
             if (
                 current_user.role == "instructor"
                 and instructor["branch_id"] != current_user.branch_id
@@ -3990,6 +4169,12 @@ def api_calendar_delete_busy_time(time_off_id):
         ).fetchone()
         if not row:
             abort(404)
+        instructor = conn.execute(
+            "SELECT branch_id FROM instructors WHERE id = ?", (row["instructor_id"],)
+        ).fetchone()
+        if not instructor:
+            abort(404)
+        _require_branch_access(instructor["branch_id"])
         if (
             current_user.role == "instructor"
             and row["instructor_id"] != current_user.instructor_id
@@ -4028,6 +4213,112 @@ def api_calendar_delete_busy_time(time_off_id):
     return jsonify({"success": True})
 
 
+@app.route(
+    "/api/calendar/busy-times/<int:time_off_id>/upcoming",
+    methods=["GET", "DELETE"],
+)
+@role_required("admin")
+def api_calendar_delete_upcoming_busy_times(time_off_id):
+    """Preview or delete only this recurring busy slot from this date onward."""
+    with get_db() as conn:
+        if request.method == "DELETE":
+            conn.execute("BEGIN IMMEDIATE")
+        selected = conn.execute(
+            """
+            SELECT t.*, i.name AS instructor_name, i.branch_id
+            FROM instructor_time_off t
+            JOIN instructors i ON i.id = t.instructor_id
+            WHERE t.id = ?
+            """,
+            (time_off_id,),
+        ).fetchone()
+        if not selected:
+            abort(404)
+        _require_branch_access(selected["branch_id"])
+        # Prefer the explicit repeat-series id. Imported or individually
+        # created rows may not have one, so match only the same title and
+        # visible time in that case. Never select other busy slots or bookings.
+        if selected["series_id"]:
+            scope_clause = "series_id = ?"
+            scope_params = (selected["series_id"],)
+        else:
+            scope_clause = (
+                "lower(trim(COALESCE(reason, ''))) = lower(trim(?)) "
+                "AND start_time = ? AND end_time = ?"
+            )
+            scope_params = (
+                selected["reason"] or "",
+                selected["start_time"],
+                selected["end_time"],
+            )
+        rows = conn.execute(
+            f"""
+            SELECT id, target_date, reason, source_reference
+            FROM instructor_time_off
+            WHERE instructor_id = ? AND target_date >= ?
+              AND {scope_clause}
+            ORDER BY target_date, start_time, id
+            """,
+            (
+                selected["instructor_id"],
+                selected["target_date"],
+                *scope_params,
+            ),
+        ).fetchall()
+        preview = {
+            "count": len(rows),
+            "instructor_id": selected["instructor_id"],
+            "instructor_name": selected["instructor_name"],
+            "from_date": selected["target_date"],
+            "busy_title": selected["reason"] or "Busy time",
+            "start_time": selected["start_time"],
+            "end_time": selected["end_time"],
+        }
+        if request.method == "GET":
+            return jsonify(preview)
+
+        # Record exceptions for generated standard breaks so deleted dates do
+        # not immediately reappear when the calendar refreshes.
+        for row in rows:
+            break_kind = _standard_break_kind(
+                row["source_reference"], row["reason"]
+            )
+            if break_kind:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO default_break_exceptions
+                        (instructor_id, target_date, break_kind)
+                    VALUES (?, ?, ?)
+                    """,
+                    (selected["instructor_id"], row["target_date"], break_kind),
+                )
+        deleted = conn.execute(
+            f"""
+            DELETE FROM instructor_time_off
+            WHERE instructor_id = ? AND target_date >= ?
+              AND {scope_clause}
+            """,
+            (
+                selected["instructor_id"],
+                selected["target_date"],
+                *scope_params,
+            ),
+        ).rowcount
+        _audit(
+            conn,
+            "upcoming_busy_times_deleted",
+            details={
+                "instructor_id": selected["instructor_id"],
+                "from_date": selected["target_date"],
+                "busy_title": selected["reason"] or "Busy time",
+                "start_time": selected["start_time"],
+                "end_time": selected["end_time"],
+                "deleted_count": deleted,
+            },
+        )
+    return jsonify({"success": True, "deleted_count": deleted, **preview})
+
+
 @app.delete("/api/calendar/default-breaks/<break_kind>")
 @role_required("admin")
 def api_calendar_delete_default_break_for_all(break_kind):
@@ -4043,13 +4334,21 @@ def api_calendar_delete_default_break_for_all(break_kind):
 
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        portal_branch_id = _portal_branch_id()
+        instructor_branch_clause = ""
+        instructor_branch_params = ()
+        if portal_branch_id is not None:
+            instructor_branch_clause = " AND branch_id = ?"
+            instructor_branch_params = (portal_branch_id,)
         instructor_ids = [
             row["id"]
             for row in conn.execute(
-                """
+                f"""
                 SELECT id FROM instructors
                 WHERE is_active = 1 AND verification_status = 'verified'
-                """
+                {instructor_branch_clause}
+                """,
+                instructor_branch_params,
             ).fetchall()
         ]
         for instructor_id in instructor_ids:
@@ -4061,10 +4360,19 @@ def api_calendar_delete_default_break_for_all(break_kind):
                 """,
                 (instructor_id, target.isoformat(), break_kind),
             )
+        delete_instructor_clause = ""
+        delete_instructor_params = ()
+        if instructor_ids:
+            placeholders = ",".join("?" for _ in instructor_ids)
+            delete_instructor_clause = f" AND instructor_id IN ({placeholders})"
+            delete_instructor_params = tuple(instructor_ids)
+        elif portal_branch_id is not None:
+            delete_instructor_clause = " AND 1 = 0"
         deleted = conn.execute(
-            """
+            f"""
             DELETE FROM instructor_time_off
             WHERE target_date = ?
+              {delete_instructor_clause}
               AND (
                 source_reference LIKE ?
                 OR lower(trim(reason)) = ?
@@ -4073,6 +4381,7 @@ def api_calendar_delete_default_break_for_all(break_kind):
             """,
             (
                 target.isoformat(),
+                *delete_instructor_params,
                 f"{DEFAULT_BREAK_SOURCE_PREFIX}:{break_kind}:%",
                 labels[break_kind].lower(),
                 break_kind,
@@ -4105,17 +4414,35 @@ def _slot_resource(conn, instructor_id, machine_id):
     ).fetchone()
     if not row:
         raise ValueError("Choose active staff and equipment from the same branch.")
+    _require_branch_access(row["branch_id"])
     if current_user.role == "instructor" and instructor_id != current_user.instructor_id:
         abort(403)
     return row
 
 
+def _require_booking_slot_management(instructor_id=None):
+    """Allow administrators, or a permitted instructor acting only for self."""
+    if current_user.role == "admin":
+        return
+    if (
+        current_user.role != "instructor"
+        or not current_user.has_permission("manage_own_booking_slots")
+    ):
+        abort(403)
+    if (
+        instructor_id is not None
+        and int(instructor_id) != int(current_user.instructor_id or 0)
+    ):
+        abort(404)
+
+
 @app.post("/api/calendar/booking-slots")
-@role_required("admin")
+@role_required("admin", "instructor")
 def api_calendar_create_booking_slot():
     payload = request.get_json(silent=True) or {}
     try:
         instructor_id = int(payload.get("instructor_id"))
+        _require_booking_slot_management(instructor_id)
         machine_id = int(payload.get("machine_id"))
         target = _validate_booking_date(payload.get("target_date"), enforce_online_window=False)
         start_time, end_time, start_minutes, end_minutes = _busy_time_range(payload.get("start_time"), payload.get("end_time"))
@@ -4155,7 +4482,7 @@ def api_calendar_create_booking_slot():
 
 
 @app.patch("/api/calendar/booking-slots/<int:slot_id>")
-@role_required("admin")
+@role_required("admin", "instructor")
 def api_calendar_update_booking_slot(slot_id):
     payload = request.get_json(silent=True) or {}
     try:
@@ -4165,8 +4492,8 @@ def api_calendar_update_booking_slot(slot_id):
             existing = conn.execute("SELECT * FROM booking_slots WHERE id=?", (slot_id,)).fetchone()
             if not existing:
                 abort(404)
-            if current_user.role == "instructor" and existing["instructor_id"] != current_user.instructor_id:
-                abort(404)
+            _require_branch_access(existing["branch_id"])
+            _require_booking_slot_management(existing["instructor_id"])
             if revision != existing["calendar_revision"]:
                 return jsonify({"error": "This slot changed in another window. Refresh and try again."}), 409
             instructor_id = int(payload.get("instructor_id") or existing["instructor_id"])
@@ -4199,15 +4526,15 @@ def api_calendar_update_booking_slot(slot_id):
 
 
 @app.delete("/api/calendar/booking-slots/<int:slot_id>")
-@role_required("admin")
+@role_required("admin", "instructor")
 def api_calendar_delete_booking_slot(slot_id):
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT * FROM booking_slots WHERE id=?", (slot_id,)).fetchone()
         if not row:
             abort(404)
-        if current_user.role == "instructor" and row["instructor_id"] != current_user.instructor_id:
-            abort(404)
+        _require_branch_access(row["branch_id"])
+        _require_booking_slot_management(row["instructor_id"])
         conn.execute("DELETE FROM booking_slots WHERE id=?", (slot_id,))
         _audit(conn, "booking_slot_deleted", details={"slot_id": slot_id})
     return jsonify({"success": True})
@@ -4498,6 +4825,7 @@ def api_calendar_reschedule_appointment(booking_id):
             ).fetchone()
             if not booking:
                 abort(404)
+            _require_branch_access(booking["branch_id"])
             if (
                 current_user.role == "instructor"
                 and booking["instructor_id"] != current_user.instructor_id
@@ -4841,6 +5169,7 @@ def api_calendar_cancel_appointment(booking_id):
         ).fetchone()
         if not booking:
             abort(404)
+        _require_branch_access(booking["branch_id"])
         if (
             current_user.role == "instructor"
             and booking["instructor_id"] != current_user.instructor_id
@@ -4884,10 +5213,11 @@ def api_calendar_delete_appointment(booking_id):
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         booking = conn.execute(
-            "SELECT id, target_date, calendar_revision FROM bookings WHERE id = ?", (booking_id,)
+            "SELECT id, branch_id, target_date, calendar_revision FROM bookings WHERE id = ?", (booking_id,)
         ).fetchone()
         if not booking:
             abort(404)
+        _require_branch_access(booking["branch_id"])
         _assert_past_appointment_edit_allowed(booking)
         if payload.get("revision") is not None:
             try:
@@ -4906,6 +5236,83 @@ def api_calendar_delete_appointment(booking_id):
             details={"booking_id": booking_id, "deleted_by_role": current_user.role},
         )
     return jsonify({"success": True})
+
+
+@app.route(
+    "/api/calendar/appointments/<int:booking_id>/client-upcoming",
+    methods=["GET", "DELETE"],
+)
+@role_required("admin", "booking_agent")
+def api_calendar_delete_client_upcoming_appointments(booking_id):
+    """Preview or delete active client bookings from the selected booking onward."""
+    with get_db() as conn:
+        if request.method == "DELETE":
+            conn.execute("BEGIN IMMEDIATE")
+        selected = conn.execute(
+            """
+            SELECT id, branch_id, student_user_id, student_name, target_date
+            FROM bookings WHERE id = ?
+            """,
+            (booking_id,),
+        ).fetchone()
+        if not selected:
+            abort(404)
+        _require_branch_access(selected["branch_id"])
+        if not selected["student_user_id"]:
+            return jsonify(
+                {"error": "This appointment is not linked to a client record."}
+            ), 409
+
+        status_placeholders = ",".join("?" for _ in ACTIVE_BOOKING_STATUSES)
+        rows = conn.execute(
+            f"""
+            SELECT id FROM bookings
+            WHERE branch_id = ? AND student_user_id = ? AND target_date >= ?
+              AND validation_status IN ({status_placeholders})
+            ORDER BY target_date, start_time, id
+            """,
+            (
+                selected["branch_id"],
+                selected["student_user_id"],
+                selected["target_date"],
+                *ACTIVE_BOOKING_STATUSES,
+            ),
+        ).fetchall()
+        booking_ids = [int(row["id"]) for row in rows]
+        result = {
+            "success": True,
+            "client_id": selected["student_user_id"],
+            "client_name": selected["student_name"],
+            "from_date": selected["target_date"],
+            "count": len(booking_ids),
+        }
+        if request.method == "GET" or not booking_ids:
+            return jsonify(result)
+
+        placeholders = ",".join("?" for _ in booking_ids)
+        conn.execute(
+            f"DELETE FROM audit_events WHERE booking_id IN ({placeholders})",
+            booking_ids,
+        )
+        conn.execute(
+            f"DELETE FROM bookings WHERE id IN ({placeholders})",
+            booking_ids,
+        )
+        _audit(
+            conn,
+            "client_upcoming_appointments_deleted",
+            details={
+                "client_id": selected["student_user_id"],
+                "client_name": selected["student_name"],
+                "branch_id": selected["branch_id"],
+                "from_date": selected["target_date"],
+                "deleted_count": len(booking_ids),
+                "selected_booking_id": booking_id,
+                "deleted_by_role": current_user.role,
+            },
+        )
+        result["deleted_count"] = len(booking_ids)
+        return jsonify(result)
 
 
 @app.patch("/api/calendar/appointments/<int:booking_id>/instructor-status")
@@ -5077,6 +5484,7 @@ def _create_client_record(conn, payload):
         conn,
         emails=(contacts["email"], contacts["secondary_email"]),
         phones=(contacts["phone"], contacts["secondary_phone"]),
+        branch_id=branch_id,
     )
     if duplicate:
         raise DuplicateClientError(duplicate)
@@ -5270,7 +5678,7 @@ def api_calendar_search_clients():
 @permission_required("client_database", "write_access")
 def client_new():
     with get_db() as conn:
-        if current_user.role in {"admin", "booking_agent"}:
+        if current_user.is_super_admin:
             branches = [
                 dict(row)
                 for row in conn.execute(
@@ -5416,7 +5824,8 @@ def clients_directory():
                 LEFT JOIN client_profiles cp ON cp.user_id = u.id
                 LEFT JOIN bookings b ON b.student_user_id = u.id
                 WHERE {" AND ".join(clauses)}
-                GROUP BY u.id
+                GROUP BY u.id, u.full_name, u.email, u.phone, u.is_active,
+                         u.branch_id, br.name
                 ORDER BY u.is_active DESC, lower(u.full_name)
                 LIMIT 300
                 """,
@@ -5471,27 +5880,44 @@ def client_detail(client_id):
         branches = []
         available_instructors = []
         assigned_instructor_ids = []
+        direct_booking_count = conn.execute(
+            "SELECT count(*) FROM bookings WHERE student_user_id = ?",
+            (client_id,),
+        ).fetchone()[0]
         if current_user.role == "admin":
+            branch_clause = ""
+            branch_params = []
+            instructor_branch_clause = ""
+            instructor_branch_params = []
+            if _portal_branch_id() is not None:
+                branch_clause = " WHERE id = ?"
+                branch_params.append(_portal_branch_id())
+                instructor_branch_clause = " AND i.branch_id = ?"
+                instructor_branch_params.append(_portal_branch_id())
             branches = [
                 dict(row)
                 for row in conn.execute(
-                    """
+                    f"""
                     SELECT id, name, is_active FROM branches
+                    {branch_clause}
                     ORDER BY is_active DESC, lower(name)
-                    """
+                    """,
+                    branch_params,
                 ).fetchall()
             ]
             available_instructors = [
                 dict(row)
                 for row in conn.execute(
-                    """
+                    f"""
                     SELECT i.id, i.name, i.branch_id, br.name AS branch_name
                     FROM instructors i
                     JOIN branches br ON br.id = i.branch_id
                     WHERE i.is_active = 1
                       AND i.verification_status = 'verified'
+                      {instructor_branch_clause}
                     ORDER BY br.name, lower(i.name)
-                    """
+                    """,
+                    instructor_branch_params,
                 ).fetchall()
             ]
             assigned_instructor_ids = [
@@ -5552,6 +5978,11 @@ def client_detail(client_id):
         branches=branches,
         available_instructors=available_instructors,
         assigned_instructor_ids=assigned_instructor_ids,
+        can_delete_client=(
+            current_user.role in {"admin", "booking_agent"}
+            and current_user.has_permission("write_access")
+            and direct_booking_count == 0
+        ),
         today=today,
     )
 
@@ -5601,6 +6032,7 @@ def client_profile_update(client_id):
                 emails=(contacts["email"], contacts["secondary_email"]),
                 phones=(contacts["phone"], contacts["secondary_phone"]),
                 exclude_user_id=client_id,
+                branch_id=existing["branch_id"],
             )
             if duplicate:
                 raise DuplicateClientError(duplicate)
@@ -5820,13 +6252,7 @@ def client_toggle(client_id):
     today = datetime.now(IST).date().isoformat()
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        client = conn.execute(
-            """
-            SELECT id, full_name, is_active FROM users
-            WHERE id = ? AND role = 'student'
-            """,
-            (client_id,),
-        ).fetchone()
+        client = _client_access_row(conn, client_id)
         if not client:
             abort(404)
         deactivating = bool(client["is_active"])
@@ -5876,6 +6302,62 @@ def client_toggle(client_id):
         "success",
     )
     return redirect(url_for("client_detail", client_id=client_id))
+
+
+@app.post("/clients/<int:client_id>/delete")
+@role_required("admin", "booking_agent")
+def client_delete(client_id):
+    """Permanently remove an unused duplicate client from the current portal."""
+    try:
+        with get_db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            client = _client_access_row(conn, client_id)
+            if not client:
+                abort(404)
+            booking_count = conn.execute(
+                "SELECT count(*) FROM bookings WHERE student_user_id = ?",
+                (client_id,),
+            ).fetchone()[0]
+            if booking_count:
+                raise ValueError(
+                    "This client has appointment history and cannot be permanently deleted. "
+                    "Archive the client instead so the booking records remain safe."
+                )
+            actor_reference_count = conn.execute(
+                "SELECT count(*) FROM audit_events WHERE actor_user_id = ?",
+                (client_id,),
+            ).fetchone()[0]
+            if actor_reference_count:
+                raise ValueError(
+                    "This account has audit history and cannot be permanently deleted."
+                )
+            conn.execute(
+                "DELETE FROM student_instructor_assignments WHERE student_user_id = ?",
+                (client_id,),
+            )
+            conn.execute(
+                "UPDATE client_profiles SET updated_by = NULL WHERE updated_by = ?",
+                (client_id,),
+            )
+            conn.execute("DELETE FROM client_profiles WHERE user_id = ?", (client_id,))
+            conn.execute(
+                "DELETE FROM users WHERE id = ? AND role = 'student'",
+                (client_id,),
+            )
+            _audit(
+                conn,
+                "duplicate_client_deleted",
+                details={
+                    "client_id": client_id,
+                    "client_name": client["full_name"],
+                    "branch_id": client["branch_id"],
+                },
+            )
+        flash("Duplicate client record permanently deleted.", "success")
+        return redirect(url_for("clients_directory"))
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("client_detail", client_id=client_id))
 
 
 @app.get("/intake-files/<int:value_id>")
@@ -5930,20 +6412,24 @@ def _csv_response(filename, headers, rows):
     return response
 
 
-def _booking_insights_data(conn, days):
+def _booking_insights_data(conn, days, branch_id=None):
     """Build anonymous booking statistics; no client fields leave this function."""
     today = datetime.now(IST).date()
     start = today - timedelta(days=days - 1)
     previous_start = start - timedelta(days=days)
+    booking_branch_clause = " AND branch_id = ?" if branch_id is not None else ""
+    aliased_branch_clause = " AND b.branch_id = ?" if branch_id is not None else ""
+    branch_params = (branch_id,) if branch_id is not None else ()
     statuses = {
         row["validation_status"]: row["total"]
         for row in conn.execute(
             """
             SELECT validation_status, count(*) AS total
             FROM bookings WHERE target_date BETWEEN ? AND ?
+            {booking_branch_clause}
             GROUP BY validation_status
-            """,
-            (start.isoformat(), today.isoformat()),
+            """.format(booking_branch_clause=booking_branch_clause),
+            (start.isoformat(), today.isoformat(), *branch_params),
         ).fetchall()
     }
     total = sum(statuses.values())
@@ -5951,8 +6437,9 @@ def _booking_insights_data(conn, days):
         """
         SELECT count(*) FROM bookings
         WHERE target_date BETWEEN ? AND ?
-        """,
-        (previous_start.isoformat(), (start - timedelta(days=1)).isoformat()),
+        {booking_branch_clause}
+        """.format(booking_branch_clause=booking_branch_clause),
+        (previous_start.isoformat(), (start - timedelta(days=1)).isoformat(), *branch_params),
     ).fetchone()[0]
     services = [
         dict(row)
@@ -5965,12 +6452,13 @@ def _booking_insights_data(conn, days):
             LEFT JOIN booking_services bs ON bs.booking_id = b.id
             WHERE b.target_date BETWEEN ? AND ?
               AND b.validation_status NOT IN ('Cancelled', 'Rejected')
+              {aliased_branch_clause}
             GROUP BY COALESCE(NULLIF(bs.service_name, ''), NULLIF(b.service_name, ''),
                               'Unspecified service')
             ORDER BY bookings DESC, name
             LIMIT 12
-            """,
-            (start.isoformat(), today.isoformat()),
+            """.format(aliased_branch_clause=aliased_branch_clause),
+            (start.isoformat(), today.isoformat(), *branch_params),
         ).fetchall()
     ]
     equipment = [
@@ -5982,11 +6470,12 @@ def _booking_insights_data(conn, days):
             FROM bookings b JOIN machines m ON m.id = b.machine_id
             WHERE b.target_date BETWEEN ? AND ?
               AND b.validation_status NOT IN ('Cancelled', 'Rejected')
+              {aliased_branch_clause}
             GROUP BY COALESCE(NULLIF(m.category, ''), m.machine_code)
             ORDER BY bookings DESC, name
             LIMIT 10
-            """,
-            (start.isoformat(), today.isoformat()),
+            """.format(aliased_branch_clause=aliased_branch_clause),
+            (start.isoformat(), today.isoformat(), *branch_params),
         ).fetchall()
     ]
     instructors = [
@@ -5997,9 +6486,10 @@ def _booking_insights_data(conn, days):
             FROM bookings b JOIN instructors i ON i.id = b.instructor_id
             WHERE b.target_date BETWEEN ? AND ?
               AND b.validation_status NOT IN ('Cancelled', 'Rejected')
+              {aliased_branch_clause}
             GROUP BY i.id, i.name ORDER BY bookings DESC, i.name LIMIT 10
-            """,
-            (start.isoformat(), today.isoformat()),
+            """.format(aliased_branch_clause=aliased_branch_clause),
+            (start.isoformat(), today.isoformat(), *branch_params),
         ).fetchall()
     ]
     weekday_rows = conn.execute(
@@ -6008,9 +6498,10 @@ def _booking_insights_data(conn, days):
                count(*) AS bookings
         FROM bookings WHERE target_date BETWEEN ? AND ?
           AND validation_status NOT IN ('Cancelled', 'Rejected')
+          {booking_branch_clause}
         GROUP BY weekday ORDER BY bookings DESC
-        """,
-        (start.isoformat(), today.isoformat()),
+        """.format(booking_branch_clause=booking_branch_clause),
+        (start.isoformat(), today.isoformat(), *branch_params),
     ).fetchall()
     sqlite_day_names = ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
     weekdays = [
@@ -6023,9 +6514,10 @@ def _booking_insights_data(conn, days):
                count(*) AS bookings
         FROM bookings WHERE target_date BETWEEN ? AND ?
           AND validation_status NOT IN ('Cancelled', 'Rejected')
+          {booking_branch_clause}
         GROUP BY hour ORDER BY bookings DESC, hour LIMIT 8
-        """,
-        (start.isoformat(), today.isoformat()),
+        """.format(booking_branch_clause=booking_branch_clause),
+        (start.isoformat(), today.isoformat(), *branch_params),
     ).fetchall()
     hours = [
         {"name": f"{(int(row['hour']) % 12) or 12}:00 {'am' if int(row['hour']) < 12 else 'pm'}", "bookings": row["bookings"]}
@@ -6035,8 +6527,9 @@ def _booking_insights_data(conn, days):
         """
         SELECT count(DISTINCT student_user_id) FROM bookings
         WHERE target_date BETWEEN ? AND ?
-        """,
-        (start.isoformat(), today.isoformat()),
+        {booking_branch_clause}
+        """.format(booking_branch_clause=booking_branch_clause),
+        (start.isoformat(), today.isoformat(), *branch_params),
     ).fetchone()[0]
     return {
         "period": {
@@ -6073,7 +6566,7 @@ def admin_booking_insights():
         days = 90
     analysis = None
     with get_db() as conn:
-        insights = _booking_insights_data(conn, days)
+        insights = _booking_insights_data(conn, days, _portal_branch_id())
         if request.method == "POST":
             try:
                 analysis = generate_booking_insights(insights)
@@ -6106,6 +6599,9 @@ def export_appointments_csv():
     if current_user.role == "instructor":
         clauses.append("b.instructor_id = ?")
         params.append(current_user.instructor_id)
+    elif _portal_branch_id() is not None:
+        clauses.append("b.branch_id = ?")
+        params.append(_portal_branch_id())
     with get_db() as conn:
         bookings = _booking_rows(
             conn,
@@ -6169,6 +6665,9 @@ def export_clients_csv():
             )
         """
         params.append(current_user.instructor_id)
+    elif _portal_branch_id() is not None:
+        scope = " AND u.branch_id = ?"
+        params.append(_portal_branch_id())
     with get_db() as conn:
         rows = conn.execute(
             f"""
@@ -6230,7 +6729,7 @@ def export_clients_csv():
 
 
 @app.route("/clients/import", methods=["GET", "POST"])
-@role_required("admin")
+@super_admin_required
 def import_clients_view():
     if request.method == "POST":
         upload = request.files.get("client_file")
@@ -6258,7 +6757,7 @@ def import_clients_view():
 
 
 @app.get("/admin/backups/download")
-@role_required("admin")
+@super_admin_required
 def download_database_backup():
     backup_dir = backup_directory()
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -6278,7 +6777,7 @@ def download_database_backup():
 
 
 @app.get("/exports/activity.csv")
-@role_required("admin")
+@super_admin_required
 def export_activity_csv():
     with get_db() as conn:
         rows = conn.execute(
@@ -6425,7 +6924,7 @@ def admin_resources():
 
 
 @app.post("/admin/resources/branches")
-@role_required("admin")
+@super_admin_required
 def admin_branch_create():
     try:
         values = _branch_management_values(request.form)
@@ -6466,7 +6965,7 @@ def admin_branch_create():
 
 
 @app.post("/admin/resources/branches/<int:branch_id>/edit")
-@role_required("admin")
+@super_admin_required
 def admin_branch_update(branch_id):
     try:
         values = _branch_management_values(request.form)
@@ -6519,7 +7018,7 @@ def admin_branch_update(branch_id):
 
 
 @app.post("/admin/resources/branches/<int:branch_id>/toggle")
-@role_required("admin")
+@super_admin_required
 def admin_branch_toggle(branch_id):
     today = datetime.now(IST).date().isoformat()
     with get_db() as conn:
@@ -6643,10 +7142,8 @@ def admin_equipment_update(machine_id):
             ).fetchone()
             if not machine:
                 abort(404)
-            try:
-                branch_id = int(request.form.get("branch_id", ""))
-            except (TypeError, ValueError):
-                raise ValueError("Choose a valid branch.") from None
+            _require_branch_access(machine["branch_id"])
+            branch_id = _validate_branch(conn, request.form.get("branch_id", ""))
             branch = conn.execute(
                 "SELECT id, is_active FROM branches WHERE id = ?", (branch_id,)
             ).fetchone()
@@ -6730,6 +7227,7 @@ def admin_equipment_toggle(machine_id):
         ).fetchone()
         if not machine:
             abort(404)
+        _require_branch_access(machine["branch_id"])
         deactivating = bool(machine["is_active"])
         if deactivating:
             active_future = conn.execute(
@@ -6871,6 +7369,16 @@ def _service_field_values(form, *, default_sort_order):
     }
 
 
+def _require_service_access(conn, service_id):
+    service = conn.execute(
+        "SELECT id, branch_id FROM services WHERE id = ?", (service_id,)
+    ).fetchone()
+    if not service:
+        abort(404)
+    _require_branch_access(service["branch_id"])
+    return service
+
+
 def _service_management_context(conn):
     services = [
         dict(row)
@@ -6952,6 +7460,24 @@ def _service_management_context(conn):
             """
         ).fetchall()
     ]
+    portal_branch_id = _portal_branch_id()
+    if portal_branch_id is not None:
+        services = [
+            item for item in services
+            if int(item["branch_id"]) == int(portal_branch_id)
+        ]
+        branches = [
+            item for item in branches
+            if int(item["id"]) == int(portal_branch_id)
+        ]
+        machines = [
+            item for item in machines
+            if int(item["branch_id"]) == int(portal_branch_id)
+        ]
+        instructors = [
+            item for item in instructors
+            if int(item["branch_id"]) == int(portal_branch_id)
+        ]
     return {
         "services": services,
         "branches": branches,
@@ -7035,6 +7561,7 @@ def admin_services():
                     ).fetchone()
                     if not existing_service:
                         abort(404)
+                    _require_branch_access(existing_service["branch_id"])
                     if existing_service["branch_id"] != branch_id:
                         future_appointment = conn.execute(
                             """
@@ -7177,10 +7704,7 @@ def admin_service_field_add(service_id):
     try:
         with get_db() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            if not conn.execute(
-                "SELECT 1 FROM services WHERE id = ?", (service_id,)
-            ).fetchone():
-                abort(404)
+            _require_service_access(conn, service_id)
             next_sort_order = conn.execute(
                 """
                 SELECT COALESCE(max(sort_order), 0) + 10
@@ -7236,6 +7760,7 @@ def admin_service_field_edit(service_id, field_id):
     try:
         with get_db() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            _require_service_access(conn, service_id)
             field = conn.execute(
                 """
                 SELECT * FROM service_intake_fields
@@ -7290,6 +7815,7 @@ def admin_service_field_edit(service_id, field_id):
 @role_required("admin")
 def admin_service_field_archive(service_id, field_id):
     with get_db() as conn:
+        _require_service_access(conn, service_id)
         cursor = conn.execute(
             """
             UPDATE service_intake_fields SET is_active = 0
@@ -7312,6 +7838,7 @@ def admin_service_field_archive(service_id, field_id):
 @role_required("admin")
 def admin_service_field_reactivate(service_id, field_id):
     with get_db() as conn:
+        _require_service_access(conn, service_id)
         cursor = conn.execute(
             """
             UPDATE service_intake_fields SET is_active = 1
@@ -7355,6 +7882,7 @@ def admin_reminders():
                 flash(str(exc), "error")
         return redirect(url_for("admin_reminders"))
     with get_db() as conn:
+        portal_branch_id = _portal_branch_id()
         branches = [
             dict(row)
             for row in conn.execute(
@@ -7364,24 +7892,39 @@ def admin_reminders():
                 """
             ).fetchall()
         ]
+        if portal_branch_id is not None:
+            branches = [
+                branch for branch in branches
+                if int(branch["id"]) == int(portal_branch_id)
+            ]
+        notification_scope = ""
+        notification_params = ()
+        if portal_branch_id is not None:
+            notification_scope = " WHERE b.branch_id = ?"
+            notification_params = (portal_branch_id,)
         queue_stats = {
             row["status"]: row["count"]
             for row in conn.execute(
-                """
-                SELECT status, count(*) AS count FROM notification_queue
-                GROUP BY status
-                """
+                f"""
+                SELECT nq.status, count(*) AS count
+                FROM notification_queue nq
+                JOIN bookings b ON b.id = nq.booking_id
+                {notification_scope}
+                GROUP BY nq.status
+                """,
+                notification_params,
             ).fetchall()
         }
         jobs = [
             dict(row)
             for row in conn.execute(
-                """
+                f"""
                 SELECT nq.id, nq.channel, nq.event_type, nq.destination,
                        nq.scheduled_for, nq.status, nq.attempts, nq.last_error,
                        nq.sent_at, b.student_name, b.target_date, b.start_time
                 FROM notification_queue nq
                 JOIN bookings b ON b.id = nq.booking_id
+                {notification_scope}
                 ORDER BY
                     CASE nq.status
                       WHEN 'failed' THEN 0
@@ -7391,7 +7934,8 @@ def admin_reminders():
                     END,
                     nq.scheduled_for DESC, nq.id DESC
                 LIMIT 100
-                """
+                """,
+                notification_params,
             ).fetchall()
         ]
     provider_status = {
@@ -7414,6 +7958,17 @@ def admin_reminders():
 @role_required("admin")
 def admin_reminder_retry(job_id):
     with get_db() as conn:
+        job = conn.execute(
+            """
+            SELECT nq.id, b.branch_id
+            FROM notification_queue nq JOIN bookings b ON b.id = nq.booking_id
+            WHERE nq.id = ?
+            """,
+            (job_id,),
+        ).fetchone()
+        if not job:
+            abort(404)
+        _require_branch_access(job["branch_id"])
         cursor = conn.execute(
             """
             UPDATE notification_queue
@@ -7431,7 +7986,7 @@ def admin_reminder_retry(job_id):
 
 
 @app.post("/admin/reminders/send-due")
-@role_required("admin")
+@super_admin_required
 def admin_reminders_send_due():
     from notifications import dispatch_due_notifications
 
@@ -7502,10 +8057,12 @@ def _availability_target_id(conn):
         )
     except (TypeError, ValueError):
         abort(400, description="Choose an instructor to manage.")
-    if not conn.execute(
-        "SELECT 1 FROM instructors WHERE id = ?", (instructor_id,)
-    ).fetchone():
+    instructor = conn.execute(
+        "SELECT id, branch_id FROM instructors WHERE id = ?", (instructor_id,)
+    ).fetchone()
+    if not instructor:
         abort(404)
+    _require_branch_access(instructor["branch_id"])
     return instructor_id
 
 
@@ -7524,16 +8081,21 @@ def instructor_availability():
         managed_by_admin = current_user.role == "admin"
         available_instructors = []
         if managed_by_admin:
+            portal_branch_id = _portal_branch_id()
+            branch_clause = " AND i.branch_id = ?" if portal_branch_id is not None else ""
+            branch_params = (portal_branch_id,) if portal_branch_id is not None else ()
             available_instructors = [
                 dict(row)
                 for row in conn.execute(
-                    """
+                    f"""
                     SELECT i.id, i.name, i.is_active, i.verification_status,
                            br.name AS branch_name
                     FROM instructors i
                     JOIN branches br ON br.id = i.branch_id
+                    WHERE 1 = 1 {branch_clause}
                     ORDER BY i.is_active DESC, br.name, lower(i.name)
-                    """
+                    """,
+                    branch_params,
                 ).fetchall()
             ]
             raw_instructor_id = request.args.get("instructor_id")
@@ -7955,6 +8517,7 @@ def booking_decision(booking_id):
             booking = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
             if not booking:
                 abort(404)
+            _require_branch_access(booking["branch_id"])
             if current_user.role == "instructor" and booking["instructor_id"] != current_user.instructor_id:
                 abort(403)
             if booking["validation_status"] != "Pending":
@@ -8017,6 +8580,7 @@ def booking_attendance(booking_id):
         booking = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
         if not booking:
             abort(404)
+        _require_branch_access(booking["branch_id"])
         if current_user.role == "instructor" and booking["instructor_id"] != current_user.instructor_id:
             abort(403)
         if booking["validation_status"] != "Approved" or booking["target_date"] > today:
@@ -8057,6 +8621,7 @@ def admin_dashboard():
     search_query = " ".join((request.args.get("q") or "").split())[:100]
     clauses = []
     params = []
+    portal_branch_id = _portal_branch_id()
     status_values = {
         "pending": "Pending",
         "approved": "Approved",
@@ -8070,7 +8635,11 @@ def admin_dashboard():
         params.append(status_values[selected_status])
     else:
         selected_status = ""
-    if selected_branch:
+    if portal_branch_id is not None:
+        clauses.append("b.branch_id = ?")
+        params.append(portal_branch_id)
+        selected_branch = str(portal_branch_id)
+    elif selected_branch:
         try:
             branch_id = int(selected_branch)
             clauses.append("b.branch_id = ?")
@@ -8099,46 +8668,69 @@ def admin_dashboard():
             params,
             "b.target_date DESC, b.start_time DESC, b.created_at DESC",
         )
-        branches = [
-            dict(row)
-            for row in conn.execute("SELECT id, name FROM branches ORDER BY name").fetchall()
-        ]
+        if portal_branch_id is None:
+            branches = [
+                dict(row)
+                for row in conn.execute("SELECT id, name FROM branches ORDER BY name").fetchall()
+            ]
+        else:
+            branches = [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT id, name FROM branches WHERE id = ?", (portal_branch_id,)
+                ).fetchall()
+            ]
+        stats_branch_clause = " AND branch_id = ?" if portal_branch_id is not None else ""
+        stats_branch_params = (portal_branch_id,) if portal_branch_id is not None else ()
         stats = {
             "pending": conn.execute(
-                "SELECT count(*) FROM bookings WHERE validation_status = 'Pending'"
+                f"SELECT count(*) FROM bookings WHERE validation_status = 'Pending'{stats_branch_clause}",
+                stats_branch_params,
             ).fetchone()[0],
             "today": conn.execute(
-                "SELECT count(*) FROM bookings WHERE validation_status = 'Approved' AND target_date = ?",
-                (today,),
+                f"SELECT count(*) FROM bookings WHERE validation_status = 'Approved' AND target_date = ?{stats_branch_clause}",
+                (today, *stats_branch_params),
             ).fetchone()[0],
             "students": conn.execute(
-                "SELECT count(*) FROM users WHERE role = 'student' AND is_active = 1"
+                f"SELECT count(*) FROM users WHERE role = 'student' AND is_active = 1{stats_branch_clause}",
+                stats_branch_params,
             ).fetchone()[0],
             "active_resources": conn.execute(
-                "SELECT count(*) FROM machines WHERE is_active = 1"
+                f"SELECT count(*) FROM machines WHERE is_active = 1{stats_branch_clause}",
+                stats_branch_params,
             ).fetchone()[0],
             "active_users": conn.execute(
-                "SELECT count(*) FROM users WHERE is_active = 1"
+                f"SELECT count(*) FROM users WHERE is_active = 1{stats_branch_clause}",
+                stats_branch_params,
             ).fetchone()[0],
             "unverified_instructors": conn.execute(
-                """
+                f"""
                 SELECT count(*) FROM instructors
                 WHERE is_active = 1 AND verification_status = 'unverified'
-                """
+                {stats_branch_clause}
+                """,
+                stats_branch_params,
             ).fetchone()[0],
         }
+        recent_clause = ""
+        recent_params = ()
+        if portal_branch_id is not None:
+            recent_clause = "WHERE b.branch_id = ? OR (b.id IS NULL AND u.branch_id = ?)"
+            recent_params = (portal_branch_id, portal_branch_id)
         recent_events = [
             dict(row)
             for row in conn.execute(
-                """
+                f"""
                 SELECT ae.event_type, ae.created_at, ae.booking_id,
                        COALESCE(u.full_name, u.username, 'System') AS actor_name,
                        b.student_name
                 FROM audit_events ae
                 LEFT JOIN users u ON u.id = ae.actor_user_id
                 LEFT JOIN bookings b ON b.id = ae.booking_id
+                {recent_clause}
                 ORDER BY ae.created_at DESC, ae.id DESC LIMIT 10
-                """
+                """,
+                recent_params,
             ).fetchall()
         ]
     return render_template(
@@ -8162,11 +8754,14 @@ def admin_dashboard():
 def health():
     try:
         with get_db() as conn:
-            result = conn.execute("PRAGMA quick_check(1)").fetchone()[0]
-            if result != "ok":
-                raise sqlite3.DatabaseError(result)
+            if postgres_url():
+                conn.execute("SELECT 1").fetchone()
+            else:
+                result = conn.execute("PRAGMA quick_check(1)").fetchone()[0]
+                if result != "ok":
+                    raise sqlite3.DatabaseError(result)
         return jsonify({"status": "ok"})
-    except sqlite3.Error:
+    except Exception:
         return jsonify({"status": "unavailable"}), 503
 
 

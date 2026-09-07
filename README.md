@@ -201,6 +201,7 @@ Changing a seed password after the database exists does not reset an account. Us
 - Sunday is a normal operational day: staff may create booking slots and appointments from 6:00 am through the 6:30 pm closing time, subject to the same lunch and conflict checks as other days.
 - Staff can click or press an empty slot to add an appointment, and drag an active appointment to another live slot.
 - **Booking Slot** creates a long equipment availability band on the left of a staff column. Appointments remain bookable beside and inside that band; the slot is an operational guide, not busy time.
+- Administrators can grant selected instructors **Manage Own Booking Slots**. A permitted instructor can create, repeat, move, edit, and delete booking slots only on their own calendar; the permission does not expose another instructor's slots or busy-time controls.
 - Appointment cards can be resized in 15-minute steps with a live start/finish preview. Administrators may explicitly enable **Allow Double Booking** for exceptional slots; the exception is recorded on the appointment and normal collision protection remains enabled elsewhere.
 - The calendar editor includes SmartScheduling-style operational statuses: Pending, Confirmed, Not Confirmed, Completed, No-show, Running Late, Arrived, Rescheduled, Declined, and Cancelled.
 - Administrators can create, edit, archive or reactivate courses and control their branch, duration, price, colour, padding, compatible equipment, assigned instructors, and appointment questions.
@@ -210,10 +211,12 @@ Changing a seed password after the database exists does not reset an account. Us
 - A complete Smart Scheduling backup (Clients, Services, and staff history sheets) can be restored idempotently with:
 
 ```powershell
-.\.venv\Scripts\python.exe import_smartscheduling_backup.py backup.xlsx --database a2z_booking.db --report restore-report.json
+.\.venv\Scripts\python.exe import_smartscheduling_backup.py backup.xlsx --database a2z_booking.db --branch "Technical" --namespace technical --report restore-report.json
 ```
 
-  The restore keeps appointments, long booking-slot bands, breaks/busy time,
+  The target branch is mandatory. Matching source records are preserved and
+  skipped by default, so rerunning the same import cannot duplicate or replace
+  an existing appointment. The restore keeps appointments, long booking-slot bands, breaks/busy time,
   statuses, multi-service rows, staff assignments, client contacts, manual
   start/finish times, notes, prices, and series references. Back up the current
   database before importing into a live installation.

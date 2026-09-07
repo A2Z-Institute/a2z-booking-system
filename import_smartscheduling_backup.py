@@ -18,7 +18,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from database import database_path, init_db, seed_reference_data
+from database import database_path, init_db
 from import_clients_xlsx import import_clients
 
 
@@ -70,24 +70,40 @@ def split_names(value) -> list[str]:
     return [clean(part) for part in re.split(r"\s*[;/]\s*|\s*\n\s*", clean(value)) if clean(part)]
 
 
-def import_backup(source, db=None):
+def import_backup(source, db=None, *, branch=None, namespace=None, preserve_existing=True):
     source = Path(source).expanduser().resolve()
     if not source.is_file():
         raise ValueError(f"Workbook not found: {source}")
     if db:
         os.environ["A2Z_DATABASE"] = str(Path(db).expanduser().resolve())
-    init_db(); seed_reference_data()
-    clients_added, clients_updated = import_clients(source)
+    init_db()
     wb = load_workbook(source, read_only=True, data_only=True)
     conn = sqlite3.connect(database_path(), timeout=120)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA busy_timeout=120000")
-    report = Counter(clients_added=clients_added, clients_updated=clients_updated)
+    report = Counter()
     errors = []
     try:
-        branch_id = conn.execute("SELECT id FROM branches WHERE is_active=1 ORDER BY id LIMIT 1").fetchone()[0]
-        admin = conn.execute("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").fetchone()
+        if branch is None:
+            raise ValueError("--branch is required so an import can never leak into another branch")
+        branch_row = conn.execute(
+            "SELECT id,name FROM branches WHERE is_active=1 AND (id=? OR lower(name)=lower(?))",
+            (int(branch) if str(branch).isdigit() else -1, str(branch)),
+        ).fetchone()
+        if not branch_row:
+            raise ValueError(f"Active branch not found: {branch}")
+        branch_id = branch_row["id"]
+        namespace = namespace or re.sub(r"[^a-z0-9]+", "-", branch_row["name"].lower()).strip("-")
+        clients_added, clients_updated = import_clients(
+            source, branch_id=branch_id, source_namespace=namespace,
+            preserve_existing=preserve_existing,
+        )
+        report.update(clients_added=clients_added, clients_updated=clients_updated)
+        admin = conn.execute(
+            "SELECT id FROM users WHERE role='admin' AND branch_id=? ORDER BY is_super_admin,id LIMIT 1",
+            (branch_id,),
+        ).fetchone()
         admin_id = admin[0] if admin else None
 
         instructors = {key(r["name"]): r["id"] for r in conn.execute("SELECT id,name FROM instructors WHERE branch_id=?", (branch_id,))}
@@ -130,7 +146,10 @@ def import_backup(source, db=None):
 
         # Client lookup used by appointment rows (the export contains names, not IDs).
         by_phone, by_email, by_name = {}, {}, defaultdict(list)
-        for r in conn.execute("SELECT id,full_name,phone,email FROM users WHERE role='student'"):
+        for r in conn.execute(
+            "SELECT id,full_name,phone,email FROM users WHERE role='student' AND branch_id=?",
+            (branch_id,),
+        ):
             if key(r["phone"]): by_phone[key(r["phone"])] = r["id"]
             if key(r["email"]): by_email[key(r["email"])] = r["id"]
             by_name[key(r["full_name"])].append(r["id"])
@@ -165,7 +184,7 @@ def import_backup(source, db=None):
             for rn,row in enumerate(rows,2):
                 if not any(v not in (None,"") for v in row): continue
                 source_id=clean(row[ix["Id"]]) or f"row-{rn}"
-                source_ref=f"smart:{ws.title}:{source_id}"
+                source_ref=f"smart:{namespace}:{ws.title}:{source_id}"
                 try:
                     start=parse_dt(row[ix["Start"]]); end=parse_dt(row[ix["End"]])
                     if end <= start: raise ValueError("end is not after start")
@@ -179,16 +198,25 @@ def import_backup(source, db=None):
                     is_busy = key(primary_service) in BREAK_NAMES or key(client) in BREAK_NAMES
                     values=(iid,m["id"],branch_id,start.date().isoformat(),start.strftime("%H:%M"),end.strftime("%H:%M"))
                     if is_slot:
+                        if preserve_existing and conn.execute("SELECT 1 FROM booking_slots WHERE source_reference=?", (source_ref,)).fetchone():
+                            report["slots_skipped_existing"] += 1
+                            continue
                         conn.execute("""INSERT INTO booking_slots(instructor_id,machine_id,branch_id,target_date,start_time,end_time,notes,series_id,repeat_rule,created_by,source_reference)
                             VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_reference) DO UPDATE SET instructor_id=excluded.instructor_id,machine_id=excluded.machine_id,target_date=excluded.target_date,start_time=excluded.start_time,end_time=excluded.end_time,notes=excluded.notes,updated_at=CURRENT_TIMESTAMP""",
                             (*values, notes or client, clean(row[ix["Series-Id"]]) or None, None, admin_id, source_ref))
                         report["slots"] += 1
                     elif is_busy:
+                        if preserve_existing and conn.execute("SELECT 1 FROM instructor_time_off WHERE source_reference=?", (source_ref,)).fetchone():
+                            report["busy_skipped_existing"] += 1
+                            continue
                         conn.execute("""INSERT INTO instructor_time_off(instructor_id,target_date,start_time,end_time,reason,notes,series_id,created_by,source_reference)
                             VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(source_reference) DO UPDATE SET instructor_id=excluded.instructor_id,target_date=excluded.target_date,start_time=excluded.start_time,end_time=excluded.end_time,reason=excluded.reason,notes=excluded.notes,updated_at=CURRENT_TIMESTAMP""",
                             (iid,start.date().isoformat(),start.strftime("%H:%M"),end.strftime("%H:%M"),primary_service or client,notes,clean(row[ix["Series-Id"]]) or None,admin_id,source_ref))
                         report["busy"] += 1
                     else:
+                        if preserve_existing and conn.execute("SELECT 1 FROM bookings WHERE source_reference=?", (source_ref,)).fetchone():
+                            report["appointments_skipped_existing"] += 1
+                            continue
                         sid=service_map.get(key(primary_service))
                         uid=client_id_for(client,phone,email,source_ref)
                         mapped=STATUS_MAP.get(status_raw,"Pending")
@@ -214,7 +242,13 @@ def import_backup(source, db=None):
 
 def main():
     parser=argparse.ArgumentParser(); parser.add_argument("workbook"); parser.add_argument("--database"); parser.add_argument("--report")
-    args=parser.parse_args(); report,errors=import_backup(args.workbook,args.database)
+    parser.add_argument("--branch", required=True, help="Target branch ID or exact branch name")
+    parser.add_argument("--namespace", help="Stable source namespace; defaults to branch name")
+    parser.add_argument("--update-existing", action="store_true", help="Update matching source records instead of preserving them")
+    args=parser.parse_args(); report,errors=import_backup(
+        args.workbook,args.database,branch=args.branch,namespace=args.namespace,
+        preserve_existing=not args.update_existing,
+    )
     result={"database":str(database_path()),"counts":report,"errors":errors}
     if args.report: Path(args.report).write_text(json.dumps(result,indent=2),encoding="utf-8")
     print(json.dumps(result,indent=2))
