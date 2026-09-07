@@ -5,9 +5,17 @@
   const STAFF_DAY_END = (18 * 60) + 30;
   // Bookings are coloured by instructor rather than equipment/service. This
   // makes each staff column easy to scan while keeping the calendar white.
-  const INSTRUCTOR_EVENT_COLOURS = [
-    "#2F6B9A", "#237A57", "#7A4EAB", "#A45C1B", "#0F766E",
-    "#A33A4A", "#49657A", "#7A6A32", "#4D5D93", "#8A4D70",
+  const INSTRUCTOR_EVENT_PALETTES = [
+    { accent: "#087B9E", background: "#BFE8F3", hover: "#A9DFED" },
+    { accent: "#A16207", background: "#FDE99A", hover: "#F9DD72" },
+    { accent: "#3F7D20", background: "#DDF2A4", hover: "#CFEA7D" },
+    { accent: "#9A3412", background: "#FED7AA", hover: "#FBC38A" },
+    { accent: "#6D28D9", background: "#E7D8FF", hover: "#D9C3FC" },
+    { accent: "#BE185D", background: "#FBCFE8", hover: "#F8B8DA" },
+    { accent: "#1D4ED8", background: "#CFE0FF", hover: "#B9D1FF" },
+    { accent: "#0F766E", background: "#C5EEE7", hover: "#ACE3DA" },
+    { accent: "#7C3F00", background: "#F8D8A1", hover: "#F3C982" },
+    { accent: "#A21CAF", background: "#F2CFF5", hover: "#EAB7EF" },
   ];
 
   const calendar = document.querySelector("[data-calendar]");
@@ -19,6 +27,7 @@
   const calendarScroll = calendar.querySelector("[data-calendar-scroll]");
   const message = calendar.querySelector("[data-calendar-message]");
   const dateInput = calendar.querySelector("[data-calendar-date]");
+  const branchFilter = calendar.querySelector("[data-calendar-branch]");
   const instructorFilter = calendar.querySelector("[data-calendar-instructor]");
   const viewFilter = calendar.querySelector("[data-calendar-view]");
   const statusFilter = calendar.querySelector("[data-calendar-status]");
@@ -31,6 +40,8 @@
   const machineInput = editor.querySelector("[data-editor-machine]");
   const serviceChecks = Array.from(editor.querySelectorAll("[data-editor-service]"));
   const servicePicker = editor.querySelector("[data-service-picker]");
+  const servicePickerEmpty = editor.querySelector("[data-service-picker-empty]");
+  const servicePickerOpenButton = editor.querySelector("[data-service-picker-open]");
   const serviceTriggerTitle = editor.querySelector("[data-service-trigger-title]");
   const serviceTotal = editor.querySelector("[data-service-total]");
   const additionalDetails = editor.querySelector("[data-editor-additional]");
@@ -77,12 +88,14 @@
   const errorText = editor.querySelector("[data-editor-error-text]");
   const saveButton = editor.querySelector("[data-editor-save]");
   const cancelAppointmentButton = editor.querySelector("[data-editor-cancel]");
+  const deleteClientUpcomingButton = editor.querySelector("[data-editor-delete-client-upcoming]");
   const permanentDeleteButton = editor.querySelector("[data-editor-permanent-delete]");
   const bookingMenu = editor.querySelector("[data-editor-booking-menu]");
   const clientDetailsLink = editor.querySelector("[data-editor-client-details]");
   const clientNotesLink = editor.querySelector("[data-editor-client-notes]");
   const whatsappConfirmationButton = editor.querySelector("[data-editor-whatsapp]");
   const deleteBusyButton = editor.querySelector("[data-editor-busy-delete]");
+  const deleteUpcomingBusyButton = editor.querySelector("[data-editor-busy-delete-upcoming]");
   const deleteBusyForAllButton = editor.querySelector("[data-editor-busy-delete-all]");
   const deleteSlotButton = editor.querySelector("[data-editor-slot-delete]");
   const durationText = editor.querySelector("[data-editor-duration]");
@@ -94,6 +107,8 @@
   const descriptionText = editor.querySelector("[data-editor-description]");
   const csrf = editor.querySelector('[name="csrf_token"]')?.value || "";
   const currentRole = document.body.dataset.userRole || "";
+  const canManageOwnSlots = calendar.dataset.canManageOwnSlots === "true";
+  const currentInstructorId = String(calendar.dataset.currentInstructorId || "");
 
   if (
     !grid
@@ -112,6 +127,7 @@
   let events = [];
   let loadRequest;
   let loadInFlight = false;
+  let loadGeneration = 0;
   let draggedEvent = null;
   let dragTimePreview = null;
   let activePointerDragCleanup = null;
@@ -125,12 +141,90 @@
   let clientSearchRequest;
   let fillingClient = false;
   let servicePickerSnapshot = [];
-  let resetHorizontalScroll = true;
+  let resetHorizontalScroll = false;
+  let restoreHorizontalScroll = true;
   let saveInFlight = false;
   let moveInFlight = false;
   let trailerFinishAuto = false;
   let reconcileTimer = null;
   let whatsappConfirmationEvent = null;
+  // The calendar column is the authoritative instructor selection. Keep it
+  // outside the hidden form control so branch filtering or form resets cannot
+  // discard the instructor while a new client is being created.
+  let appointmentInstructorId = "";
+  let appointmentBranchId = "";
+
+  const calendarStateStorageKey = [
+    "a2z-calendar-state-v1",
+    window.location.pathname,
+  ].join(":");
+
+  const restoreCalendarState = () => {
+    const locationUrl = new URL(window.location.href);
+    let stored = {};
+    try {
+      stored = JSON.parse(window.sessionStorage.getItem(calendarStateStorageKey) || "{}");
+    } catch {
+      stored = {};
+    }
+    const requestedDate = locationUrl.searchParams.get("date") || stored.date || "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) dateInput.value = requestedDate;
+
+    const requestedView = locationUrl.searchParams.get("view") || stored.view || "";
+    if (["day", "week"].includes(requestedView)) viewFilter.value = requestedView;
+
+    const requestedBranch = locationUrl.searchParams.get("branch_id")
+      ?? stored.branchId
+      ?? "";
+    if (branchFilter instanceof HTMLSelectElement
+      && Array.from(branchFilter.options).some((option) => option.value === String(requestedBranch))) {
+      branchFilter.value = String(requestedBranch);
+      syncInstructorFilterForBranch();
+    }
+
+    const requestedInstructor = locationUrl.searchParams.get("instructor_id")
+      ?? stored.instructorId
+      ?? "";
+    const requestedInstructorOption = Array.from(instructorFilter.options).find(
+      (option) => option.value === String(requestedInstructor) && !option.disabled,
+    );
+    if (requestedInstructorOption) instructorFilter.value = String(requestedInstructor);
+
+    const requestedStatus = locationUrl.searchParams.get("status") ?? stored.status ?? "";
+    if (Array.from(statusFilter.options).some((option) => option.value === String(requestedStatus))) {
+      statusFilter.value = String(requestedStatus);
+    }
+  };
+
+  // Remember the agent's horizontal position for this calendar view. This
+  // prevents an edit, background refresh, or browser refresh from jumping
+  // back to the first instructor column.
+  const horizontalScrollStorageKey = () => [
+    "a2z-calendar-scroll-v1",
+    window.location.pathname,
+    dateInput.value,
+    viewFilter.value,
+    branchFilter?.value || "all-branches",
+    instructorFilter.value || "all",
+  ].join(":");
+
+  const storedHorizontalScroll = () => {
+    try {
+      const value = Number(window.sessionStorage.getItem(horizontalScrollStorageKey()));
+      return Number.isFinite(value) && value > 0 ? value : 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const rememberHorizontalScroll = () => {
+    if (!calendarScroll) return;
+    try {
+      window.sessionStorage.setItem(horizontalScrollStorageKey(), String(calendarScroll.scrollLeft));
+    } catch {
+      // The calendar remains usable when browser storage is unavailable.
+    }
+  };
 
   // The server response is applied immediately.  A short, quiet follow-up
   // sync keeps a multi-user calendar accurate without making an agent wait
@@ -150,8 +244,34 @@
     const selectedDate = String(dateInput?.value || "");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) return;
     const locationUrl = new URL(window.location.href);
-    if (locationUrl.searchParams.get("date") === selectedDate) return;
     locationUrl.searchParams.set("date", selectedDate);
+    locationUrl.searchParams.set("view", viewFilter.value);
+    if (branchFilter?.value) {
+      locationUrl.searchParams.set("branch_id", branchFilter.value);
+    } else {
+      locationUrl.searchParams.delete("branch_id");
+    }
+    if (instructorFilter.value) {
+      locationUrl.searchParams.set("instructor_id", instructorFilter.value);
+    } else {
+      locationUrl.searchParams.delete("instructor_id");
+    }
+    if (statusFilter.value) {
+      locationUrl.searchParams.set("status", statusFilter.value);
+    } else {
+      locationUrl.searchParams.delete("status");
+    }
+    try {
+      window.sessionStorage.setItem(calendarStateStorageKey, JSON.stringify({
+        date: selectedDate,
+        view: viewFilter.value,
+        branchId: branchFilter?.value || "",
+        instructorId: instructorFilter.value,
+        status: statusFilter.value,
+      }));
+    } catch {
+      // URL state still makes refresh reliable when browser storage is unavailable.
+    }
     window.history.replaceState({}, "", locationUrl);
   };
 
@@ -317,6 +437,7 @@
     ];
     if (equipment && equipment !== service) lines.push(`Equipment: ${equipment}`);
     lines.push("Please arrive on time. Thank you.");
+    lines.push("", "Note: Instructors may vary based on availability.");
     window.open(`https://wa.me/${number}?text=${encodeURIComponent(lines.join("\n"))}`, "_blank", "noopener");
   };
   const formatDay = (value, includeYear = false) => new Intl.DateTimeFormat("en-IN", {
@@ -409,7 +530,29 @@
       id: option.value,
       name: option.textContent.trim(),
       branchId: option.dataset.branchId || "",
+      branchName: option.dataset.branchName || "",
     }));
+
+  const syncInstructorFilterForBranch = () => {
+    if (!(branchFilter instanceof HTMLSelectElement)) return;
+    const branchId = String(branchFilter.value || "");
+    Array.from(instructorFilter.options).forEach((option) => {
+      if (!option.value) return;
+      const allowed = !branchId || option.dataset.branchId === branchId;
+      option.hidden = !allowed;
+      option.disabled = !allowed;
+      if (!allowed && option.selected) instructorFilter.value = "";
+    });
+  };
+
+  const setAppointmentInstructor = (instructorId, branchId = "") => {
+    const requestedId = String(instructorId || "");
+    const instructor = instructors.find((item) => item.id === requestedId);
+    appointmentInstructorId = instructor?.id || requestedId;
+    appointmentBranchId = String(instructor?.branchId || branchId || "").trim();
+    instructorInput.value = appointmentInstructorId;
+    editor.dataset.appointmentBranchId = appointmentBranchId;
+  };
 
   const period = () => {
     const anchor = toDate(dateInput.value);
@@ -422,13 +565,17 @@
 
   const columnsForView = () => {
     const { start } = period();
+    const selectedBranchId = branchFilter?.value || "";
+    const branchInstructors = instructors.filter(
+      (item) => !selectedBranchId || item.branchId === selectedBranchId,
+    );
     if (viewFilter.value === "week") {
       let instructorId = instructorFilter.value;
-      if (!instructorId && instructors.length) {
-        instructorId = instructors[0].id;
+      if (!instructorId && branchInstructors.length) {
+        instructorId = branchInstructors[0].id;
         instructorFilter.value = instructorId;
       }
-      const instructor = instructors.find((item) => item.id === instructorId);
+      const instructor = branchInstructors.find((item) => item.id === instructorId);
       if (!instructor) return [];
       return Array.from({ length: 7 }, (_, index) => {
         const target = addDays(start, index);
@@ -437,12 +584,14 @@
           instructorId: instructor.id,
           title: formatDay(target),
           subtitle: instructor.name,
+          branchId: instructor.branchId,
+          branchName: instructor.branchName,
           nonWorking: false,
         };
       });
     }
     const targetDate = toInputDate(start);
-    const visible = instructors.filter(
+    const visible = branchInstructors.filter(
       (item) => !instructorFilter.value || item.id === instructorFilter.value,
     );
     return visible.map((instructor) => ({
@@ -450,6 +599,8 @@
       instructorId: instructor.id,
       title: instructor.name,
       subtitle: formatDay(start),
+      branchId: instructor.branchId,
+      branchName: instructor.branchName,
       nonWorking: false,
     }));
   };
@@ -479,13 +630,27 @@
     return `calendar-event duration-${durationSteps} event-status-${status}${event.type === "busy" ? " calendar-busy-event" : ""}${event.type === "slot" ? " calendar-booking-slot" : ""}`;
   };
 
-  const instructorEventColour = (instructorId) => {
+  const instructorPaletteIndex = (instructorId) => {
     const text = String(instructorId || "");
     let hash = 0;
     for (let index = 0; index < text.length; index += 1) {
       hash = ((hash * 31) + text.charCodeAt(index)) >>> 0;
     }
-    return INSTRUCTOR_EVENT_COLOURS[hash % INSTRUCTOR_EVENT_COLOURS.length];
+    return hash % INSTRUCTOR_EVENT_PALETTES.length;
+  };
+  const instructorEventPalette = (instructorId) => (
+    INSTRUCTOR_EVENT_PALETTES[instructorPaletteIndex(instructorId)]
+  );
+  const instructorEventColour = (instructorId) => instructorEventPalette(instructorId).accent;
+
+  const branchColour = (branchId) => {
+    const palette = ["#185FA5", "#0F766E", "#9A3412", "#6D28D9", "#A21CAF"];
+    const text = String(branchId || "");
+    let hash = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      hash = ((hash * 31) + text.charCodeAt(index)) >>> 0;
+    }
+    return palette[hash % palette.length];
   };
 
   const assignOverlapLanes = (columnEvents, hasBookingSlot) => {
@@ -566,8 +731,21 @@
     if (saveButton) saveButton.textContent = editorType === "busy" ? "Save busy time" : editorType === "slot" ? "Save slot" : "Save appointment";
   };
 
+  const syncSlotMachines = () => {
+    const branchId = slotInstructor?.selectedOptions[0]?.dataset.branchId || "";
+    Array.from(slotMachine?.options || []).forEach((option, index) => {
+      if (index === 0) return;
+      const allowed = !branchId || option.dataset.branchId === branchId;
+      option.hidden = !allowed;
+      option.disabled = !allowed;
+      if (!allowed && option.selected) slotMachine.value = "";
+    });
+  };
+
   const syncMachines = () => {
-    const branchId = instructorInput.selectedOptions[0]?.dataset.branchId || "";
+    const branchId = appointmentBranchId
+      || instructorInput.selectedOptions[0]?.dataset.branchId
+      || "";
     let compatible = null;
     selectedServices().forEach((service) => {
       const ids = new Set((service.dataset.machineIds || "").split(",").filter(Boolean));
@@ -590,32 +768,49 @@
   };
 
   const syncEditorOptions = () => {
-    const instructorBranch = instructorInput.selectedOptions[0]?.dataset.branchId || "";
-    const clientBranch = clientInput.selectedOptions[0]?.dataset.branchId || "";
+    const normaliseBranch = (value) => String(value || "").trim();
+    const instructorBranch = normaliseBranch(
+      appointmentBranchId
+      || instructorInput.selectedOptions[0]?.dataset.branchId
+      || editor.dataset.appointmentBranchId,
+    );
+    const clientBranch = normaliseBranch(clientInput.selectedOptions[0]?.dataset.branchId);
     const branchId = instructorBranch || clientBranch;
 
     Array.from(clientInput.options).forEach((option, index) => {
       if (index === 0) return;
-      const allowed = !instructorBranch || option.dataset.branchId === instructorBranch;
+      const allowed = !instructorBranch || normaliseBranch(option.dataset.branchId) === instructorBranch;
       option.hidden = !allowed;
       option.disabled = !allowed;
       if (!allowed && option.selected) clientInput.value = "";
     });
+    // Existing appointments can be transferred within their original branch.
+    // New appointments retain the instructor from the clicked calendar cell.
+    const transferBranch = editingEvent?.type === "appointment"
+      ? String(editingEvent.branch_id || instructorBranch) : "";
     Array.from(instructorInput.options).forEach((option, index) => {
       if (index === 0) return;
-      const allowed = !clientBranch || option.dataset.branchId === clientBranch;
+      const allowed = !transferBranch || option.dataset.branchId === transferBranch;
       option.hidden = !allowed;
       option.disabled = !allowed;
-      if (!allowed && option.selected) instructorInput.value = "";
     });
+    if (appointmentInstructorId) instructorInput.value = appointmentInstructorId;
     serviceChecks.forEach((input) => {
       // Staff-managed appointments can be transferred to another instructor.
       // Keep the service when both records belong to the same branch.
-      const allowed = !branchId || input.dataset.branchId === branchId;
+      const allowed = !branchId || normaliseBranch(input.dataset.branchId) === branchId;
       input.disabled = !allowed;
       input.closest("label")?.toggleAttribute("hidden", !allowed);
       if (!allowed) input.checked = false;
     });
+    editor.querySelectorAll("[data-service-picker-group]").forEach((group) => {
+      const hasAvailableService = Array.from(group.querySelectorAll("[data-editor-service]"))
+        .some((input) => !input.disabled);
+      group.hidden = !hasAvailableService;
+    });
+    if (servicePickerEmpty) {
+      servicePickerEmpty.hidden = serviceChecks.some((input) => !input.disabled);
+    }
     syncMachines();
     updateDuration();
   };
@@ -661,7 +856,7 @@
     bookingIdInput.value = event.id;
     revisionInput.value = event.revision || "";
     clientInput.value = String(event.client_id || event.student_user_id || "");
-    instructorInput.value = String(event.instructor_id || "");
+    setAppointmentInstructor(event.instructor_id, event.branch_id);
     machineInput.value = String(event.machine_id || "");
     editorDate.value = event.date;
     editorStart.value = event.start_time;
@@ -737,9 +932,15 @@
     selectedClientId = "",
     bookingSlot = null,
   ) => {
-    if (currentRole === "instructor") return;
+    if (currentRole === "instructor") {
+      const isOwnSlot = initialType === "slot"
+        && canManageOwnSlots
+        && String(instructorId || "") === currentInstructorId;
+      if (!isOwnSlot) return;
+    }
     lastFocused = trigger || document.activeElement;
     editingEvent = null;
+    editor.querySelector("[data-editor-instructor-field]").hidden = true;
     whatsappConfirmationEvent = null;
     editor.reset();
     trailerFinishAuto = false;
@@ -750,7 +951,7 @@
     if (existingSummary) existingSummary.hidden = true;
     if (whatsappConfirmationButton) whatsappConfirmationButton.hidden = true;
     setServiceSelection([]);
-    instructorInput.value = String(instructorId || instructorFilter.value || instructors[0]?.id || "");
+    setAppointmentInstructor(instructorId || instructorFilter.value || instructors[0]?.id || "");
     clientInput.value = String(selectedClientId || "");
     editorDate.value = targetDate || dateInput.value;
     editorStart.value = start || "09:00";
@@ -776,24 +977,31 @@
     if (slotRepeat) slotRepeat.value = "none";
     if (slotRepeatCount) slotRepeatCount.value = "1";
     if (slotNotes) slotNotes.value = "";
+    syncSlotMachines();
     syncRepeatCount(slotRepeat, slotRepeatCount);
     if (eyebrowText) eyebrowText.textContent = "New schedule item";
-    if (titleText) titleText.textContent = initialType === "busy" ? "Add busy time" : "Add appointment";
+    if (titleText) titleText.textContent = initialType === "busy"
+      ? "Add busy time"
+      : initialType === "slot" ? "Add booking slot" : "Add appointment";
     if (descriptionText) {
       descriptionText.textContent = initialType === "busy"
         ? "Block time that staff should not use for appointments."
-        : "Create a confirmed appointment while speaking with the client.";
+        : initialType === "slot"
+          ? "Mark equipment availability on your own calendar."
+          : "Create a confirmed appointment while speaking with the client.";
     }
     if (cancelAppointmentButton) cancelAppointmentButton.hidden = true;
     if (permanentDeleteButton) permanentDeleteButton.hidden = true;
     if (bookingMenu) bookingMenu.hidden = true;
     if (serviceTotal) serviceTotal.hidden = true;
     if (deleteBusyButton) deleteBusyButton.hidden = true;
+    if (deleteUpcomingBusyButton) deleteUpcomingBusyButton.hidden = true;
     if (deleteBusyForAllButton) deleteBusyForAllButton.hidden = true;
     if (deleteSlotButton) deleteSlotButton.hidden = true;
     if (saveButton) saveButton.hidden = false;
     setEditorType(initialType);
     syncEditorOptions();
+    if (currentRole === "instructor" && slotInstructor) slotInstructor.disabled = true;
     if (initialType === "appointment" && bookingSlot) {
       const machineId = String(bookingSlot.machine_id || "");
       const normalise = (value) => String(value || "")
@@ -852,6 +1060,10 @@
   const openEditorForEvent = (event, trigger) => {
     lastFocused = trigger || document.activeElement;
     editingEvent = event;
+    editor.querySelector("[data-editor-instructor-field]").hidden = !(
+      event.type === "appointment" && event.can_edit
+      && ["admin", "booking_agent"].includes(currentRole)
+    );
     editor.reset();
     clearError();
     updateSeriesSummary(event);
@@ -866,6 +1078,7 @@
       if (slotNotes) slotNotes.value = event.notes || "";
       if (slotRepeat) slotRepeat.value = "none";
       if (slotRepeatCount) slotRepeatCount.value = "1";
+      syncSlotMachines();
       if (eyebrowText) eyebrowText.textContent = "Booking slot";
       if (titleText) titleText.textContent = event.title || "Edit booking slot";
       if (descriptionText) descriptionText.textContent = "Appointments remain bookable inside this slot band.";
@@ -873,10 +1086,12 @@
       if (permanentDeleteButton) permanentDeleteButton.hidden = true;
       if (bookingMenu) bookingMenu.hidden = true;
       if (deleteBusyButton) deleteBusyButton.hidden = true;
+      if (deleteUpcomingBusyButton) deleteUpcomingBusyButton.hidden = true;
       if (deleteBusyForAllButton) deleteBusyForAllButton.hidden = true;
       if (deleteSlotButton) deleteSlotButton.hidden = !event.can_edit;
       if (saveButton) saveButton.hidden = !event.can_edit;
       setEditorType("slot");
+      if (currentRole === "instructor" && slotInstructor) slotInstructor.disabled = true;
     } else if (event.type === "busy") {
       bookingIdInput.value = String(event.id);
       revisionInput.value = String(event.revision || "");
@@ -897,6 +1112,7 @@
       if (permanentDeleteButton) permanentDeleteButton.hidden = true;
       if (bookingMenu) bookingMenu.hidden = true;
       if (deleteBusyButton) deleteBusyButton.hidden = !event.can_edit;
+      if (deleteUpcomingBusyButton) deleteUpcomingBusyButton.hidden = !event.can_edit;
       if (deleteBusyForAllButton) {
         deleteBusyForAllButton.hidden = !event.can_edit
           || !["breakfast", "lunch", "tea"].includes(event.busy_kind);
@@ -921,6 +1137,7 @@
       }
       if (bookingMenu) bookingMenu.hidden = !event.can_edit;
       if (deleteBusyButton) deleteBusyButton.hidden = true;
+      if (deleteUpcomingBusyButton) deleteUpcomingBusyButton.hidden = true;
       if (deleteBusyForAllButton) deleteBusyForAllButton.hidden = true;
       if (deleteSlotButton) deleteSlotButton.hidden = true;
       if (saveButton) {
@@ -957,18 +1174,23 @@
       && !["Cancelled", "Rejected", "Completed", "No-show"].includes(event.status);
     const canDragEvent = Boolean(event.can_edit) && (
       event.type === "appointment"
-      || (isSlot && currentRole === "admin")
+      || (isSlot && (currentRole === "admin" || canManageOwnSlots))
       || (isBusy && currentRole === "admin")
     );
     button.draggable = false;
     button.classList.toggle("is-movable", canDragEvent);
     button.dataset.eventId = event.id;
+    const appointmentPalette = !isBusy && !isSlot
+      ? instructorEventPalette(event.instructor_id)
+      : null;
     button.style.setProperty(
       "--event-colour",
-      !isBusy && !isSlot
-        ? instructorEventColour(event.instructor_id)
-        : (event.service_color || "#667085"),
+      appointmentPalette?.accent || event.service_color || "#667085",
     );
+    if (appointmentPalette) {
+      button.style.setProperty("--event-background", appointmentPalette.background);
+      button.style.setProperty("--event-hover-background", appointmentPalette.hover);
+    }
     const range = visibleEventRange(event) || {
       start: minutes(event.start_time),
       end: minutes(event.end_time),
@@ -984,7 +1206,7 @@
       "--event-duration",
       `calc(${durationMinutes / 15} * var(--calendar-quarter-height))`,
     );
-    if (isSlot && currentRole !== "admin") {
+    if (isSlot && !event.can_edit) {
       button.setAttribute("aria-readonly", "true");
       button.title = "Book an appointment in this admin-managed slot";
     }
@@ -998,6 +1220,7 @@
       <strong class="calendar-event-client"></strong>
       <span class="calendar-event-service"></span>
       <small class="calendar-event-status"></small>
+      <small class="calendar-event-phone"></small>
       ${canStartDoubleBooking ? `<span class="calendar-event-double-book${isShortAppointment ? " is-compact" : ""}" title="Add another booking at this time">${isShortAppointment ? "+" : "+ Book"}</span>` : ''}
       ${canDragEvent ? `<span class="calendar-event-resize" title="Drag to change ${isSlot ? "slot" : isBusy ? "busy time" : "appointment"} duration" aria-label="Resize ${isSlot ? "booking slot" : isBusy ? "busy time" : "appointment"}"></span>` : ''}
     `;
@@ -1013,12 +1236,15 @@
       : (event.machine_category || event.machine_name || event.service_name || "Equipment");
     button.querySelector(".calendar-event-status").textContent = isSlot ? "" : isBusy
       ? "Unavailable"
+      : displayStatus(event.status);
+    button.querySelector(".calendar-event-phone").textContent = isBusy || isSlot
+      ? ""
       : (event.student_phone || "No phone");
     button.setAttribute(
       "aria-label",
       isBusy || isSlot
         ? `${event.title || "Busy time"}, ${event.start_time} to ${event.end_time}`
-        : `${event.student_name}, ${event.machine_category || event.machine_name || event.service_name || "equipment"}, ${event.student_phone || "no phone"}, ${event.start_time} to ${event.end_time}`,
+        : `${event.student_name}, ${displayStatus(event.status)}, ${event.machine_category || event.machine_name || event.service_name || "equipment"}, ${event.student_phone || "no phone"}, ${event.start_time} to ${event.end_time}`,
     );
     button.addEventListener("click", (clickEvent) => {
       clickEvent.stopPropagation();
@@ -1047,7 +1273,7 @@
         );
         return;
       }
-      if (isSlot && currentRole === "instructor") return;
+      if (isSlot && currentRole === "instructor" && !event.can_edit) return;
       openEditorForEvent(event, button);
     });
     if (canDragEvent) {
@@ -1283,7 +1509,7 @@
   const moveEvent = async (event, target) => {
     if (
       !event?.can_edit
-      || (event.type === "slot" && currentRole !== "admin")
+      || (event.type === "slot" && currentRole !== "admin" && !canManageOwnSlots)
       || moveInFlight
     ) return;
     moveInFlight = true;
@@ -1293,15 +1519,41 @@
     try {
       const isBookingSlot = event.type === "slot";
       const isBusyTime = event.type === "busy";
+      const isAppointment = !isBookingSlot && !isBusyTime;
       const updateUrl = isBookingSlot
         ? replaceId(calendar.dataset.slotUpdateUrlTemplate, event.id)
         : isBusyTime
           ? replaceId(calendar.dataset.busyUpdateUrlTemplate, event.id)
           : replaceId(calendar.dataset.updateUrlTemplate, event.id);
       let currentEvent = event;
+      let allowDoubleBooking = Boolean(event.allow_double_booking);
+      let allowPastAppointment = false;
+      if (isAppointment) {
+        const now = new Date();
+        const localToday = toInputDate(now);
+        const currentMinutes = (now.getHours() * 60) + now.getMinutes();
+        const movingIntoPast = target.date < localToday || (
+          target.date === localToday && minutes(target.start) < currentMinutes
+        );
+        if (movingIntoPast) {
+          if (currentRole !== "admin") {
+            throw new Error("Past appointments can be moved only by an administrator.");
+          }
+          const confirmed = window.confirm(
+            `This moves the appointment to ${target.date} at ${formatClock(target.start)}, which has already passed.\n\n` +
+            "Do you want to save it as a past appointment?",
+          );
+          if (!confirmed) {
+            renderCalendar();
+            message.hidden = true;
+            return;
+          }
+          allowPastAppointment = true;
+        }
+      }
       let response;
       let data;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
         response = await fetch(updateUrl, {
           method: "PATCH",
           headers: {
@@ -1317,6 +1569,8 @@
             ...(target.end ? { end_time: target.end } : {}),
             instructor_id: Number(target.instructorId),
             machine_id: Number(target.machineId || currentEvent.machine_id),
+            ...(isAppointment && allowPastAppointment ? { allow_past_appointment: true } : {}),
+            ...(isAppointment ? { allow_double_booking: allowDoubleBooking } : {}),
             ...(isBusyTime ? {
               break_type: currentEvent.busy_kind || "busy",
               title: currentEvent.title || "Busy time",
@@ -1327,24 +1581,40 @@
         data = await parseJson(response);
         const revisionConflict = response.status === 409
           && /changed in another window|refresh and try again/i.test(data.error || "");
-        if (!revisionConflict || attempt > 0) break;
-
-        // Another browser saved first. Pull its current revision immediately,
-        // then retry this explicit drag once without asking for a page refresh.
-        await loadEvents({ silent: true, force: true });
-        const freshEvent = events.find((item) => (
-          String(item.id) === String(event.id) && item.type === event.type
-        ));
-        if (!freshEvent) {
-          throw new Error(`This ${isBookingSlot ? "booking slot" : isBusyTime ? "busy time" : "appointment"} no longer exists.`);
+        if (revisionConflict) {
+          // Another browser saved first. Pull its current revision immediately,
+          // then retry this explicit drag without asking for a page refresh.
+          await loadEvents({ silent: true, force: true });
+          const freshEvent = events.find((item) => (
+            String(item.id) === String(event.id) && item.type === event.type
+          ));
+          if (!freshEvent) {
+            throw new Error(`This ${isBookingSlot ? "booking slot" : isBusyTime ? "busy time" : "appointment"} no longer exists.`);
+          }
+          currentEvent = freshEvent;
+          continue;
         }
-        currentEvent = freshEvent;
+        const canOverrideConflict = isAppointment
+          && response.status === 409
+          && data.conflict_type === "schedule"
+          && data.can_override
+          && !allowDoubleBooking;
+        if (canOverrideConflict) {
+          const approved = window.confirm(
+            `${data.error}\n\nMove it anyway and record this as an allowed double booking?`,
+          );
+          if (approved) {
+            allowDoubleBooking = true;
+            continue;
+          }
+        }
+        break;
       }
       if (!response.ok) throw new Error(data.error || `The ${isBookingSlot ? "booking slot" : isBusyTime ? "busy time" : "appointment"} could not be moved.`);
       if (data.event) mergeSavedEvents([data.event]);
       announce(isBookingSlot ? "Booking slot moved." : isBusyTime ? "Busy time moved." : "Appointment moved.");
       message.hidden = true;
-      // Reconcile in the background in case another user changed the same day.
+      await loadEvents({ silent: true, force: true });
       queueCalendarReconcile();
     } catch (error) {
       // Restore the server-backed size and position after a rejected resize/drop.
@@ -1375,6 +1645,11 @@
     slot.setAttribute("aria-disabled", String(disabled || occupied));
     const canReceiveDraggedEvent = () => {
       if (!draggedEvent) return false;
+      if (
+        draggedEvent.type === "slot"
+        && currentRole === "instructor"
+        && String(column.instructorId) !== currentInstructorId
+      ) return false;
       const duration = Math.max(15, minutes(draggedEvent.end_time) - minutes(draggedEvent.start_time));
       if (minutes(start) + duration > STAFF_DAY_END) return false;
       // Let the server validate occupied destinations so the user receives the
@@ -1413,10 +1688,14 @@
       });
     });
     if (disabled || occupied) return;
+    const instructorOwnSlotMode = currentRole === "instructor"
+      && canManageOwnSlots
+      && String(column.instructorId) === currentInstructorId;
+    if (currentRole === "instructor" && !instructorOwnSlotMode) return;
     // A visible plus affordance makes it clear that an empty white cell can
     // start a booking. The server still checks conflicts and asks authorised
     // staff before recording an allowed double booking.
-    slot.dataset.bookLabel = `+ Book ${formatClock(start)}`;
+    slot.dataset.bookLabel = `${instructorOwnSlotMode ? "+ Slot" : "+ Book"} ${formatClock(start)}`;
     let longPressTimer;
     let longPressed = false;
     slot.addEventListener("pointerdown", (event) => {
@@ -1424,7 +1703,7 @@
       longPressed = false;
       longPressTimer = window.setTimeout(() => {
         longPressed = true;
-        prepareNewEditor(column.date, column.instructorId, start, slot, "appointment", "", bookingSlot);
+        prepareNewEditor(column.date, column.instructorId, start, slot, instructorOwnSlotMode ? "slot" : "appointment", "", bookingSlot);
       }, 500);
     });
     ["pointerup", "pointercancel", "pointerleave"].forEach((name) => {
@@ -1435,12 +1714,12 @@
         longPressed = false;
         return;
       }
-      prepareNewEditor(column.date, column.instructorId, start, slot, "appointment", "", bookingSlot);
+      prepareNewEditor(column.date, column.instructorId, start, slot, instructorOwnSlotMode ? "slot" : "appointment", "", bookingSlot);
     });
     slot.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      prepareNewEditor(column.date, column.instructorId, start, slot, "appointment", "", bookingSlot);
+      prepareNewEditor(column.date, column.instructorId, start, slot, instructorOwnSlotMode ? "slot" : "appointment", "", bookingSlot);
     });
   };
 
@@ -1476,6 +1755,7 @@
       section.dataset.date = column.date;
       section.dataset.instructorId = column.instructorId;
       section.style.setProperty("--instructor-colour", instructorEventColour(column.instructorId));
+      section.style.setProperty("--branch-colour", branchColour(column.branchId));
       const columnEvents = events.filter((item) => (
         item.date === column.date
         && String(item.instructor_id) === String(column.instructorId)
@@ -1490,6 +1770,12 @@
       title.textContent = column.title;
       subtitle.textContent = column.subtitle;
       header.append(title, subtitle);
+      if (branchFilter instanceof HTMLSelectElement && column.branchName) {
+        const branchBadge = document.createElement("small");
+        branchBadge.className = "calendar-branch-badge";
+        branchBadge.textContent = column.branchName;
+        header.append(branchBadge);
+      }
       section.append(header);
       slots.forEach((start) => {
         const slot = document.createElement("div");
@@ -1527,8 +1813,10 @@
 
   async function loadEvents({ silent = false, force = false } = {}) {
     if (loadInFlight && !force) return false;
-    if (loadRequest) loadRequest.abort();
-    loadRequest = new AbortController();
+    loadRequest?.abort();
+    const requestController = new AbortController();
+    const requestGeneration = ++loadGeneration;
+    loadRequest = requestController;
     loadInFlight = true;
     // Keep the selected day in the URL. A normal refresh then asks Flask for
     // this same day instead of falling back to today's calendar.
@@ -1543,17 +1831,20 @@
       message.textContent = "Loading appointments…";
     }
     const query = new URLSearchParams({ start, end });
+    if (branchFilter?.value) query.set("branch_id", branchFilter.value);
     if (instructorFilter.value) query.set("instructor_id", instructorFilter.value);
     if (statusFilter.value) query.set("status", statusFilter.value);
+    query.set("_sync", String(Date.now()));
     try {
       const response = await fetch(`${calendar.dataset.eventsUrl}?${query}`, {
         headers: { Accept: "application/json" },
         credentials: "same-origin",
         cache: "no-store",
-        signal: loadRequest.signal,
+        signal: requestController.signal,
       });
       const data = await parseJson(response);
       if (!response.ok) throw new Error(data.error || "The calendar could not be loaded.");
+      if (requestGeneration !== loadGeneration) return false;
       // A silent background refresh must never rebuild the calendar while a
       // pointer drag or resize is active; doing so creates duplicate trackers.
       if (silent && (activePointerDragCleanup || draggedEvent || resizingEventId !== null)) {
@@ -1565,6 +1856,10 @@
       if (resetHorizontalScroll && calendarScroll) {
         calendarScroll.scrollLeft = 0;
         resetHorizontalScroll = false;
+        restoreHorizontalScroll = false;
+      } else if (restoreHorizontalScroll && calendarScroll) {
+        calendarScroll.scrollLeft = storedHorizontalScroll();
+        restoreHorizontalScroll = false;
       }
       openInitialClientEditor();
       return true;
@@ -1579,7 +1874,10 @@
       message.textContent = error.message || "The calendar could not be loaded.";
       return false;
     } finally {
-      loadInFlight = false;
+      if (requestGeneration === loadGeneration) {
+        loadInFlight = false;
+        if (loadRequest === requestController) loadRequest = null;
+      }
     }
   }
 
@@ -1588,14 +1886,14 @@
     const admissionNumber = editor.querySelector("[data-new-client-last-name]")?.value.trim() || "";
     const phone = editor.querySelector("[data-new-client-phone]")?.value.trim() || "";
     const email = editor.querySelector("[data-new-client-email]")?.value.trim() || "";
-    const branchId = instructorInput.selectedOptions[0]?.dataset.branchId || "";
+    const branchId = appointmentBranchId
+      || instructorInput.selectedOptions[0]?.dataset.branchId
+      || "";
     if (!fullName || !admissionNumber || !phone) {
-      showError("Enter the client's full name, admission number, and phone number.");
-      return;
+      throw new Error("Enter the client's full name, admission number, and phone number.");
     }
     if (!branchId) {
-      showError("Choose the instructor before creating the client.");
-      return;
+      throw new Error("Choose the instructor before creating the client.");
     }
     const button = editor.querySelector("[data-new-client-save]");
     if (button) button.disabled = true;
@@ -1615,7 +1913,7 @@
           phone,
           email,
           branch_id: Number(branchId),
-          instructor_id: Number(instructorInput.value),
+          instructor_id: Number(appointmentInstructorId || instructorInput.value),
         }),
       });
       const data = await parseJson(response);
@@ -1635,10 +1933,12 @@
       clientInput.value = option.value;
       syncEditorOptions();
       announce(response.ok ? "Client created and selected." : "Existing client selected.");
-      return true;
+      // Return the authoritative server id as well as updating the hidden
+      // selector. Branch filtering can rebuild/clear that selector, but it
+      // must never discard the client that was just created for this save.
+      return Number(record.id);
     } catch (error) {
-      showError(error.message || "The client could not be created.");
-      return false;
+      throw new Error(error.message || "The client could not be created.");
     } finally {
       if (button) button.disabled = false;
     }
@@ -1648,7 +1948,7 @@
     const repeat = repeatInput?.value || "none";
     return {
       student_id: Number(clientInput.value),
-      instructor_id: Number(instructorInput.value),
+      instructor_id: Number(appointmentInstructorId || instructorInput.value),
       machine_id: Number(machineInput.value),
       service_ids: selectedServiceIds(),
       target_date: editorDate.value,
@@ -1674,9 +1974,12 @@
     if (!phone) throw new Error("Client phone number is required.");
     if (!payload.notes.trim()) throw new Error("Appointment notes are required.");
     if (!payload.student_id) {
-      const created = await createClient();
-      if (!created) throw new Error("Enter the client details to continue.");
+      const createdClientId = await createClient();
       payload = appointmentPayload();
+      payload.student_id = Number(payload.student_id || createdClientId);
+      if (!payload.student_id) {
+        throw new Error("The client could not be selected. Check the client details and try again.");
+      }
     }
     if (!payload.service_ids.length) throw new Error("Choose at least one service.");
     if (!payload.instructor_id || !payload.machine_id) throw new Error("Choose the instructor and compatible equipment.");
@@ -1882,13 +2185,14 @@
       mergeSavedEvents(result?.savedEvents || []);
       const savedDate = result?.savedEvents?.[0]?.date;
       if (/^\d{4}-\d{2}-\d{2}$/.test(String(savedDate || ""))) {
-        dateInput.value = savedDate;
-        resetHorizontalScroll = true;
+        if (dateInput.value !== savedDate) {
+          dateInput.value = savedDate;
+          resetHorizontalScroll = true;
+        }
       }
       dialog.close();
       announce(result?.message || result);
-      // The returned event is already on screen.  Reconcile later rather than
-      // rebuilding every calendar column while the agent continues working.
+      await loadEvents({ silent: true, force: true });
       queueCalendarReconcile();
     } catch (error) {
       showError(error.message || "The schedule item could not be saved.");
@@ -1950,18 +2254,15 @@
   busyRepeat?.addEventListener("change", () => syncRepeatCount(busyRepeat, busyRepeatCount));
   slotRepeat?.addEventListener("change", () => syncRepeatCount(slotRepeat, slotRepeatCount));
   instructorInput.addEventListener("change", () => {
+    setAppointmentInstructor(
+      instructorInput.value,
+      instructorInput.selectedOptions[0]?.dataset.branchId || "",
+    );
     syncEditorOptions();
     if (busyInstructor && !editingEvent) busyInstructor.value = instructorInput.value;
   });
   slotInstructor?.addEventListener("change", () => {
-    const branchId = slotInstructor.selectedOptions[0]?.dataset.branchId || "";
-    Array.from(slotMachine?.options || []).forEach((option, index) => {
-      if (index === 0) return;
-      const allowed = !branchId || option.dataset.branchId === branchId;
-      option.hidden = !allowed;
-      option.disabled = !allowed;
-      if (!allowed && option.selected) slotMachine.value = "";
-    });
+    syncSlotMachines();
   });
   serviceChecks.forEach((input) => {
     input.addEventListener("change", () => {
@@ -1972,8 +2273,11 @@
     });
   });
   machineInput.addEventListener("change", applyTrailerDefaultFinish);
-  editor.querySelector("[data-service-picker-open]")?.addEventListener("click", () => {
+  servicePickerOpenButton?.addEventListener("click", () => {
     if (!servicePicker) return;
+    // Re-evaluate branch visibility whenever the picker opens. This also
+    // repairs stale hidden states after switching branches or calendar cells.
+    syncEditorOptions();
     servicePickerSnapshot = selectedServiceIds().map(String);
     servicePicker.hidden = false;
     servicePicker.querySelector("input:not(:disabled)")?.focus();
@@ -1987,7 +2291,7 @@
       }
       if (servicePicker) servicePicker.hidden = true;
       updateServiceTrigger();
-      editor.querySelector("[data-service-picker-open]")?.focus();
+      servicePickerOpenButton?.focus();
     });
   });
   additionalToggle?.addEventListener("click", () => {
@@ -2040,7 +2344,7 @@
       if (!response.ok) throw new Error(data.error || "The appointment could not be deleted.");
       dialog.close();
       announce(permanentlyDelete ? "Appointment deleted. The time is now available." : "Appointment cancelled.");
-      await loadEvents();
+      await loadEvents({ force: true });
     } catch (error) {
       showError(error.message || "The appointment could not be deleted.");
     }
@@ -2068,9 +2372,56 @@
       if (!response.ok) throw new Error(data.error || "The appointment could not be deleted.");
       dialog.close();
       announce("Appointment permanently deleted.");
-      await loadEvents();
+      await loadEvents({ force: true });
     } catch (error) {
       showError(error.message || "The appointment could not be deleted.");
+    }
+  });
+
+  deleteClientUpcomingButton?.addEventListener("click", async () => {
+    if (!editingEvent || editingEvent.type !== "appointment") return;
+    clearError();
+    const url = replaceId(
+      calendar.dataset.clientUpcomingDeleteUrlTemplate,
+      editingEvent.id,
+    );
+    try {
+      const previewResponse = await fetch(url, {
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+      });
+      const preview = await parseJson(previewResponse);
+      if (!previewResponse.ok) {
+        throw new Error(preview.error || "The client's upcoming bookings could not be checked.");
+      }
+      if (!preview.count) {
+        window.alert(`${preview.client_name || editingEvent.student_name} has no active bookings from ${preview.from_date}.`);
+        return;
+      }
+      const confirmed = window.confirm(
+        `Permanently delete ${preview.count} active booking${preview.count === 1 ? "" : "s"} ` +
+        `for ${preview.client_name || editingEvent.student_name} from ${preview.from_date} onward?\n\n` +
+        "Earlier bookings and other clients will not be changed. This cannot be undone.",
+      );
+      if (!confirmed) return;
+
+      deleteClientUpcomingButton.disabled = true;
+      const deleteResponse = await fetch(url, {
+        method: "DELETE",
+        headers: { Accept: "application/json", "X-CSRF-Token": csrf },
+        credentials: "same-origin",
+      });
+      const result = await parseJson(deleteResponse);
+      if (!deleteResponse.ok) {
+        throw new Error(result.error || "The client's upcoming bookings could not be deleted.");
+      }
+      dialog.close();
+      announce(`${result.deleted_count || 0} upcoming client bookings deleted.`);
+      await loadEvents({ force: true });
+    } catch (error) {
+      showError(error.message || "The client's upcoming bookings could not be deleted.");
+    } finally {
+      deleteClientUpcomingButton.disabled = false;
     }
   });
 
@@ -2090,9 +2441,58 @@
       if (!response.ok) throw new Error(data.error || "The busy time could not be deleted.");
       dialog.close();
       announce("Busy time deleted.");
-      await loadEvents();
+      await loadEvents({ force: true });
     } catch (error) {
       showError(error.message || "The busy time could not be deleted.");
+    }
+  });
+
+  deleteUpcomingBusyButton?.addEventListener("click", async () => {
+    if (!editingEvent || editingEvent.type !== "busy") return;
+    const url = replaceId(
+      calendar.dataset.busyUpcomingDeleteUrlTemplate || "",
+      editingEvent.id,
+    );
+    if (!url) return;
+    clearError();
+    try {
+      const previewResponse = await fetch(url, {
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+      });
+      const preview = await parseJson(previewResponse);
+      if (!previewResponse.ok) {
+        throw new Error(preview.error || "Upcoming busy time could not be checked.");
+      }
+      if (!preview.count) {
+        window.alert(`There are no upcoming occurrences of this busy slot from ${preview.from_date}.`);
+        return;
+      }
+      const confirmed = window.confirm(
+        `Delete ${preview.count} occurrence${preview.count === 1 ? "" : "s"} of `
+        + `${preview.busy_title || editingEvent.title} (${formatClock(preview.start_time)}–${formatClock(preview.end_time)}) `
+        + `for ${preview.instructor_name || editingEvent.instructor_name} from ${preview.from_date} onward?\n\n`
+        + "Other busy slots, earlier occurrences, other instructors, and all appointments will remain. This cannot be undone.",
+      );
+      if (!confirmed) return;
+
+      deleteUpcomingBusyButton.disabled = true;
+      const deleteResponse = await fetch(url, {
+        method: "DELETE",
+        headers: { Accept: "application/json", "X-CSRF-Token": csrf },
+        credentials: "same-origin",
+      });
+      const result = await parseJson(deleteResponse);
+      if (!deleteResponse.ok) {
+        throw new Error(result.error || "Upcoming busy time could not be deleted.");
+      }
+      dialog.close();
+      announce(`${result.deleted_count || 0} upcoming occurrences of this busy slot deleted.`);
+      await loadEvents({ force: true });
+    } catch (error) {
+      showError(error.message || "Upcoming busy time could not be deleted.");
+    } finally {
+      deleteUpcomingBusyButton.disabled = false;
     }
   });
 
@@ -2138,7 +2538,7 @@
       if (!response.ok) throw new Error(data.error || "The booking slot could not be deleted.");
       dialog.close();
       announce("Booking slot deleted.");
-      await loadEvents();
+      await loadEvents({ force: true });
     } catch (error) {
       showError(error.message || "The booking slot could not be deleted.");
     }
@@ -2149,6 +2549,29 @@
     whatsappConfirmationEvent = null;
     if (whatsappConfirmationButton) whatsappConfirmationButton.hidden = true;
     lastFocused?.focus?.();
+  });
+  dialog.addEventListener("click", (event) => {
+    // A click on the dialog element itself is a click on its backdrop. Keep
+    // clicks anywhere inside the appointment form working normally.
+    if (event.target === dialog && !saveInFlight) dialog.close();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!(event.target instanceof Node)) return;
+    if (
+      servicePicker
+      && !servicePicker.hidden
+      && !servicePicker.contains(event.target)
+      && !servicePickerOpenButton?.contains(event.target)
+    ) {
+      servicePicker.hidden = true;
+      updateServiceTrigger();
+    }
+    if (
+      clientTypeahead
+      && !clientTypeahead.hidden
+      && !clientTypeahead.contains(event.target)
+      && !clientContactInputs.some((input) => input.contains(event.target))
+    ) hideClientMatches();
   });
   document.querySelector("[data-add-appointment]")?.addEventListener("click", (event) => {
     prepareNewEditor(
@@ -2162,27 +2585,40 @@
   calendar.querySelector("[data-calendar-previous]")?.addEventListener("click", () => {
     dateInput.value = toInputDate(addDays(toDate(dateInput.value), viewFilter.value === "week" ? -7 : -1));
     resetHorizontalScroll = true;
-    loadEvents();
+    loadEvents({ force: true });
   });
   calendar.querySelector("[data-calendar-next]")?.addEventListener("click", () => {
     dateInput.value = toInputDate(addDays(toDate(dateInput.value), viewFilter.value === "week" ? 7 : 1));
     resetHorizontalScroll = true;
-    loadEvents();
+    loadEvents({ force: true });
   });
   calendar.querySelector("[data-calendar-today]")?.addEventListener("click", () => {
     dateInput.value = toInputDate(new Date());
     resetHorizontalScroll = true;
-    loadEvents();
+    loadEvents({ force: true });
   });
-  dateInput.addEventListener("change", () => { resetHorizontalScroll = true; loadEvents(); });
-  statusFilter.addEventListener("change", loadEvents);
-  viewFilter.addEventListener("change", () => { resetHorizontalScroll = true; loadEvents(); });
+  dateInput.addEventListener("change", () => { resetHorizontalScroll = true; loadEvents({ force: true }); });
+  statusFilter.addEventListener("change", () => loadEvents({ force: true }));
+  viewFilter.addEventListener("change", () => { resetHorizontalScroll = true; loadEvents({ force: true }); });
   instructorFilter.addEventListener("change", () => {
     viewFilter.value = instructorFilter.value && !compactScreen() ? "week" : "day";
     resetHorizontalScroll = true;
-    loadEvents();
+    loadEvents({ force: true });
+  });
+  branchFilter?.addEventListener("change", () => {
+    syncInstructorFilterForBranch();
+    viewFilter.value = "day";
+    resetHorizontalScroll = true;
+    loadEvents({ force: true });
   });
 
+  calendarScroll?.addEventListener("scroll", rememberHorizontalScroll, { passive: true });
+  window.addEventListener("pagehide", () => {
+    rememberHorizontalScroll();
+    persistCalendarDate();
+  });
+
+  restoreCalendarState();
   if (compactScreen()) viewFilter.value = "day";
   loadEvents();
 

@@ -5,7 +5,7 @@
 {% block body_class %}calendar-page{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260822-3') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260907-3') }}">
 {% endblock %}
 
 {% block content %}
@@ -23,7 +23,7 @@
 </header>
 
 <section
-  class="calendar-shell"
+  class="calendar-shell{% if current_user.is_super_admin %} is-super-admin-calendar{% endif %}"
   data-calendar
   data-events-url="{{ url_for('api_calendar_events') }}"
   data-create-url="{{ url_for('api_calendar_create_appointment') }}"
@@ -32,14 +32,18 @@
   data-client-search-url="{{ url_for('api_calendar_search_clients') }}"
   data-cancel-url-template="{{ url_for('api_calendar_cancel_appointment', booking_id=0) }}"
   data-delete-url-template="{{ url_for('api_calendar_delete_appointment', booking_id=0) }}"
+  data-client-upcoming-delete-url-template="{{ url_for('api_calendar_delete_client_upcoming_appointments', booking_id=0) }}"
   data-instructor-status-url-template="{{ url_for('api_calendar_instructor_status', booking_id=0) }}"
   data-busy-create-url="{{ url_for('api_calendar_create_busy_time') }}"
   data-busy-update-url-template="{{ url_for('api_calendar_update_busy_time', time_off_id=0) }}"
   data-busy-delete-url-template="{{ url_for('api_calendar_delete_busy_time', time_off_id=0) }}"
+  data-busy-upcoming-delete-url-template="{{ url_for('api_calendar_delete_upcoming_busy_times', time_off_id=0) }}"
   data-busy-bulk-delete-url-template="{{ url_for('api_calendar_delete_default_break_for_all', break_kind='__BREAK_KIND__') }}"
   data-slot-create-url="{{ url_for('api_calendar_create_booking_slot') }}"
   data-slot-update-url-template="{{ url_for('api_calendar_update_booking_slot', slot_id=0) }}"
   data-slot-delete-url-template="{{ url_for('api_calendar_delete_booking_slot', slot_id=0) }}"
+  data-can-manage-own-slots="{{ 'true' if current_user.has_permission('manage_own_booking_slots') else 'false' }}"
+  data-current-instructor-id="{{ current_user.instructor_id|default('', true) }}"
   data-selected-instructor="{{ selected_instructor|default('', true) }}"
   data-selected-client="{{ selected_client_id|default('', true) }}"
   data-initial-client-id="{{ selected_client_id|default('', true) }}"
@@ -85,6 +89,19 @@
         <button class="icon-button" type="button" aria-label="Print calendar" title="Print calendar" data-calendar-print>Print</button>
       </div>
 
+      {% if current_user.is_super_admin %}
+      <label class="calendar-branch-control" for="calendar-branch">
+        <span class="sr-only">Branch</span>
+        <select id="calendar-branch" data-calendar-branch aria-label="Filter calendar by branch">
+          <option value="">All branches</option>
+          {% for branch_group in instructors|groupby('branch_id') %}
+            {% set branch_instructor = branch_group.list|first %}
+            <option value="{{ branch_group.grouper }}">{{ branch_instructor.branch_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+
       <label class="calendar-staff-control" for="calendar-instructor">
         <span class="sr-only">Instructor</span>
         <select id="calendar-instructor" data-calendar-instructor>
@@ -93,8 +110,9 @@
             <option
               value="{{ instructor.id }}"
               data-branch-id="{{ instructor.branch_id }}"
+              data-branch-name="{{ instructor.branch_name }}"
               {% if selected_instructor|string == instructor.id|string %}selected{% endif %}
-            >{{ instructor.name }}</option>
+            >{{ instructor.name }}{% if current_user.is_super_admin %} · {{ instructor.branch_name }}{% endif %}</option>
           {% endfor %}
         </select>
       </label>
@@ -132,7 +150,7 @@
     <header class="appointment-editor-header">
       <div class="appointment-editor-tabs" role="tablist" aria-label="Schedule item type">
         <button class="appointment-editor-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="appointment-panel" data-editor-tab="appointment">Appointment</button>
-        {% if current_user.role == 'admin' %}<button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="booking-slot-panel" data-editor-tab="slot">Booking Slot</button>{% endif %}
+        {% if current_user.role == 'admin' or (current_user.role == 'instructor' and current_user.has_permission('manage_own_booking_slots')) %}<button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="booking-slot-panel" data-editor-tab="slot">Booking Slot</button>{% endif %}
         {% if current_user.role == 'admin' %}<button class="appointment-editor-tab" type="button" role="tab" aria-selected="false" aria-controls="busy-time-panel" data-editor-tab="busy">Event / Busy Time</button>{% endif %}
       </div>
       <button class="icon-button editor-close-button" type="button" aria-label="Close appointment editor" data-editor-close>×</button>
@@ -172,8 +190,11 @@
               <button class="icon-button" type="button" aria-label="Close services" data-service-picker-close>×</button>
             </div>
             <div class="service-checkbox-list">
+              <p class="service-picker-empty" data-service-picker-empty hidden>
+                No active services are configured for this instructor's branch.
+              </p>
             {% for group in services|groupby('category', default='SERVICES') %}
-              <section class="service-picker-group">
+              <section class="service-picker-group" data-service-picker-group>
                 <h4>{{ group.grouper|default('SERVICES', true)|upper }}</h4>
                 {% for service in group.list %}
                   <label class="service-checkbox-option">
@@ -206,14 +227,16 @@
         <fieldset class="editor-section">
           <legend class="sr-only">Staff and time</legend>
           <div class="form-grid smart-appointment-grid">
-            <div class="field">
-              <label for="editor-instructor">Staff Member</label>
-              <select id="editor-instructor" name="instructor_id" data-editor-instructor required>
-                <option value="">Choose an instructor</option>
-                {% for instructor in instructors %}
-                  <option value="{{ instructor.id }}" data-branch-id="{{ instructor.branch_id }}">{{ instructor.name }}</option>
-                {% endfor %}
-              </select>
+            {# The clicked calendar cell already identifies the instructor. Keep
+               the value for validation and saving without asking twice. #}
+            <div class="field field-span-all" data-editor-instructor-field hidden>
+            <label for="editor-instructor">Staff Member</label>
+            <select id="editor-instructor" name="instructor_id" data-editor-instructor>
+              <option value="">Choose an instructor</option>
+              {% for instructor in instructors %}
+                <option value="{{ instructor.id }}" data-branch-id="{{ instructor.branch_id }}" data-branch-name="{{ instructor.branch_name }}">{{ instructor.name }}</option>
+              {% endfor %}
+            </select>
             </div>
             <div class="field field-span-all">
               <label for="editor-notes">Notes</label>
@@ -406,7 +429,26 @@
                 {% endfor %}
               </select>
             </div>
-            <div class="field"><label for="slot-repeat">Repeat</label><select id="slot-repeat" data-editor-slot-repeat><option value="none">Does not repeat</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option></select></div>
+            <div class="field">
+              <label for="slot-repeat">Repeat</label>
+              <select id="slot-repeat" data-editor-slot-repeat>
+                <option value="none">Does not repeat</option>
+                <option value="daily">Daily</option>
+                <option value="weekdays">Weekdays</option>
+                <option value="mwf">Monday, Wednesday &amp; Friday</option>
+                <option value="tuth">Tuesday &amp; Thursday</option>
+                <option value="weekly">Weekly</option>
+                <option value="fortnightly">Every 2 weeks</option>
+                <option value="every_3_weeks">Every 3 weeks</option>
+                <option value="every_4_weeks">Every 4 weeks</option>
+                <option value="every_5_weeks">Every 5 weeks</option>
+                <option value="every_6_weeks">Every 6 weeks</option>
+                <option value="every_8_weeks">Every 8 weeks</option>
+                <option value="monthly">Monthly</option>
+                <option value="every_2_months">Every 2 months</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </div>
             <div class="field"><label for="slot-repeat-count">Occurrences</label><input id="slot-repeat-count" type="number" min="1" max="52" value="1" data-editor-slot-repeat-count></div>
             <div class="field field-span-2"><label for="slot-notes">Note <span class="text-muted">(optional)</span></label><textarea id="slot-notes" maxlength="500" data-editor-slot-notes></textarea></div>
           </div>
@@ -513,6 +555,9 @@
         <summary class="button button-quiet">Actions</summary>
         <div class="editor-booking-popover">
           <button type="button" data-editor-cancel>Delete</button>
+          {% if current_user.role in ['admin', 'booking_agent'] %}
+            <button type="button" data-editor-delete-client-upcoming>Delete upcoming client bookings</button>
+          {% endif %}
           <a href="#" data-editor-client-details {% if current_user.role == 'booking_agent' %}target="_blank" rel="noopener"{% endif %}>Client Details</a>
           <a href="#" data-editor-client-notes>Client Notes</a>
           {% if current_user.role in ['admin', 'booking_agent'] and current_user.has_permission('contact_details') %}
@@ -521,6 +566,7 @@
         </div>
       </details>
       <button type="button" data-editor-busy-delete hidden>Delete busy time</button>
+      <button class="button button-danger" type="button" data-editor-busy-delete-upcoming hidden>Delete this busy slot on upcoming days</button>
       <button class="button button-danger" type="button" data-editor-busy-delete-all hidden>Delete this break for all instructors</button>
       <button type="button" data-editor-slot-delete hidden>Delete slot</button>
       <div class="appointment-editor-actions">
@@ -534,5 +580,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('static', filename='js/calendar.js', v='20260824-1') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20260907-3') }}" defer></script>
 {% endblock %}

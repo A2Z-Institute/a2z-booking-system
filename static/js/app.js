@@ -4,6 +4,16 @@
   const navToggle = document.querySelector("[data-nav-toggle]");
   const siteNav = document.querySelector("[data-site-nav]");
 
+  // Native <details> menus do not close automatically when the user clicks
+  // elsewhere. Close calendar filters, account menus, and action menus when
+  // focus moves outside the currently open menu.
+  document.addEventListener("pointerdown", (event) => {
+    if (!(event.target instanceof Node)) return;
+    document.querySelectorAll("details[open]").forEach((details) => {
+      if (!details.contains(event.target)) details.open = false;
+    });
+  });
+
   const setNavigationOpen = (open) => {
     if (!navToggle || !siteNav) return;
     navToggle.setAttribute("aria-expanded", String(open));
@@ -151,7 +161,6 @@
   document.querySelectorAll("[data-role-form]").forEach((form) => {
     const roleSelect = form.querySelector("[data-role-select]");
     const phone = form.querySelector("[data-role-phone]");
-    const phoneOptional = form.querySelector("[data-phone-optional]");
     const branch = form.querySelector("[data-role-branch]");
     const instructorOnly = form.querySelectorAll("[data-instructor-only]");
     const studentOnly = form.querySelectorAll("[data-student-only]");
@@ -188,8 +197,7 @@
           control.disabled = role !== "student";
         });
       });
-      if (phone) phone.required = role === "student" || role === "instructor";
-      if (phoneOptional) phoneOptional.hidden = role === "student" || role === "instructor";
+      if (phone) phone.required = false;
       syncInstructorChoices();
     };
 
@@ -203,7 +211,7 @@
     const roleSelect = form?.querySelector("[data-permission-role]");
     const permissionInputs = fieldset.querySelectorAll("[data-permission-bit]");
     const administrator = fieldset.querySelector("[data-administrator-permission]");
-    const defaults = { admin: 127, booking_agent: 111, instructor: 100, student: 0 };
+    const defaults = { admin: 255, booking_agent: 111, instructor: 100, student: 0 };
 
     const syncPermissions = (applyDefaults = false) => {
       const role = roleSelect?.value || fieldset.dataset.currentRole || "";

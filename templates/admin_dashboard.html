@@ -35,7 +35,7 @@
   <article class="stat-card">
     <span class="stat-label">Awaiting review</span>
     <strong class="stat-value">{{ summary.pending|default(0) }}</strong>
-    <span class="stat-detail">Requests across branches</span>
+    <span class="stat-detail">{{ 'Requests across branches' if current_user.is_super_admin else 'Requests in your branch' }}</span>
   </article>
   <article class="stat-card">
     <span class="stat-label">Students</span>
@@ -91,6 +91,7 @@
   </div>
 
   <form class="filter-bar" action="{{ url_for('admin_dashboard') }}" method="get" aria-label="Filter bookings">
+    {% if current_user.is_super_admin %}
     <div class="field">
       <label for="branch-filter">Branch</label>
       <select id="branch-filter" name="branch">
@@ -100,6 +101,9 @@
         {% endfor %}
       </select>
     </div>
+    {% else %}
+      <input type="hidden" name="branch" value="{{ active_filters.branch|default('') }}">
+    {% endif %}
     <div class="field">
       <label for="status-filter">Status</label>
       <select id="status-filter" name="status">
