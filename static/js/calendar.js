@@ -1203,6 +1203,7 @@
       <strong class="calendar-event-client"></strong>
       <span class="calendar-event-service"></span>
       <small class="calendar-event-status"></small>
+      <small class="calendar-event-phone"></small>
       ${canStartDoubleBooking ? `<span class="calendar-event-double-book${isShortAppointment ? " is-compact" : ""}" title="Add another booking at this time">${isShortAppointment ? "+" : "+ Book"}</span>` : ''}
       ${canDragEvent ? `<span class="calendar-event-resize" title="Drag to change ${isSlot ? "slot" : isBusy ? "busy time" : "appointment"} duration" aria-label="Resize ${isSlot ? "booking slot" : isBusy ? "busy time" : "appointment"}"></span>` : ''}
     `;
@@ -1218,12 +1219,15 @@
       : (event.machine_category || event.machine_name || event.service_name || "Equipment");
     button.querySelector(".calendar-event-status").textContent = isSlot ? "" : isBusy
       ? "Unavailable"
+      : displayStatus(event.status);
+    button.querySelector(".calendar-event-phone").textContent = isBusy || isSlot
+      ? ""
       : (event.student_phone || "No phone");
     button.setAttribute(
       "aria-label",
       isBusy || isSlot
         ? `${event.title || "Busy time"}, ${event.start_time} to ${event.end_time}`
-        : `${event.student_name}, ${event.machine_category || event.machine_name || event.service_name || "equipment"}, ${event.student_phone || "no phone"}, ${event.start_time} to ${event.end_time}`,
+        : `${event.student_name}, ${displayStatus(event.status)}, ${event.machine_category || event.machine_name || event.service_name || "equipment"}, ${event.student_phone || "no phone"}, ${event.start_time} to ${event.end_time}`,
     );
     button.addEventListener("click", (clickEvent) => {
       clickEvent.stopPropagation();

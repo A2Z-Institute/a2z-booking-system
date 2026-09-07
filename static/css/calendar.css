@@ -1850,6 +1850,107 @@
   color: #123b4b;
 }
 
+/* Status is operational information, so it remains visible for every account
+   and on short appointments. Colours match the status rather than the staff
+   member, making completed and pending work immediately scannable. */
+.calendar-event:not(.calendar-busy-event):not(.calendar-booking-slot) {
+  --status-colour: #185fa5;
+  --status-background: #e6f1fb;
+  background: var(--status-background);
+  border-color: color-mix(in srgb, var(--status-colour) 48%, #d8dde2);
+  border-left-color: var(--status-colour);
+  filter: none;
+  opacity: 1;
+}
+
+.calendar-event.event-status-pending {
+  --status-colour: #a15c00;
+  --status-background: #fff1b8;
+}
+
+.calendar-event.event-status-approved {
+  --status-colour: #087b6d;
+  --status-background: #d9f2ed;
+}
+
+.calendar-event.event-status-not-confirmed,
+.calendar-event.event-status-running-late {
+  --status-colour: #b54708;
+  --status-background: #ffead5;
+}
+
+.calendar-event.event-status-arrived {
+  --status-colour: #087b9e;
+  --status-background: #dff3f8;
+}
+
+.calendar-event.event-status-rescheduled {
+  --status-colour: #6941c6;
+  --status-background: #eee8ff;
+}
+
+.calendar-event.event-status-completed {
+  --status-colour: #218739;
+  --status-background: #ddf5df;
+}
+
+.calendar-event.event-status-no-show,
+.calendar-event.event-status-rejected {
+  --status-colour: #b42318;
+  --status-background: #fee4e2;
+}
+
+.calendar-event.event-status-cancelled {
+  --status-colour: #667085;
+  --status-background: #eaecf0;
+}
+
+.calendar-event.event-status-no-action {
+  --status-colour: #475467;
+  --status-background: #eef1f4;
+}
+
+.calendar-event .calendar-event-status {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  display: block;
+  max-width: calc(100% - 4px);
+  padding: 0 2px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--status-colour) 65%, white);
+  border-radius: 1px;
+  background: #fff;
+  color: var(--status-colour);
+  font-size: 0.5rem;
+  font-weight: 800;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-event .calendar-event-phone {
+  color: #344054;
+  font-size: 0.56rem;
+  font-weight: 650;
+}
+
+.calendar-event.duration-1 .calendar-event-status,
+.calendar-event.duration-2 .calendar-event-status {
+  display: block;
+  max-width: 48%;
+}
+
+.calendar-event.duration-1 .calendar-event-phone,
+.calendar-event.duration-2 .calendar-event-phone {
+  display: none;
+}
+
+.calendar-event:hover:not(.calendar-busy-event):not(.calendar-booking-slot),
+.calendar-event:focus-visible:not(.calendar-busy-event):not(.calendar-booking-slot) {
+  background: color-mix(in srgb, var(--status-background) 86%, var(--status-colour));
+}
+
 .appointment-dialog {
   width: min(calc(100% - 2rem), 620px);
 }
