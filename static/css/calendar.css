@@ -1850,15 +1850,12 @@
   color: #123b4b;
 }
 
-/* Status is operational information, so it remains visible for every account
-   and on short appointments. Colours match the status rather than the staff
-   member, making completed and pending work immediately scannable. */
+/* Use the selected course/equipment colour as one continuous pastel card.
+   Status remains a compact label and does not split the card into two colours. */
 .calendar-event:not(.calendar-busy-event):not(.calendar-booking-slot) {
   --status-colour: #185fa5;
-  --status-background: #e6f1fb;
-  background: var(--status-background);
-  border-color: color-mix(in srgb, var(--status-colour) 48%, #d8dde2);
-  border-left-color: var(--status-colour);
+  background: color-mix(in srgb, var(--event-colour) 34%, white);
+  border: 1px solid #9aa4af;
   filter: none;
   opacity: 1;
 }
@@ -1948,7 +1945,7 @@
 
 .calendar-event:hover:not(.calendar-busy-event):not(.calendar-booking-slot),
 .calendar-event:focus-visible:not(.calendar-busy-event):not(.calendar-booking-slot) {
-  background: color-mix(in srgb, var(--status-background) 86%, var(--status-colour));
+  background: color-mix(in srgb, var(--event-colour) 42%, white);
 }
 
 .appointment-dialog {
