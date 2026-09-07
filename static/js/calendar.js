@@ -3,11 +3,19 @@
 
   const STAFF_DAY_START = 6 * 60;
   const STAFF_DAY_END = (18 * 60) + 30;
-  // Bookings are coloured by instructor rather than equipment/service. This
-  // makes each staff column easy to scan while keeping the calendar white.
-  const INSTRUCTOR_EVENT_COLOURS = [
-    "#2F6B9A", "#237A57", "#7A4EAB", "#A45C1B", "#0F766E",
-    "#A33A4A", "#49657A", "#7A6A32", "#4D5D93", "#8A4D70",
+  // Instructor colours identify column headers. Appointment cards use the
+  // custom Calendar colour saved on their selected course/equipment service.
+  const INSTRUCTOR_EVENT_PALETTES = [
+    { accent: "#087B9E", background: "#BFE8F3", hover: "#A9DFED" },
+    { accent: "#A16207", background: "#FDE99A", hover: "#F9DD72" },
+    { accent: "#3F7D20", background: "#DDF2A4", hover: "#CFEA7D" },
+    { accent: "#9A3412", background: "#FED7AA", hover: "#FBC38A" },
+    { accent: "#6D28D9", background: "#E7D8FF", hover: "#D9C3FC" },
+    { accent: "#BE185D", background: "#FBCFE8", hover: "#F8B8DA" },
+    { accent: "#1D4ED8", background: "#CFE0FF", hover: "#B9D1FF" },
+    { accent: "#0F766E", background: "#C5EEE7", hover: "#ACE3DA" },
+    { accent: "#7C3F00", background: "#F8D8A1", hover: "#F3C982" },
+    { accent: "#A21CAF", background: "#F2CFF5", hover: "#EAB7EF" },
   ];
 
   const calendar = document.querySelector("[data-calendar]");
@@ -622,13 +630,27 @@
     return `calendar-event duration-${durationSteps} event-status-${status}${event.type === "busy" ? " calendar-busy-event" : ""}${event.type === "slot" ? " calendar-booking-slot" : ""}`;
   };
 
-  const instructorEventColour = (instructorId) => {
+  const instructorPaletteIndex = (instructorId) => {
     const text = String(instructorId || "");
     let hash = 0;
     for (let index = 0; index < text.length; index += 1) {
       hash = ((hash * 31) + text.charCodeAt(index)) >>> 0;
     }
-    return INSTRUCTOR_EVENT_COLOURS[hash % INSTRUCTOR_EVENT_COLOURS.length];
+    return hash % INSTRUCTOR_EVENT_PALETTES.length;
+  };
+  const instructorEventPalette = (instructorId) => (
+    INSTRUCTOR_EVENT_PALETTES[instructorPaletteIndex(instructorId)]
+  );
+  const instructorEventColour = (instructorId) => instructorEventPalette(instructorId).accent;
+
+  const branchColour = (branchId) => {
+    const palette = ["#185FA5", "#0F766E", "#9A3412", "#6D28D9", "#A21CAF"];
+    const text = String(branchId || "");
+    let hash = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      hash = ((hash * 31) + text.charCodeAt(index)) >>> 0;
+    }
+    return palette[hash % palette.length];
   };
 
   const branchColour = (branchId) => {
@@ -1171,7 +1193,7 @@
     button.style.setProperty(
       "--event-colour",
       !isBusy && !isSlot
-        ? instructorEventColour(event.instructor_id)
+        ? (event.service_color || "#C8141B")
         : (event.service_color || "#667085"),
     );
     const range = visibleEventRange(event) || {

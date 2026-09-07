@@ -1837,17 +1837,77 @@
 }
 
 .calendar-busy-event {
-  --event-colour: #667085;
-  background: #f5f6f7 !important;
-  border-color: #cbd2d8;
-  border-left-color: #667085;
+  --event-colour: #087b9e;
+  background: #83cbe3 !important;
+  border-color: #3999b8;
+  border-left-color: #087b9e;
+  color: #103b4a;
 }
 
 .calendar-booking-slot {
-  --event-colour: #277da1;
-  background: #edf8fc;
-  border-color: #8ec8dc;
-  color: #123b4b;
+  --event-colour: #a16207;
+  background: #fde99a;
+  border-color: #d6a915;
+  color: #523600;
+}
+
+.calendar-booking-slot:hover,
+.calendar-booking-slot:focus-visible {
+  background: #f9dd72;
+}
+
+.calendar-busy-event:hover,
+.calendar-busy-event:focus-visible {
+  background: #6ebdd8 !important;
+}
+
+/* Smart Scheduling-style appointment colours: use each course/equipment's
+   configured Calendar colour while status remains a compact neutral label. */
+.calendar-event:not(.calendar-busy-event):not(.calendar-booking-slot) {
+  background: color-mix(in srgb, var(--event-colour) 34%, white);
+  border: 1px solid #9aa4af;
+  filter: none;
+  opacity: 1;
+}
+
+.calendar-event .calendar-event-status {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  display: block;
+  max-width: calc(100% - 4px);
+  padding: 0 2px;
+  overflow: hidden;
+  border: 0;
+  background: #667085;
+  color: #fff;
+  font-size: 0.5rem;
+  font-weight: 800;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-event .calendar-event-phone {
+  color: #344054;
+  font-size: 0.56rem;
+  font-weight: 650;
+}
+
+.calendar-event.duration-1 .calendar-event-status,
+.calendar-event.duration-2 .calendar-event-status {
+  display: block;
+  max-width: 48%;
+}
+
+.calendar-event.duration-1 .calendar-event-phone,
+.calendar-event.duration-2 .calendar-event-phone {
+  display: none;
+}
+
+.calendar-event:hover:not(.calendar-busy-event):not(.calendar-booking-slot),
+.calendar-event:focus-visible:not(.calendar-busy-event):not(.calendar-booking-slot) {
+  background: color-mix(in srgb, var(--event-colour) 42%, white);
 }
 
 /* Status is operational information, so it remains visible for every account

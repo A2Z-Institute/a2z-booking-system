@@ -168,7 +168,20 @@ BOOKING_SELECT = """
            m.location AS machine_location,
            i.name AS instructor_name, br.name AS branch_name,
            u.email AS student_email, COALESCE(cp.admission_number, '') AS admission_number,
-           s.color AS service_color
+           COALESCE(
+               s.color,
+               (
+                   SELECT linked_service.color
+                   FROM booking_services linked_booking_service
+                   JOIN services linked_service
+                     ON linked_service.id = linked_booking_service.service_id
+                   WHERE linked_booking_service.booking_id = b.id
+                     AND linked_booking_service.service_id IS NOT NULL
+                   ORDER BY linked_booking_service.sort_order,
+                            linked_booking_service.id
+                   LIMIT 1
+               )
+           ) AS service_color
     FROM bookings b
     JOIN machines m ON m.id = b.machine_id
     JOIN instructors i ON i.id = b.instructor_id
