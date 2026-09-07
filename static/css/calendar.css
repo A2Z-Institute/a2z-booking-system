@@ -1865,8 +1865,7 @@
    own recognisable pastel while status remains a compact neutral label. */
 .calendar-event:not(.calendar-busy-event):not(.calendar-booking-slot) {
   background: var(--event-background, color-mix(in srgb, var(--event-colour) 34%, white));
-  border-color: color-mix(in srgb, var(--event-colour) 56%, #d8dde2);
-  border-left-color: var(--event-colour);
+  border: 1px solid #9aa4af;
   filter: none;
   opacity: 1;
 }
