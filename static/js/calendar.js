@@ -1256,9 +1256,11 @@
       ? (event.instructor_name || "Unavailable")
       : (event.machine_category || event.machine_name || event.service_name || "Equipment");
     const statusLabel = button.querySelector(".calendar-event-status");
+    const rawAppointmentStatus = String(event.status || "").trim().toLowerCase();
+    const isUnmarkedAppointment = ["", "approved", "confirmed", "no action"].includes(rawAppointmentStatus);
     const visibleStatus = isSlot ? "" : isBusy
       ? "Unavailable"
-      : displayStatus(event.status);
+      : (isUnmarkedAppointment ? "" : displayStatus(event.status));
     statusLabel.textContent = visibleStatus;
     statusLabel.dataset.statusKey = visibleStatus.toLowerCase().replace(/[^a-z]+/g, "-");
     button.querySelector(".calendar-event-phone").textContent = isBusy || isSlot

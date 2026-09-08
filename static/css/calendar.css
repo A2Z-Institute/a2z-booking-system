@@ -1939,6 +1939,10 @@
   white-space: nowrap;
 }
 
+.calendar-event .calendar-event-status:empty {
+  display: none;
+}
+
 /* Colour the visible badge directly. This also handles databases that store
    Confirmed instead of the legacy internal Approved status name. */
 .calendar-event-status[data-status-key="completed"] {
