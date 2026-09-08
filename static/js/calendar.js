@@ -135,6 +135,9 @@
   let servicePickerSnapshot = [];
   let resetHorizontalScroll = false;
   let restoreHorizontalScroll = true;
+  let lastHorizontalScroll = 0;
+  let suppressHorizontalScrollSave = false;
+  let horizontalScrollRestoreGeneration = 0;
   let saveInFlight = false;
   let moveInFlight = false;
   let trailerFinishAuto = false;
@@ -193,6 +196,7 @@
   // back to the first instructor column.
   const horizontalScrollStorageKey = () => [
     "a2z-calendar-scroll-v1",
+    calendar.dataset.currentUserId || "anonymous",
     window.location.pathname,
     dateInput.value,
     viewFilter.value,
@@ -201,21 +205,51 @@
   ].join(":");
 
   const storedHorizontalScroll = () => {
-    try {
-      const value = Number(window.sessionStorage.getItem(horizontalScrollStorageKey()));
-      return Number.isFinite(value) && value > 0 ? value : 0;
-    } catch {
-      return 0;
+    const key = horizontalScrollStorageKey();
+    for (const storageName of ["sessionStorage", "localStorage"]) {
+      try {
+        const rawValue = window[storageName].getItem(key);
+        if (rawValue === null) continue;
+        const value = Number(rawValue);
+        if (Number.isFinite(value) && value >= 0) return value;
+      } catch {
+        // Try the next browser storage provider.
+      }
+    }
+    return 0;
+  };
+
+  const persistHorizontalScroll = (value) => {
+    const normalizedValue = Math.max(0, Number(value) || 0);
+    const key = horizontalScrollStorageKey();
+    for (const storageName of ["sessionStorage", "localStorage"]) {
+      try {
+        window[storageName].setItem(key, String(normalizedValue));
+      } catch {
+        // The calendar remains usable when browser storage is unavailable.
+      }
     }
   };
 
   const rememberHorizontalScroll = () => {
+    if (!calendarScroll || suppressHorizontalScrollSave) return;
+    lastHorizontalScroll = Math.max(0, calendarScroll.scrollLeft);
+    persistHorizontalScroll(lastHorizontalScroll);
+  };
+
+  const setHorizontalScroll = (value) => {
     if (!calendarScroll) return;
-    try {
-      window.sessionStorage.setItem(horizontalScrollStorageKey(), String(calendarScroll.scrollLeft));
-    } catch {
-      // The calendar remains usable when browser storage is unavailable.
-    }
+    const target = Math.max(0, Number(value) || 0);
+    const generation = ++horizontalScrollRestoreGeneration;
+    suppressHorizontalScrollSave = true;
+    lastHorizontalScroll = target;
+    calendarScroll.scrollLeft = target;
+    window.requestAnimationFrame(() => {
+      if (generation !== horizontalScrollRestoreGeneration) return;
+      calendarScroll.scrollLeft = target;
+      suppressHorizontalScrollSave = false;
+      persistHorizontalScroll(target);
+    });
   };
 
   // The server response is applied immediately.  A short, quiet follow-up
@@ -1710,13 +1744,15 @@
   const renderCalendar = () => {
     const preservedScrollLeft = resetHorizontalScroll
       ? 0
-      : Math.max(0, calendarScroll?.scrollLeft || 0);
+      : Math.max(0, calendarScroll?.scrollLeft || 0, lastHorizontalScroll);
+    suppressHorizontalScrollSave = true;
     grid.replaceChildren();
     const columns = columnsForView();
     const slots = timeSlots();
     if (!columns.length) {
       message.hidden = false;
       message.textContent = "Add or verify an instructor to start using the calendar.";
+      setHorizontalScroll(0);
       return;
     }
     const timeColumn = document.createElement("div");
@@ -1792,7 +1828,7 @@
       });
       grid.append(section);
     });
-    if (calendarScroll) calendarScroll.scrollLeft = preservedScrollLeft;
+    setHorizontalScroll(preservedScrollLeft);
   };
 
   async function loadEvents({ silent = false, force = false } = {}) {
@@ -1838,11 +1874,11 @@
       if (!silent) message.hidden = true;
       renderCalendar();
       if (resetHorizontalScroll && calendarScroll) {
-        calendarScroll.scrollLeft = 0;
+        setHorizontalScroll(0);
         resetHorizontalScroll = false;
         restoreHorizontalScroll = false;
       } else if (restoreHorizontalScroll && calendarScroll) {
-        calendarScroll.scrollLeft = storedHorizontalScroll();
+        setHorizontalScroll(storedHorizontalScroll());
         restoreHorizontalScroll = false;
       }
       openInitialClientEditor();
@@ -2598,11 +2634,12 @@
 
   calendarScroll?.addEventListener("scroll", rememberHorizontalScroll, { passive: true });
   window.addEventListener("pagehide", () => {
-    rememberHorizontalScroll();
+    persistHorizontalScroll(Math.max(lastHorizontalScroll, calendarScroll?.scrollLeft || 0));
     persistCalendarDate();
   });
 
   restoreCalendarState();
+  lastHorizontalScroll = storedHorizontalScroll();
   if (compactScreen()) viewFilter.value = "day";
   loadEvents();
 
