@@ -3570,11 +3570,14 @@ def api_calendar_events():
         "no-show": "No-show",
         "no-action": "No Action",
     }
-    selected_status = status_lookup.get(
-        (request.args.get("status") or "").strip().lower(), ""
+    requested_status = (
+        (request.args.get("status") or "").strip().lower()
+        if current_user.role == "admin"
+        else ""
     )
+    selected_status = status_lookup.get(requested_status, "")
     valid_statuses = {*ACTIVE_BOOKING_STATUSES, *FINAL_BOOKING_STATUSES}
-    if request.args.get("status") and selected_status not in valid_statuses:
+    if requested_status and selected_status not in valid_statuses:
         return jsonify({"error": "Choose a valid appointment status."}), 400
     if selected_status:
         clauses.append("b.validation_status = ?")

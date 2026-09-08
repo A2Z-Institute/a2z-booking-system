@@ -5,7 +5,7 @@
 {% block body_class %}calendar-page{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260908-3') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260908-4') }}">
 {% endblock %}
 
 {% block content %}
@@ -26,6 +26,7 @@
   class="calendar-shell{% if current_user.is_super_admin %} is-super-admin-calendar{% endif %}"
   data-calendar
   data-current-user-id="{{ current_user.id }}"
+  data-can-filter-status="{{ 'true' if current_user.role == 'admin' else 'false' }}"
   data-events-url="{{ url_for('api_calendar_events') }}"
   data-create-url="{{ url_for('api_calendar_create_appointment') }}"
   data-update-url-template="{{ url_for('api_calendar_reschedule_appointment', booking_id=0) }}"
@@ -69,6 +70,7 @@
                 <option value="week" {% if current_user.role == 'instructor' %}selected{% endif %}>Week</option>
               </select>
             </div>
+            {% if current_user.role == 'admin' %}
             <div class="field compact-field">
               <label for="calendar-status">Appointment status</label>
               <select id="calendar-status" data-calendar-status>
@@ -82,6 +84,11 @@
                 <option value="Rejected">Declined</option>
               </select>
             </div>
+            {% else %}
+              <select id="calendar-status" data-calendar-status hidden disabled aria-hidden="true">
+                <option value="" selected>All statuses</option>
+              </select>
+            {% endif %}
           </div>
         </details>
         {% if current_user.has_permission('export_appointments') %}
@@ -581,5 +588,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('static', filename='js/calendar.js', v='20260908-3') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/calendar.js', v='20260908-4') }}" defer></script>
 {% endblock %}

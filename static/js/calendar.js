@@ -100,6 +100,7 @@
   const csrf = editor.querySelector('[name="csrf_token"]')?.value || "";
   const currentRole = document.body.dataset.userRole || "";
   const canManageOwnSlots = calendar.dataset.canManageOwnSlots === "true";
+  const canFilterStatus = calendar.dataset.canFilterStatus === "true";
   const currentInstructorId = String(calendar.dataset.currentInstructorId || "");
 
   if (
@@ -185,7 +186,9 @@
     );
     if (requestedInstructorOption) instructorFilter.value = String(requestedInstructor);
 
-    const requestedStatus = locationUrl.searchParams.get("status") ?? stored.status ?? "";
+    const requestedStatus = canFilterStatus
+      ? (locationUrl.searchParams.get("status") ?? stored.status ?? "")
+      : "";
     if (Array.from(statusFilter.options).some((option) => option.value === String(requestedStatus))) {
       statusFilter.value = String(requestedStatus);
     }
@@ -282,7 +285,7 @@
     } else {
       locationUrl.searchParams.delete("instructor_id");
     }
-    if (statusFilter.value) {
+    if (canFilterStatus && statusFilter.value) {
       locationUrl.searchParams.set("status", statusFilter.value);
     } else {
       locationUrl.searchParams.delete("status");
@@ -293,7 +296,7 @@
         view: viewFilter.value,
         branchId: branchFilter?.value || "",
         instructorId: instructorFilter.value,
-        status: statusFilter.value,
+        status: canFilterStatus ? statusFilter.value : "",
       }));
     } catch {
       // URL state still makes refresh reliable when browser storage is unavailable.
@@ -1853,7 +1856,7 @@
     const query = new URLSearchParams({ start, end });
     if (branchFilter?.value) query.set("branch_id", branchFilter.value);
     if (instructorFilter.value) query.set("instructor_id", instructorFilter.value);
-    if (statusFilter.value) query.set("status", statusFilter.value);
+    if (canFilterStatus && statusFilter.value) query.set("status", statusFilter.value);
     query.set("_sync", String(Date.now()));
     try {
       const response = await fetch(`${calendar.dataset.eventsUrl}?${query}`, {
@@ -2618,7 +2621,9 @@
     loadEvents({ force: true });
   });
   dateInput.addEventListener("change", () => { resetHorizontalScroll = true; loadEvents({ force: true }); });
-  statusFilter.addEventListener("change", () => loadEvents({ force: true }));
+  if (canFilterStatus) {
+    statusFilter.addEventListener("change", () => loadEvents({ force: true }));
+  }
   viewFilter.addEventListener("change", () => { resetHorizontalScroll = true; loadEvents({ force: true }); });
   instructorFilter.addEventListener("change", () => {
     viewFilter.value = instructorFilter.value && !compactScreen() ? "week" : "day";
@@ -2638,6 +2643,7 @@
     persistCalendarDate();
   });
 
+  if (!canFilterStatus) statusFilter.value = "";
   restoreCalendarState();
   lastHorizontalScroll = storedHorizontalScroll();
   if (compactScreen()) viewFilter.value = "day";
