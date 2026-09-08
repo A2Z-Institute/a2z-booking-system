@@ -1866,6 +1866,7 @@
    Status remains a compact label and does not split the card into two colours. */
 .calendar-event:not(.calendar-busy-event):not(.calendar-booking-slot) {
   --status-colour: #185fa5;
+  --status-background: #e6f1fb;
   background: color-mix(in srgb, var(--event-colour) 34%, white);
   border: 1px solid #9aa4af;
   filter: none;
@@ -1873,13 +1874,13 @@
 }
 
 .calendar-event.event-status-pending {
-  --status-colour: #a15c00;
-  --status-background: #fff1b8;
+  --status-colour: #7a4f00;
+  --status-background: #ffd966;
 }
 
 .calendar-event.event-status-approved {
-  --status-colour: #087b6d;
-  --status-background: #d9f2ed;
+  --status-colour: #a11212;
+  --status-background: #ffb3b3;
 }
 
 .calendar-event.event-status-not-confirmed,
@@ -1899,8 +1900,8 @@
 }
 
 .calendar-event.event-status-completed {
-  --status-colour: #218739;
-  --status-background: #ddf5df;
+  --status-colour: #176b2c;
+  --status-background: #b7e4c0;
 }
 
 .calendar-event.event-status-no-show,
@@ -1915,8 +1916,8 @@
 }
 
 .calendar-event.event-status-no-action {
-  --status-colour: #475467;
-  --status-background: #eef1f4;
+  --status-colour: #a11212;
+  --status-background: #ffb3b3;
 }
 
 .calendar-event .calendar-event-status {
@@ -1929,7 +1930,7 @@
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--status-colour) 65%, white);
   border-radius: 1px;
-  background: #fff;
+  background: var(--status-background);
   color: var(--status-colour);
   font-size: 0.5rem;
   font-weight: 800;
