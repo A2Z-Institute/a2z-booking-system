@@ -1939,6 +1939,27 @@
   white-space: nowrap;
 }
 
+/* Colour the visible badge directly. This also handles databases that store
+   Confirmed instead of the legacy internal Approved status name. */
+.calendar-event-status[data-status-key="completed"] {
+  border-color: #62ad73;
+  background: #b7e4c0;
+  color: #176b2c;
+}
+
+.calendar-event-status[data-status-key="pending"] {
+  border-color: #d1a52b;
+  background: #ffd966;
+  color: #7a4f00;
+}
+
+.calendar-event-status[data-status-key="confirmed"],
+.calendar-event-status[data-status-key="no-action"] {
+  border-color: #d46a6a;
+  background: #ffb3b3;
+  color: #a11212;
+}
+
 .calendar-event .calendar-event-phone {
   color: #344054;
   font-size: 0.56rem;

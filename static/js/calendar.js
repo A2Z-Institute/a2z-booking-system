@@ -1255,9 +1255,12 @@
     button.querySelector(".calendar-event-service").textContent = isSlot ? "Available for booking" : isBusy
       ? (event.instructor_name || "Unavailable")
       : (event.machine_category || event.machine_name || event.service_name || "Equipment");
-    button.querySelector(".calendar-event-status").textContent = isSlot ? "" : isBusy
+    const statusLabel = button.querySelector(".calendar-event-status");
+    const visibleStatus = isSlot ? "" : isBusy
       ? "Unavailable"
       : displayStatus(event.status);
+    statusLabel.textContent = visibleStatus;
+    statusLabel.dataset.statusKey = visibleStatus.toLowerCase().replace(/[^a-z]+/g, "-");
     button.querySelector(".calendar-event-phone").textContent = isBusy || isSlot
       ? ""
       : (event.student_phone || "No phone");
