@@ -323,6 +323,7 @@
         button.className = "client-typeahead-option";
         [
           ["name", client.full_name || "—"],
+          ["admission", client.admission_number ? `Admission: ${client.admission_number}` : "No admission number"],
           ["phone", client.phone || "No phone"],
         ].forEach(([field, value]) => {
           const span = document.createElement("span");

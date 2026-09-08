@@ -1071,7 +1071,7 @@
 .client-typeahead-option {
   display: grid;
   width: 100%;
-  grid-template-columns: minmax(0, 1.65fr) minmax(7rem, 0.85fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(8.5rem, 1fr) minmax(7rem, 0.85fr);
   gap: 0.65rem;
   padding: 0.65rem 0.75rem;
   border: 0;
@@ -1096,14 +1096,26 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.client-typeahead-admission {
+  overflow: hidden;
+  align-self: center;
+  color: var(--ink-700);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .client-typeahead-empty { padding: 0.75rem; color: var(--ink-600); }
 
 @media (max-width: 620px) {
   .client-typeahead-option {
-    grid-template-columns: minmax(0, 1.55fr) minmax(6rem, 0.85fr);
+    grid-template-columns: minmax(0, 1fr) minmax(6rem, 0.85fr);
     gap: 0.35rem;
     padding-inline: 0.45rem;
     font-size: 0.78rem;
+  }
+
+  .client-typeahead-name {
+    grid-column: 1 / -1;
   }
 }
 
