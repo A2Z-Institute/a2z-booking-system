@@ -5323,18 +5323,18 @@ def api_calendar_instructor_status(booking_id):
         conn.execute("BEGIN IMMEDIATE")
         booking = conn.execute(
             """
-            SELECT b.*, u.is_active AS client_is_active
+            SELECT b.*
             FROM bookings b
-            JOIN users u ON u.id = b.student_user_id
             WHERE b.id = ? AND b.instructor_id = ?
             """,
             (booking_id, current_user.instructor_id),
         ).fetchone()
         if not booking:
             abort(404)
-        _assert_past_appointment_edit_allowed(booking)
-        if not booking["client_is_active"]:
-            return jsonify({"error": "This customer is no longer active."}), 409
+        # A status-only update is part of the instructor's historical record.
+        # It must remain available after the appointment date and when an old
+        # client has since been deactivated. Other past-booking edits remain
+        # administrator-only through the normal appointment update endpoint.
         if booking["validation_status"] in {"Cancelled", "Rejected"}:
             return jsonify({"error": "This appointment is already closed."}), 409
         if revision != booking["calendar_revision"]:
