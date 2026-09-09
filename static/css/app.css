@@ -2990,6 +2990,10 @@ textarea:focus {
     grid-template-columns: minmax(150px, 0.8fr) minmax(140px, 0.7fr) minmax(155px, 0.75fr) minmax(210px, 1.15fr) auto;
   }
 
+  .filter-bar.booking-register-filters {
+    grid-template-columns: minmax(135px, 0.7fr) minmax(125px, 0.62fr) minmax(145px, 0.7fr) minmax(145px, 0.7fr) minmax(205px, 1fr) auto;
+  }
+
   .content-grid.admin-grid {
     grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.65fr);
     align-items: start;

@@ -90,7 +90,7 @@
     </div>
   </div>
 
-  <form class="filter-bar" action="{{ url_for('admin_dashboard') }}" method="get" aria-label="Filter bookings">
+  <form class="filter-bar booking-register-filters" action="{{ url_for('admin_dashboard') }}" method="get" aria-label="Filter bookings">
     {% if current_user.is_super_admin %}
     <div class="field">
       <label for="branch-filter">Branch</label>
@@ -114,8 +114,12 @@
       </select>
     </div>
     <div class="field">
-      <label for="date-filter">Date</label>
-      <input id="date-filter" name="date" type="date" value="{{ active_filters.date|default('') }}">
+      <label for="date-from-filter">From date</label>
+      <input id="date-from-filter" name="date_from" type="date" value="{{ active_filters.date_from|default('') }}">
+    </div>
+    <div class="field">
+      <label for="date-to-filter">To date</label>
+      <input id="date-to-filter" name="date_to" type="date" value="{{ active_filters.date_to|default('') }}">
     </div>
     <div class="field">
       <label for="booking-search">Student, instructor, or equipment</label>
@@ -123,6 +127,7 @@
     </div>
     <div class="filter-actions">
       <button class="button button-primary button-small" type="submit">Apply</button>
+      <button class="button button-secondary button-small" type="submit" formaction="{{ url_for('admin_bookings_export') }}">Download CSV</button>
       <button class="button button-quiet button-small" type="button" data-reset-filters>Clear</button>
     </div>
   </form>

@@ -8607,7 +8607,12 @@ def admin_dashboard():
     current_time = now.strftime("%H:%M")
     selected_status = (request.args.get("status") or "").strip().lower()
     selected_branch = request.args.get("branch", "")
-    selected_date = request.args.get("date", "")
+    selected_date_from = request.args.get("date_from", "")
+    selected_date_to = request.args.get("date_to", "")
+    legacy_date = request.args.get("date", "")
+    if legacy_date and not selected_date_from and not selected_date_to:
+        selected_date_from = legacy_date
+        selected_date_to = legacy_date
     search_query = " ".join((request.args.get("q") or "").split())[:100]
     clauses = []
     params = []
@@ -8636,13 +8641,23 @@ def admin_dashboard():
             params.append(branch_id)
         except ValueError:
             selected_branch = ""
-    if selected_date:
+    if selected_date_from:
         try:
-            date.fromisoformat(selected_date)
-            clauses.append("b.target_date = ?")
-            params.append(selected_date)
+            date.fromisoformat(selected_date_from)
+            clauses.append("b.target_date >= ?")
+            params.append(selected_date_from)
         except ValueError:
-            selected_date = ""
+            selected_date_from = ""
+    if selected_date_to:
+        try:
+            date.fromisoformat(selected_date_to)
+            clauses.append("b.target_date <= ?")
+            params.append(selected_date_to)
+        except ValueError:
+            selected_date_to = ""
+    if selected_date_from and selected_date_to and selected_date_from > selected_date_to:
+        flash("From date must be on or before To date.", "error")
+        clauses.append("1 = 0")
     if search_query:
         clauses.append(
             "(lower(b.student_name) LIKE lower(?) OR lower(m.machine_code) LIKE lower(?) "
@@ -8731,12 +8746,108 @@ def admin_dashboard():
         filters={
             "status": selected_status,
             "branch": selected_branch,
-            "date": selected_date,
+            "date_from": selected_date_from,
+            "date_to": selected_date_to,
             "q": search_query,
         },
         recent_events=recent_events,
         today=today,
         current_time=current_time,
+    )
+
+
+@app.get("/admin/bookings/export.csv")
+@role_required("admin")
+def admin_bookings_export():
+    """Download the Booking Register using the same custom filters as the page."""
+    selected_status = (request.args.get("status") or "").strip().lower()
+    selected_branch = request.args.get("branch", "")
+    selected_date_from = request.args.get("date_from", "")
+    selected_date_to = request.args.get("date_to", "")
+    search_query = " ".join((request.args.get("q") or "").split())[:100]
+    clauses = []
+    params = []
+    status_values = {
+        "pending": "Pending",
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "cancelled": "Cancelled",
+        "completed": "Completed",
+        "no-show": "No-show",
+    }
+    if selected_status in status_values:
+        clauses.append("b.validation_status = ?")
+        params.append(status_values[selected_status])
+
+    portal_branch_id = _portal_branch_id()
+    if portal_branch_id is not None:
+        clauses.append("b.branch_id = ?")
+        params.append(portal_branch_id)
+    elif selected_branch:
+        try:
+            clauses.append("b.branch_id = ?")
+            params.append(int(selected_branch))
+        except ValueError:
+            pass
+
+    try:
+        if selected_date_from:
+            date.fromisoformat(selected_date_from)
+            clauses.append("b.target_date >= ?")
+            params.append(selected_date_from)
+        if selected_date_to:
+            date.fromisoformat(selected_date_to)
+            clauses.append("b.target_date <= ?")
+            params.append(selected_date_to)
+    except ValueError:
+        abort(400, description="Choose valid From and To dates.")
+    if selected_date_from and selected_date_to and selected_date_from > selected_date_to:
+        abort(400, description="From date must be on or before To date.")
+
+    if search_query:
+        clauses.append(
+            "(lower(b.student_name) LIKE lower(?) OR lower(m.machine_code) LIKE lower(?) "
+            "OR lower(i.name) LIKE lower(?))"
+        )
+        search_pattern = f"%{search_query}%"
+        params.extend((search_pattern, search_pattern, search_pattern))
+
+    with get_db() as conn:
+        bookings = _booking_rows(
+            conn,
+            " AND ".join(clauses),
+            params,
+            "br.name ASC, i.name ASC, b.target_date ASC, b.start_time ASC",
+        )
+
+    date_label = (
+        f"{selected_date_from or 'first'}-to-{selected_date_to or 'latest'}"
+    )
+    rows = [
+        (
+            booking["id"],
+            booking["target_date"],
+            booking["start_time"],
+            booking["end_time"],
+            booking["student_name"],
+            booking["admission_number"],
+            booking["mobile_number"],
+            booking["instructor_name"],
+            booking["service_name"] or booking["machine_code"] or booking["machine_category"],
+            booking["branch_name"],
+            booking["validation_status"],
+            booking["notes"],
+        )
+        for booking in bookings
+    ]
+    return _csv_response(
+        f"a2z-bookings-{date_label}.csv",
+        (
+            "Booking ID", "Date", "Start", "Finish", "Client",
+            "Admission Number", "Phone", "Instructor", "Training / Equipment",
+            "Branch", "Status", "Notes",
+        ),
+        rows,
     )
 
 
