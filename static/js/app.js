@@ -401,11 +401,14 @@
         event.preventDefault();
         clearTransferTargets();
         if (!draggedCard || savingTransfer) return;
-        const sourceBranchId = Number(draggedCard.dataset.sourceBranchId);
+        // Keep a local reference: the browser fires dragend while the network
+        // request is in progress, and dragend deliberately clears draggedCard.
+        const transferredCard = draggedCard;
+        const sourceBranchId = Number(transferredCard.dataset.sourceBranchId);
         const targetBranchId = Number(zone.dataset.branchId);
-        const userId = Number(draggedCard.dataset.userId);
+        const userId = Number(transferredCard.dataset.userId);
         if (!Number.isInteger(targetBranchId) || targetBranchId === sourceBranchId) return;
-        const instructorName = draggedCard.dataset.instructorName || "This instructor";
+        const instructorName = transferredCard.dataset.instructorName || "This instructor";
         const destinationName = zone.dataset.branchName || "the destination branch";
         if (!window.confirm(`Transfer ${instructorName} to ${destinationName}? Old bookings will remain in the original branch.`)) return;
 
@@ -428,8 +431,8 @@
           if (!response.ok || !result.success) {
             throw new Error(result.error || "The instructor could not be transferred.");
           }
-          zone.querySelector("[data-instructor-transfer-list]")?.appendChild(draggedCard);
-          draggedCard.dataset.sourceBranchId = String(targetBranchId);
+          zone.querySelector("[data-instructor-transfer-list]")?.appendChild(transferredCard);
+          transferredCard.dataset.sourceBranchId = String(targetBranchId);
           setTransferMessage(`${instructorName} was transferred to ${result.branch_name || destinationName}. Refreshing staff records…`);
           window.setTimeout(() => window.location.reload(), 650);
         } catch (error) {
