@@ -1255,6 +1255,10 @@ class AppointmentConflictError(ValueError):
     pass
 
 
+class InstructorTransferBlocked(ValueError):
+    """Raised when a branch transfer would strand upcoming appointments."""
+
+
 def _appointment_conflict_message(buffer_before=0, buffer_after=0):
     """Return an actionable staff-calendar conflict explanation."""
     padding = []
@@ -2304,6 +2308,212 @@ def api_admin_reorder_instructors():
     return jsonify({"success": True, "instructor_ids": final_ids})
 
 
+def _transfer_instructor_profile(conn, user, target_branch_id):
+    """Move a login to a new branch while retaining its old calendar history."""
+    if user["role"] != "instructor" or not user["instructor_id"]:
+        raise ValueError("Choose an instructor account to transfer.")
+    source_branch_id = int(user["branch_id"] or 0)
+    if target_branch_id == source_branch_id:
+        raise ValueError("Choose a different destination branch.")
+
+    source = conn.execute(
+        "SELECT * FROM instructors WHERE id = ? AND branch_id = ?",
+        (user["instructor_id"], source_branch_id),
+    ).fetchone()
+    if not source:
+        raise ValueError("The instructor profile does not match its current branch.")
+    if conn.execute(
+        "SELECT 1 FROM users WHERE instructor_id = ? AND id != ? LIMIT 1",
+        (source["id"], user["id"]),
+    ).fetchone():
+        raise ValueError("This instructor profile is linked to another login and cannot be moved.")
+
+    now = datetime.now(IST)
+    active_placeholders = ",".join("?" for _ in ACTIVE_BOOKING_STATUSES)
+    upcoming_count = conn.execute(
+        f"""
+        SELECT count(*) AS total FROM bookings
+        WHERE instructor_id = ?
+          AND validation_status IN ({active_placeholders})
+          AND (target_date > ? OR (target_date = ? AND end_time > ?))
+        """,
+        (
+            source["id"],
+            *ACTIVE_BOOKING_STATUSES,
+            now.date().isoformat(),
+            now.date().isoformat(),
+            now.strftime("%H:%M"),
+        ),
+    ).fetchone()["total"]
+    if upcoming_count:
+        raise InstructorTransferBlocked(
+            f"{user['full_name'] or source['name']} has {upcoming_count} upcoming active "
+            "appointment(s). Reassign or cancel them before transferring the instructor."
+        )
+
+    destination = conn.execute(
+        "SELECT * FROM instructors WHERE lower(name) = lower(?) AND branch_id = ?",
+        (source["name"], target_branch_id),
+    ).fetchone()
+    if destination and conn.execute(
+        "SELECT 1 FROM users WHERE instructor_id = ? AND id != ? LIMIT 1",
+        (destination["id"], user["id"]),
+    ).fetchone():
+        raise ValueError("An instructor with this name already has a login in the destination branch.")
+
+    if destination:
+        destination_id = destination["id"]
+        conn.execute(
+            """
+            UPDATE instructors
+            SET is_active = 1, verification_status = 'verified',
+                verified_at = CURRENT_TIMESTAMP, verified_by = ?,
+                specialty = COALESCE(specialty, ?),
+                uses_custom_availability = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                current_user.id,
+                source["specialty"],
+                source["uses_custom_availability"],
+                destination_id,
+            ),
+        )
+    else:
+        next_order = conn.execute(
+            "SELECT COALESCE(MAX(display_order), 0) + 1 AS next_order FROM instructors WHERE branch_id = ?",
+            (target_branch_id,),
+        ).fetchone()["next_order"]
+        destination_id = conn.execute(
+            """
+            INSERT INTO instructors
+                (name, branch_id, specialty, is_active, verification_status,
+                 verified_at, verified_by, uses_custom_availability, display_order)
+            VALUES (?, ?, ?, 1, 'verified', CURRENT_TIMESTAMP, ?, ?, ?)
+            """,
+            (
+                source["name"],
+                target_branch_id,
+                source["specialty"],
+                current_user.id,
+                source["uses_custom_availability"],
+                next_order,
+            ),
+        ).lastrowid
+
+    for availability in conn.execute(
+        """
+        SELECT weekday, start_time, end_time
+        FROM instructor_weekly_availability WHERE instructor_id = ?
+        """,
+        (source["id"],),
+    ).fetchall():
+        conn.execute(
+            """
+            INSERT INTO instructor_weekly_availability
+                (instructor_id, weekday, start_time, end_time)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(instructor_id, weekday, start_time, end_time) DO NOTHING
+            """,
+            (destination_id, availability["weekday"], availability["start_time"], availability["end_time"]),
+        )
+
+    for service in conn.execute(
+        """
+        SELECT destination.id AS service_id
+        FROM service_instructors si
+        JOIN services source_service ON source_service.id = si.service_id
+        JOIN services destination
+          ON destination.branch_id = ?
+         AND lower(destination.name) = lower(source_service.name)
+         AND destination.is_active = 1
+        WHERE si.instructor_id = ?
+        """,
+        (target_branch_id, source["id"]),
+    ).fetchall():
+        conn.execute(
+            """
+            INSERT INTO service_instructors (service_id, instructor_id)
+            VALUES (?, ?)
+            ON CONFLICT(service_id, instructor_id) DO NOTHING
+            """,
+            (service["service_id"], destination_id),
+        )
+
+    conn.execute(
+        """
+        UPDATE student_instructor_assignments
+        SET is_active = 0, ended_at = CURRENT_TIMESTAMP
+        WHERE instructor_id = ? AND is_active = 1
+        """,
+        (source["id"],),
+    )
+    conn.execute(
+        "UPDATE instructors SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (source["id"],),
+    )
+    conn.execute(
+        """
+        UPDATE users SET branch_id = ?, instructor_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (target_branch_id, destination_id, user["id"]),
+    )
+    destination_branch = conn.execute(
+        "SELECT name FROM branches WHERE id = ?", (target_branch_id,)
+    ).fetchone()
+    _audit(
+        conn,
+        "instructor_branch_transferred",
+        details={
+            "target_user_id": user["id"],
+            "old_instructor_id": source["id"],
+            "new_instructor_id": destination_id,
+            "source_branch_id": source_branch_id,
+            "target_branch_id": target_branch_id,
+        },
+    )
+    return destination_id, destination_branch["name"]
+
+
+@app.patch("/api/admin/instructors/<int:user_id>/transfer")
+@super_admin_required
+def api_admin_transfer_instructor(user_id):
+    payload = request.get_json(silent=True) or {}
+    try:
+        target_branch_id = int(payload.get("target_branch_id"))
+        source_branch_id = int(payload.get("source_branch_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Choose a valid destination branch."}), 400
+
+    try:
+        with get_db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            target_branch_id = _validate_branch(conn, target_branch_id)
+            user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            if not user or user["role"] != "instructor":
+                return jsonify({"error": "The instructor account could not be found."}), 404
+            if int(user["branch_id"] or 0) != source_branch_id:
+                raise InstructorTransferBlocked(
+                    "This instructor was already changed. Refresh the staff page and try again."
+                )
+            destination_id, destination_name = _transfer_instructor_profile(
+                conn, user, target_branch_id
+            )
+        return jsonify(
+            {
+                "success": True,
+                "instructor_id": destination_id,
+                "branch_id": target_branch_id,
+                "branch_name": destination_name,
+            }
+        )
+    except InstructorTransferBlocked as exc:
+        return jsonify({"error": str(exc)}), 409
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
 @app.route("/admin/users/<int:user_id>/edit", methods=["GET", "POST"])
 @role_required("admin")
 def admin_user_edit(user_id):
@@ -2366,6 +2576,11 @@ def admin_user_edit(user_id):
             _ensure_identity_available(
                 conn, username, email, exclude_user_id=user_id
             )
+            if user["role"] == "instructor" and branch_id != user["branch_id"]:
+                raise ValueError(
+                    "Use the Super Admin branch-transfer board to move an instructor. "
+                    "This keeps the original branch's booking history intact."
+                )
             if branch_id != user["branch_id"]:
                 active_booking = conn.execute(
                     """

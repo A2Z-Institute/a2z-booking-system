@@ -86,6 +86,55 @@
   </article>
 </section>
 
+{% if current_user.is_super_admin and branch_list|length > 1 %}
+<section class="section-card instructor-transfer-panel"
+         aria-labelledby="instructor-transfer-title"
+         data-instructor-transfer-board
+         data-transfer-url-template="{{ url_for('api_admin_transfer_instructor', user_id=0) }}"
+         data-csrf-token="{{ csrf_token() }}">
+  <div class="section-header">
+    <div>
+      <p class="eyebrow">Super Admin only</p>
+      <h2 id="instructor-transfer-title">Move instructors between branches</h2>
+      <p>Drag an instructor into the destination branch. Old bookings stay in the original branch; a move is blocked until all upcoming active appointments are reassigned or cancelled.</p>
+      <p class="field-hint" data-instructor-transfer-message aria-live="polite">Weekly availability and matching course access are copied to the new branch.</p>
+    </div>
+  </div>
+  <div class="instructor-transfer-grid">
+    {% for branch in branch_list %}
+      <section class="instructor-transfer-zone"
+               data-instructor-transfer-zone
+               data-branch-id="{{ branch.id }}"
+               data-branch-name="{{ branch.name }}"
+               aria-label="{{ branch.name }} instructors">
+        <header class="instructor-transfer-zone-header">
+          <strong>{{ branch.name }}</strong>
+          <span>Drop here to transfer</span>
+        </header>
+        <div class="instructor-transfer-list" data-instructor-transfer-list>
+          {% for managed in user_list %}
+            {% if managed.role == 'instructor' and managed.is_active and managed.instructor_id and managed.branch_id == branch.id %}
+              <button class="instructor-transfer-card"
+                      type="button"
+                      draggable="true"
+                      data-instructor-transfer-card
+                      data-user-id="{{ managed.id }}"
+                      data-source-branch-id="{{ managed.branch_id }}"
+                      data-instructor-name="{{ managed.full_name }}"
+                      aria-label="Drag {{ managed.full_name }} to another branch">
+                <span class="instructor-transfer-grip" aria-hidden="true">⋮⋮</span>
+                <span><strong>{{ managed.full_name }}</strong><small>{{ managed.username }}</small></span>
+              </button>
+            {% endif %}
+          {% endfor %}
+          <p class="instructor-transfer-empty">Drop an instructor here</p>
+        </div>
+      </section>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 <div class="admin-users-layout">
   <section class="section-card" aria-labelledby="directory-title">
     <div class="section-header">
@@ -280,12 +329,18 @@
           </div>
           <div class="field">
             <label for="edit-branch">Branch</label>
-            <select id="edit-branch" name="branch_id" required>
-              <option value="">Choose a branch</option>
-              {% for branch in branch_list %}
-                <option value="{{ branch.id }}" {% if request.form.get('branch_id', editing_user.branch_id|string)|string == branch.id|string %}selected{% endif %}>{{ branch.name }}</option>
-              {% endfor %}
-            </select>
+            {% if editing_user.role == 'instructor' %}
+              <input type="hidden" name="branch_id" value="{{ editing_user.branch_id }}">
+              <input id="edit-branch" value="{{ editing_user.branch_name }}" disabled>
+              <span class="field-hint">Instructor branches are changed from the Super Admin transfer board so booking history remains safe.</span>
+            {% else %}
+              <select id="edit-branch" name="branch_id" required>
+                <option value="">Choose a branch</option>
+                {% for branch in branch_list %}
+                  <option value="{{ branch.id }}" {% if request.form.get('branch_id', editing_user.branch_id|string)|string == branch.id|string %}selected{% endif %}>{{ branch.name }}</option>
+                {% endfor %}
+              </select>
+            {% endif %}
           </div>
           {% if editing_user.role == 'instructor' %}
             <div class="field">

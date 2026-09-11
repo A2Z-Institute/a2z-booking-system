@@ -348,6 +348,99 @@
     });
   }
 
+  const transferBoard = document.querySelector("[data-instructor-transfer-board]");
+  if (transferBoard) {
+    const zones = Array.from(transferBoard.querySelectorAll("[data-instructor-transfer-zone]"));
+    const message = transferBoard.querySelector("[data-instructor-transfer-message]");
+    const csrfToken = transferBoard.dataset.csrfToken || "";
+    const urlTemplate = transferBoard.dataset.transferUrlTemplate || "";
+    let draggedCard = null;
+    let savingTransfer = false;
+
+    const setTransferMessage = (text, error = false) => {
+      if (!message) return;
+      message.textContent = text;
+      message.classList.toggle("form-error", error);
+    };
+
+    const clearTransferTargets = () => {
+      zones.forEach((zone) => zone.classList.remove("is-transfer-target"));
+    };
+
+    transferBoard.querySelectorAll("[data-instructor-transfer-card]").forEach((card) => {
+      card.addEventListener("dragstart", (event) => {
+        if (savingTransfer) {
+          event.preventDefault();
+          return;
+        }
+        draggedCard = card;
+        card.classList.add("is-transfer-dragging");
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", card.dataset.userId || "");
+      });
+      card.addEventListener("dragend", () => {
+        card.classList.remove("is-transfer-dragging");
+        draggedCard = null;
+        clearTransferTargets();
+      });
+    });
+
+    zones.forEach((zone) => {
+      zone.addEventListener("dragover", (event) => {
+        if (!draggedCard || savingTransfer) return;
+        if (zone.dataset.branchId === draggedCard.dataset.sourceBranchId) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        clearTransferTargets();
+        zone.classList.add("is-transfer-target");
+      });
+      zone.addEventListener("dragleave", (event) => {
+        if (!zone.contains(event.relatedTarget)) zone.classList.remove("is-transfer-target");
+      });
+      zone.addEventListener("drop", async (event) => {
+        event.preventDefault();
+        clearTransferTargets();
+        if (!draggedCard || savingTransfer) return;
+        const sourceBranchId = Number(draggedCard.dataset.sourceBranchId);
+        const targetBranchId = Number(zone.dataset.branchId);
+        const userId = Number(draggedCard.dataset.userId);
+        if (!Number.isInteger(targetBranchId) || targetBranchId === sourceBranchId) return;
+        const instructorName = draggedCard.dataset.instructorName || "This instructor";
+        const destinationName = zone.dataset.branchName || "the destination branch";
+        if (!window.confirm(`Transfer ${instructorName} to ${destinationName}? Old bookings will remain in the original branch.`)) return;
+
+        savingTransfer = true;
+        setTransferMessage(`Checking and transferring ${instructorName}…`);
+        try {
+          const transferUrl = urlTemplate.replace(/\/0\/transfer$/, `/${userId}/transfer`);
+          const response = await fetch(transferUrl, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": csrfToken,
+            },
+            body: JSON.stringify({
+              source_branch_id: sourceBranchId,
+              target_branch_id: targetBranchId,
+            }),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || !result.success) {
+            throw new Error(result.error || "The instructor could not be transferred.");
+          }
+          zone.querySelector("[data-instructor-transfer-list]")?.appendChild(draggedCard);
+          draggedCard.dataset.sourceBranchId = String(targetBranchId);
+          setTransferMessage(`${instructorName} was transferred to ${result.branch_name || destinationName}. Refreshing staff records…`);
+          window.setTimeout(() => window.location.reload(), 650);
+        } catch (error) {
+          setTransferMessage(error.message || "The instructor could not be transferred.", true);
+        } finally {
+          savingTransfer = false;
+        }
+      });
+    });
+  }
+
   const assignmentForm = document.querySelector("[data-assignment-form]");
   if (assignmentForm) {
     const student = assignmentForm.querySelector("[data-assignment-student]");

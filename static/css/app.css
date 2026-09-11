@@ -839,6 +839,110 @@ tr.is-instructor-drop-target td {
   border-top: 3px solid var(--brand-600);
 }
 
+.instructor-transfer-panel {
+  margin-bottom: 1.5rem;
+}
+
+.instructor-transfer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 1rem;
+  padding: 0 1.25rem 1.25rem;
+}
+
+.instructor-transfer-zone {
+  min-height: 10rem;
+  overflow: hidden;
+  border: 2px dashed var(--border);
+  border-radius: 0.8rem;
+  background: var(--surface-alt);
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.instructor-transfer-zone.is-transfer-target {
+  border-color: var(--brand-600);
+  background: var(--blue-100);
+  box-shadow: 0 0 0 3px rgb(200 20 27 / 10%);
+}
+
+.instructor-transfer-zone-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.instructor-transfer-zone-header span {
+  color: var(--ink-600);
+  font-size: 0.72rem;
+}
+
+.instructor-transfer-list {
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  min-height: 7rem;
+  padding: 0.75rem;
+}
+
+.instructor-transfer-card {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface);
+  color: var(--ink-900);
+  text-align: left;
+  cursor: grab;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 7%);
+}
+
+.instructor-transfer-card:hover,
+.instructor-transfer-card:focus-visible {
+  border-color: var(--brand-600);
+  outline: none;
+}
+
+.instructor-transfer-card.is-transfer-dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+
+.instructor-transfer-card span:not(.instructor-transfer-grip) {
+  display: grid;
+  min-width: 0;
+}
+
+.instructor-transfer-card small {
+  overflow: hidden;
+  color: var(--ink-600);
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+}
+
+.instructor-transfer-grip {
+  color: var(--ink-500);
+  font-weight: 800;
+  letter-spacing: -0.25rem;
+}
+
+.instructor-transfer-empty {
+  margin: auto;
+  color: var(--ink-500);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.instructor-transfer-list:has(.instructor-transfer-card) .instructor-transfer-empty {
+  display: none;
+}
+
 .admin-users-layout .table-actions {
   flex-wrap: nowrap;
 }
