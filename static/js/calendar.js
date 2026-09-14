@@ -1242,6 +1242,7 @@
       <span class="calendar-event-service"></span>
       <small class="calendar-event-status"></small>
       <small class="calendar-event-phone"></small>
+      <span class="calendar-event-slot-note"></span>
       ${canStartDoubleBooking ? `<span class="calendar-event-double-book${isShortAppointment ? " is-compact" : ""}" title="Add another booking at this time">${isShortAppointment ? "+" : "+ Book"}</span>` : ''}
       ${canDragEvent ? `<span class="calendar-event-resize" title="Drag to change ${isSlot ? "slot" : isBusy ? "busy time" : "appointment"} duration" aria-label="Resize ${isSlot ? "booking slot" : isBusy ? "busy time" : "appointment"}"></span>` : ''}
     `;
@@ -1266,10 +1267,16 @@
     button.querySelector(".calendar-event-phone").textContent = isBusy || isSlot
       ? ""
       : (event.student_phone || "No phone");
+    const slotNote = button.querySelector(".calendar-event-slot-note");
+    slotNote.textContent = isSlot ? String(event.notes || "").trim() : "";
+    slotNote.hidden = !slotNote.textContent;
+    if (isSlot && slotNote.textContent) {
+      button.title = slotNote.textContent;
+    }
     button.setAttribute(
       "aria-label",
       isBusy || isSlot
-        ? `${event.title || "Busy time"}, ${event.start_time} to ${event.end_time}`
+        ? `${event.title || "Busy time"}, ${event.start_time} to ${event.end_time}${isSlot && slotNote.textContent ? `, note: ${slotNote.textContent}` : ""}`
         : `${event.student_name}, ${displayStatus(event.status)}, ${event.machine_category || event.machine_name || event.service_name || "equipment"}, ${event.student_phone || "no phone"}, ${event.start_time} to ${event.end_time}`,
     );
     button.addEventListener("click", (clickEvent) => {
