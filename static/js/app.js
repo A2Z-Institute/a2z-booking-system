@@ -433,7 +433,11 @@
           }
           zone.querySelector("[data-instructor-transfer-list]")?.appendChild(transferredCard);
           transferredCard.dataset.sourceBranchId = String(targetBranchId);
-          setTransferMessage(`${instructorName} was transferred to ${result.branch_name || destinationName}. Refreshing staff records…`);
+          const preservedUpcoming = Number(result.preserved_upcoming_appointments || 0);
+          const preservedMessage = preservedUpcoming
+            ? ` ${preservedUpcoming} upcoming appointment${preservedUpcoming === 1 ? " remains" : "s remain"} visible in the original branch.`
+            : "";
+          setTransferMessage(`${instructorName} was transferred to ${result.branch_name || destinationName}.${preservedMessage} Refreshing staff records…`);
           window.setTimeout(() => window.location.reload(), 650);
         } catch (error) {
           setTransferMessage(error.message || "The instructor could not be transferred.", true);

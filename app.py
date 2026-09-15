@@ -2345,12 +2345,6 @@ def _transfer_instructor_profile(conn, user, target_branch_id):
             now.strftime("%H:%M"),
         ),
     ).fetchone()["total"]
-    if upcoming_count:
-        raise InstructorTransferBlocked(
-            f"{user['full_name'] or source['name']} has {upcoming_count} upcoming active "
-            "appointment(s). Reassign or cancel them before transferring the instructor."
-        )
-
     destination = conn.execute(
         "SELECT * FROM instructors WHERE lower(name) = lower(?) AND branch_id = ?",
         (source["name"], target_branch_id),
@@ -2448,10 +2442,16 @@ def _transfer_instructor_profile(conn, user, target_branch_id):
         """,
         (source["id"],),
     )
-    conn.execute(
-        "UPDATE instructors SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        (source["id"],),
-    )
+    # Keep the old calendar profile active while it still owns upcoming
+    # appointments.  The login moves to the destination profile, while every
+    # existing booking remains attached to its original branch and instructor
+    # profile.  Once no upcoming appointments remain, the old profile can be
+    # archived immediately without hiding unresolved work from the old branch.
+    if not upcoming_count:
+        conn.execute(
+            "UPDATE instructors SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (source["id"],),
+        )
     conn.execute(
         """
         UPDATE users SET branch_id = ?, instructor_id = ?, updated_at = CURRENT_TIMESTAMP
@@ -2471,9 +2471,10 @@ def _transfer_instructor_profile(conn, user, target_branch_id):
             "new_instructor_id": destination_id,
             "source_branch_id": source_branch_id,
             "target_branch_id": target_branch_id,
+            "preserved_upcoming_appointments": upcoming_count,
         },
     )
-    return destination_id, destination_branch["name"]
+    return destination_id, destination_branch["name"], upcoming_count
 
 
 @app.patch("/api/admin/instructors/<int:user_id>/transfer")
@@ -2497,7 +2498,7 @@ def api_admin_transfer_instructor(user_id):
                 raise InstructorTransferBlocked(
                     "This instructor was already changed. Refresh the staff page and try again."
                 )
-            destination_id, destination_name = _transfer_instructor_profile(
+            destination_id, destination_name, upcoming_count = _transfer_instructor_profile(
                 conn, user, target_branch_id
             )
         return jsonify(
@@ -2506,6 +2507,8 @@ def api_admin_transfer_instructor(user_id):
                 "instructor_id": destination_id,
                 "branch_id": target_branch_id,
                 "branch_name": destination_name,
+                "preserved_upcoming_appointments": upcoming_count,
+                "source_profile_active": bool(upcoming_count),
             }
         )
     except InstructorTransferBlocked as exc:
