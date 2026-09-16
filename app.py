@@ -4748,6 +4748,116 @@ def api_calendar_delete_booking_slot(slot_id):
     return jsonify({"success": True})
 
 
+@app.route(
+    "/api/calendar/booking-slots/<int:slot_id>/upcoming",
+    methods=["GET", "DELETE"],
+)
+@role_required("admin", "instructor")
+def api_calendar_delete_upcoming_booking_slots(slot_id):
+    """Preview or delete only this booking slot from its date onward."""
+    with get_db() as conn:
+        if request.method == "DELETE":
+            conn.execute("BEGIN IMMEDIATE")
+        selected = conn.execute(
+            """
+            SELECT s.*, i.name AS instructor_name,
+                   m.machine_code, m.category AS machine_category
+            FROM booking_slots s
+            JOIN instructors i ON i.id = s.instructor_id
+            JOIN machines m ON m.id = s.machine_id
+            WHERE s.id = ?
+            """,
+            (slot_id,),
+        ).fetchone()
+        if not selected:
+            abort(404)
+        _require_branch_access(selected["branch_id"])
+        _require_booking_slot_management(selected["instructor_id"])
+
+        # Slots created with Repeat have an explicit series id. Older imported
+        # slots may not, so the fallback deliberately requires an exact match
+        # on branch, instructor, equipment, visible time, and note. It cannot
+        # select appointments, busy time, another instructor, or another
+        # equipment slot.
+        if selected["series_id"]:
+            scope_clause = "series_id = ?"
+            scope_params = (selected["series_id"],)
+        else:
+            scope_clause = (
+                "machine_id = ? AND start_time = ? AND end_time = ? "
+                "AND COALESCE(notes, '') = COALESCE(?, '')"
+            )
+            scope_params = (
+                selected["machine_id"],
+                selected["start_time"],
+                selected["end_time"],
+                selected["notes"],
+            )
+
+        rows = conn.execute(
+            f"""
+            SELECT id, target_date
+            FROM booking_slots
+            WHERE branch_id = ? AND instructor_id = ? AND target_date >= ?
+              AND {scope_clause}
+            ORDER BY target_date, start_time, id
+            """,
+            (
+                selected["branch_id"],
+                selected["instructor_id"],
+                selected["target_date"],
+                *scope_params,
+            ),
+        ).fetchall()
+        machine_name = (
+            selected["machine_code"]
+            or selected["machine_category"]
+            or "Booking slot"
+        ).replace("-", " ")
+        preview = {
+            "count": len(rows),
+            "instructor_id": selected["instructor_id"],
+            "instructor_name": selected["instructor_name"],
+            "machine_id": selected["machine_id"],
+            "machine_name": machine_name,
+            "from_date": selected["target_date"],
+            "start_time": selected["start_time"],
+            "end_time": selected["end_time"],
+        }
+        if request.method == "GET":
+            return jsonify(preview)
+
+        deleted = conn.execute(
+            f"""
+            DELETE FROM booking_slots
+            WHERE branch_id = ? AND instructor_id = ? AND target_date >= ?
+              AND {scope_clause}
+            """,
+            (
+                selected["branch_id"],
+                selected["instructor_id"],
+                selected["target_date"],
+                *scope_params,
+            ),
+        ).rowcount
+        _audit(
+            conn,
+            "upcoming_booking_slots_deleted",
+            details={
+                "selected_slot_id": slot_id,
+                "branch_id": selected["branch_id"],
+                "instructor_id": selected["instructor_id"],
+                "machine_id": selected["machine_id"],
+                "series_id": selected["series_id"],
+                "from_date": selected["target_date"],
+                "start_time": selected["start_time"],
+                "end_time": selected["end_time"],
+                "deleted_count": deleted,
+            },
+        )
+    return jsonify({"success": True, "deleted_count": deleted, **preview})
+
+
 @app.post("/api/calendar/appointments")
 @permission_required("write_access")
 def api_calendar_create_appointment():

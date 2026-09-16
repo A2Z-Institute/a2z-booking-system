@@ -90,6 +90,7 @@
   const deleteUpcomingBusyButton = editor.querySelector("[data-editor-busy-delete-upcoming]");
   const deleteBusyForAllButton = editor.querySelector("[data-editor-busy-delete-all]");
   const deleteSlotButton = editor.querySelector("[data-editor-slot-delete]");
+  const deleteUpcomingSlotButton = editor.querySelector("[data-editor-slot-delete-upcoming]");
   const durationText = editor.querySelector("[data-editor-duration]");
   const endTimeText = editor.querySelector("[data-editor-end-time]");
   const existingSummary = editor.querySelector("[data-editor-existing-summary]");
@@ -1024,6 +1025,7 @@
     if (deleteUpcomingBusyButton) deleteUpcomingBusyButton.hidden = true;
     if (deleteBusyForAllButton) deleteBusyForAllButton.hidden = true;
     if (deleteSlotButton) deleteSlotButton.hidden = true;
+    if (deleteUpcomingSlotButton) deleteUpcomingSlotButton.hidden = true;
     if (saveButton) saveButton.hidden = false;
     setEditorType(initialType);
     syncEditorOptions();
@@ -1115,6 +1117,7 @@
       if (deleteUpcomingBusyButton) deleteUpcomingBusyButton.hidden = true;
       if (deleteBusyForAllButton) deleteBusyForAllButton.hidden = true;
       if (deleteSlotButton) deleteSlotButton.hidden = !event.can_edit;
+      if (deleteUpcomingSlotButton) deleteUpcomingSlotButton.hidden = !event.can_edit;
       if (saveButton) saveButton.hidden = !event.can_edit;
       setEditorType("slot");
       if (currentRole === "instructor" && slotInstructor) slotInstructor.disabled = true;
@@ -1144,6 +1147,7 @@
           || !["breakfast", "lunch", "tea"].includes(event.busy_kind);
       }
       if (deleteSlotButton) deleteSlotButton.hidden = true;
+      if (deleteUpcomingSlotButton) deleteUpcomingSlotButton.hidden = true;
       if (saveButton) saveButton.hidden = !event.can_edit;
       setEditorType("busy");
       if (!event.can_edit) {
@@ -1166,6 +1170,7 @@
       if (deleteUpcomingBusyButton) deleteUpcomingBusyButton.hidden = true;
       if (deleteBusyForAllButton) deleteBusyForAllButton.hidden = true;
       if (deleteSlotButton) deleteSlotButton.hidden = true;
+      if (deleteUpcomingSlotButton) deleteUpcomingSlotButton.hidden = true;
       if (saveButton) {
         saveButton.hidden = !event.can_edit && !event.can_update_status;
         if (currentRole === "instructor") saveButton.textContent = "Save status";
@@ -2576,6 +2581,55 @@
       await loadEvents({ force: true });
     } catch (error) {
       showError(error.message || "The booking slot could not be deleted.");
+    }
+  });
+
+  deleteUpcomingSlotButton?.addEventListener("click", async () => {
+    if (!editingEvent || editingEvent.type !== "slot") return;
+    const url = replaceId(
+      calendar.dataset.slotUpcomingDeleteUrlTemplate || "",
+      editingEvent.id,
+    );
+    if (!url) return;
+    clearError();
+    try {
+      const previewResponse = await fetch(url, {
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+      });
+      const preview = await parseJson(previewResponse);
+      if (!previewResponse.ok) {
+        throw new Error(preview.error || "Upcoming booking slots could not be checked.");
+      }
+      if (!preview.count) {
+        window.alert(`There are no matching booking slots from ${preview.from_date}.`);
+        return;
+      }
+      const confirmed = window.confirm(
+        `Delete ${preview.count} booking slot${preview.count === 1 ? "" : "s"} for `
+        + `${preview.machine_name || editingEvent.machine_name} (${formatClock(preview.start_time)}–${formatClock(preview.end_time)}) `
+        + `with ${preview.instructor_name || editingEvent.instructor_name} from ${preview.from_date} onward?\n\n`
+        + "Earlier slots, other equipment slots, other instructors, appointments, and busy time will remain. This cannot be undone.",
+      );
+      if (!confirmed) return;
+
+      deleteUpcomingSlotButton.disabled = true;
+      const deleteResponse = await fetch(url, {
+        method: "DELETE",
+        headers: { Accept: "application/json", "X-CSRF-Token": csrf },
+        credentials: "same-origin",
+      });
+      const result = await parseJson(deleteResponse);
+      if (!deleteResponse.ok) {
+        throw new Error(result.error || "Upcoming booking slots could not be deleted.");
+      }
+      dialog.close();
+      announce(`${result.deleted_count || 0} booking slots deleted.`);
+      await loadEvents({ force: true });
+    } catch (error) {
+      showError(error.message || "Upcoming booking slots could not be deleted.");
+    } finally {
+      deleteUpcomingSlotButton.disabled = false;
     }
   });
 

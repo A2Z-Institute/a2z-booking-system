@@ -44,6 +44,7 @@
   data-slot-create-url="{{ url_for('api_calendar_create_booking_slot') }}"
   data-slot-update-url-template="{{ url_for('api_calendar_update_booking_slot', slot_id=0) }}"
   data-slot-delete-url-template="{{ url_for('api_calendar_delete_booking_slot', slot_id=0) }}"
+  data-slot-upcoming-delete-url-template="{{ url_for('api_calendar_delete_upcoming_booking_slots', slot_id=0) }}"
   data-can-manage-own-slots="{{ 'true' if current_user.has_permission('manage_own_booking_slots') else 'false' }}"
   data-current-instructor-id="{{ current_user.instructor_id|default('', true) }}"
   data-selected-instructor="{{ selected_instructor|default('', true) }}"
@@ -577,6 +578,7 @@
       <button class="button button-danger" type="button" data-editor-busy-delete-upcoming hidden>Delete this busy slot on upcoming days</button>
       <button class="button button-danger" type="button" data-editor-busy-delete-all hidden>Delete this break for all instructors</button>
       <button type="button" data-editor-slot-delete hidden>Delete slot</button>
+      <button class="button button-danger" type="button" data-editor-slot-delete-upcoming hidden>Delete this and upcoming slots</button>
       <div class="appointment-editor-actions">
         <button class="button button-danger" type="button" data-editor-permanent-delete hidden>Delete</button>
         <button class="button button-secondary" type="button" data-editor-close>Cancel</button>
@@ -588,5 +590,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20260914-1') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20260916-1') }}" defer></script>
 {% endblock %}
