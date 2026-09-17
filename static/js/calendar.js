@@ -1433,7 +1433,9 @@
             ...(event.type === "appointment" && destinationBookingSlot
               ? { machineId: destinationBookingSlot.machine_id }
               : {}),
-            ...(event.type === "slot" ? { end: timeValue(minutes(targetStart) + duration) } : {}),
+            ...(["slot", "busy"].includes(event.type)
+              ? { end: timeValue(minutes(targetStart) + duration) }
+              : {}),
           });
         };
         const cancelPointer = (cancelEvent) => cleanup(cancelEvent);
@@ -1592,6 +1594,17 @@
       let response;
       let data;
       for (let attempt = 0; attempt < 3; attempt += 1) {
+        // Booking slots and busy-time blocks have an explicit finish time.
+        // When they are dragged, preserve their duration at the new start
+        // instead of accidentally pairing the new start with the old finish.
+        const scheduleBlockEnd = isBookingSlot || isBusyTime
+          ? target.end || timeValue(
+            minutes(target.start) + Math.max(
+              15,
+              minutes(currentEvent.end_time) - minutes(currentEvent.start_time),
+            ),
+          )
+          : target.end;
         response = await fetch(updateUrl, {
           method: "PATCH",
           headers: {
@@ -1604,7 +1617,7 @@
             revision: currentEvent.revision,
             target_date: target.date,
             start_time: target.start,
-            ...(target.end ? { end_time: target.end } : {}),
+            ...(scheduleBlockEnd ? { end_time: scheduleBlockEnd } : {}),
             instructor_id: Number(target.instructorId),
             machine_id: Number(target.machineId || currentEvent.machine_id),
             ...(isAppointment && allowPastAppointment ? { allow_past_appointment: true } : {}),
@@ -1722,7 +1735,9 @@
         ...(draggedEvent.type === "appointment" && bookingSlot
           ? { machineId: bookingSlot.machine_id }
           : {}),
-        ...(draggedEvent.type === "slot" ? { end: timeValue(minutes(start) + duration) } : {}),
+        ...(["slot", "busy"].includes(draggedEvent.type)
+          ? { end: timeValue(minutes(start) + duration) }
+          : {}),
       });
     });
     if (disabled || occupied) return;
