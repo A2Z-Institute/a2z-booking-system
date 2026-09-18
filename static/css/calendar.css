@@ -1643,6 +1643,22 @@
   }
 }
 
+/* Keep the date and period navigation available while a long calendar is
+   viewed. The shell must not establish an overflow container or it would
+   prevent the toolbar from sticking to the viewport. */
+@media (min-width: 760px) {
+  .calendar-shell {
+    overflow: visible;
+  }
+
+  .calendar-toolbar {
+    position: sticky;
+    z-index: 40;
+    top: 59px;
+    box-shadow: 0 2px 7px rgba(14, 14, 16, 0.1);
+  }
+}
+
 /* Smooth 15-minute booking interaction.  The grid stays white and calm; a
    vacant cell is one large target, while optional double-book controls appear
    only when an existing appointment is intentionally focused or hovered. */
