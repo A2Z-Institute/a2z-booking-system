@@ -1568,6 +1568,7 @@
       let currentEvent = event;
       let allowDoubleBooking = Boolean(event.allow_double_booking);
       let allowPastAppointment = false;
+      let allowPastBusyTime = false;
       if (isAppointment) {
         const now = new Date();
         const localToday = toInputDate(now);
@@ -1589,6 +1590,26 @@
             return;
           }
           allowPastAppointment = true;
+        }
+      }
+      if (isBusyTime) {
+        const localToday = toInputDate(new Date());
+        const movingIntoPast = target.date < localToday
+          && target.date !== currentEvent.date;
+        if (movingIntoPast) {
+          if (currentRole !== "admin") {
+            throw new Error("Past busy time can be moved only by an administrator.");
+          }
+          const confirmed = window.confirm(
+            `This moves the busy time to ${target.date}, which is in the past.\n\n` +
+            "Do you want to save it as past busy time?",
+          );
+          if (!confirmed) {
+            renderCalendar();
+            message.hidden = true;
+            return;
+          }
+          allowPastBusyTime = true;
         }
       }
       let response;
@@ -1621,6 +1642,7 @@
             instructor_id: Number(target.instructorId),
             machine_id: Number(target.machineId || currentEvent.machine_id),
             ...(isAppointment && allowPastAppointment ? { allow_past_appointment: true } : {}),
+            ...(isBusyTime && allowPastBusyTime ? { allow_past_busy_time: true } : {}),
             ...(isAppointment ? { allow_double_booking: allowDoubleBooking } : {}),
             ...(isBusyTime ? {
               break_type: currentEvent.busy_kind || "busy",
@@ -2150,6 +2172,20 @@
     }
     if (minutes(payload.end_time) <= minutes(payload.start_time)) throw new Error("Finish must be later than start.");
     const editing = editingEvent?.type === "busy" && Boolean(bookingIdInput.value);
+    const localToday = toInputDate(new Date());
+    const movingIntoPast = payload.target_date < localToday
+      && (!editing || payload.target_date !== editingEvent?.date);
+    if (movingIntoPast) {
+      if (currentRole !== "admin") {
+        throw new Error("Past busy time can be created or moved only by an administrator.");
+      }
+      const confirmed = window.confirm(
+        `This busy time is on ${payload.target_date}, which is in the past.\n\n` +
+        "Do you want to save it as past busy time?",
+      );
+      if (!confirmed) throw new Error("Past busy time was not saved.");
+      payload.allow_past_busy_time = true;
+    }
     const url = editing
       ? replaceId(calendar.dataset.busyUpdateUrlTemplate, bookingIdInput.value)
       : calendar.dataset.busyCreateUrl;

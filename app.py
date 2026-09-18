@@ -4078,8 +4078,16 @@ def api_calendar_create_busy_time():
         target = _validate_booking_date(
             payload.get("target_date"), enforce_online_window=False
         )
-        if target < datetime.now(IST).date():
-            raise ValueError("Busy time cannot be added in the past.")
+        if (
+            target < datetime.now(IST).date()
+            and not (
+                current_user.role == "admin"
+                and payload.get("allow_past_busy_time") is True
+            )
+        ):
+            raise ValueError(
+                "Busy time cannot be added in the past without administrator confirmation."
+            )
         start_time, end_time, start_minutes, end_minutes = _busy_time_range(
             payload.get("start_time"), payload.get("end_time")
         )
@@ -4235,8 +4243,14 @@ def api_calendar_update_busy_time(time_off_id):
             if (
                 target < datetime.now(IST).date()
                 and target.isoformat() != existing["target_date"]
+                and not (
+                    current_user.role == "admin"
+                    and payload.get("allow_past_busy_time") is True
+                )
             ):
-                raise ValueError("Busy time cannot be moved into the past.")
+                raise ValueError(
+                    "Busy time cannot be moved into the past without administrator confirmation."
+                )
             start_time, end_time, start_minutes, end_minutes = _busy_time_range(
                 payload.get("start_time") or existing["start_time"],
                 payload.get("end_time") or existing["end_time"],
