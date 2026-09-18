@@ -1643,24 +1643,67 @@
   }
 }
 
-/* Keep the date and period navigation available while a long calendar is
-   viewed. The shell must not establish an overflow container or it would
-   prevent the toolbar from sticking to the viewport. */
+/* Desktop calendar is one viewport-height workspace. This removes the second
+   page scrollbar, keeps controls and instructor names visible, and anchors the
+   horizontal instructor scrollbar at the bottom of the available screen. */
 @media (min-width: 760px) {
+  body.calendar-page {
+    display: flex;
+    height: 100dvh;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .calendar-page .site-header {
+    flex: 0 0 auto;
+  }
+
+  .calendar-page .site-main {
+    min-height: 0;
+    padding-bottom: 0.5rem;
+    overflow: hidden;
+    flex: 1 1 auto;
+  }
+
+  .calendar-page .site-main > .container {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+  }
+
+  .calendar-page-title,
+  .calendar-toolbar,
+  .calendar-range-row,
+  .calendar-live-state {
+    flex: 0 0 auto;
+  }
+
   .calendar-shell {
-    overflow: visible;
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+    flex: 1 1 auto;
+    flex-direction: column;
   }
 
   .calendar-toolbar {
-    position: sticky;
-    z-index: 40;
-    top: 59px;
-    box-shadow: 0 2px 7px rgba(14, 14, 16, 0.1);
+    position: relative;
+    z-index: 30;
+    top: auto;
   }
 
   .calendar-scroll {
     height: auto;
+    min-height: 0;
     max-height: none;
+    flex: 1 1 auto;
+    overflow: auto;
+  }
+
+  .calendar-page .site-footer {
+    display: none;
   }
 }
 
