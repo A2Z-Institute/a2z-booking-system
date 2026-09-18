@@ -3429,6 +3429,10 @@ body {
   gap: 0.55rem;
 }
 
+.mobile-account-actions {
+  display: none;
+}
+
 .account-dropdown > summary {
   width: 36px;
   height: 36px;
@@ -3764,6 +3768,8 @@ body {
   .site-nav {
     max-height: calc(100dvh - 59px);
     overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
   }
 
   .nav-dropdown-menu,
@@ -3776,20 +3782,45 @@ body {
   }
 
   .account-menu {
-    align-items: flex-start;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
   }
 
   .account-dropdown {
-    margin-left: auto;
+    display: none;
   }
 
-  .account-dropdown-menu {
-    position: absolute;
-    right: 0;
-    width: 220px;
-    border: 1px solid var(--border);
+  .mobile-account-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
+    width: 100%;
+  }
+
+  .mobile-account-actions a,
+  .mobile-account-actions button {
+    display: flex;
+    width: 100%;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
     background: var(--surface);
-    box-shadow: var(--shadow-md);
+    color: var(--ink-800);
+    font: inherit;
+    font-size: 0.84rem;
+    font-weight: 750;
+    text-decoration: none;
+  }
+
+  .mobile-account-actions button {
+    border-color: var(--brand-600);
+    background: var(--brand-600);
+    color: #fff;
+    cursor: pointer;
   }
 }
 
