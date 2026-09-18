@@ -1449,6 +1449,9 @@ def seed_reference_data() -> None:
 def seed_portal_accounts() -> None:
     """Create the optional Driving School portal without touching live data."""
     super_admin_username = os.environ.get("A2Z_SUPER_ADMIN_USERNAME", "admin")
+    portal_name = os.environ.get("A2Z_DRIVING_SCHOOL_PORTAL_NAME", "A2Z Driving School")
+    admin_username = os.environ.get("A2Z_DRIVING_SCHOOL_ADMIN_USERNAME", "admin_drivingschool")
+    agent_username = os.environ.get("A2Z_DRIVING_SCHOOL_AGENT_USERNAME", "a2zdrivingschool")
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
@@ -1466,6 +1469,20 @@ def seed_portal_accounts() -> None:
             """,
             (super_admin_username,),
         )
+        # Upgrade an existing Driving School booking desk even when portal
+        # account creation has been disabled after the initial deployment.
+        # The branch match prevents an identical username elsewhere from ever
+        # receiving these rights.
+        conn.execute(
+            """
+            UPDATE users
+            SET role = 'admin', permission_mask = NULL, is_super_admin = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE lower(username) = lower(?)
+              AND branch_id IN (SELECT id FROM branches WHERE name = ?)
+            """,
+            (agent_username, portal_name),
+        )
     if os.environ.get("A2Z_ENABLE_DRIVING_SCHOOL_PORTAL", "0") != "1":
         return
     admin_password = os.environ.get("A2Z_DRIVING_SCHOOL_ADMIN_PASSWORD")
@@ -1475,9 +1492,6 @@ def seed_portal_accounts() -> None:
             "Set A2Z_DRIVING_SCHOOL_ADMIN_PASSWORD and "
             "A2Z_DRIVING_SCHOOL_AGENT_PASSWORD before enabling the Driving School portal."
         )
-    portal_name = os.environ.get("A2Z_DRIVING_SCHOOL_PORTAL_NAME", "A2Z Driving School")
-    admin_username = os.environ.get("A2Z_DRIVING_SCHOOL_ADMIN_USERNAME", "admin_drivingschool")
-    agent_username = os.environ.get("A2Z_DRIVING_SCHOOL_AGENT_USERNAME", "a2zdrivingschool")
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
@@ -1489,10 +1503,15 @@ def seed_portal_accounts() -> None:
         ).fetchone()["id"]
         for username, password, role, full_name in (
             (admin_username, admin_password, "admin", "A2Z Driving School Admin"),
-            (agent_username, agent_password, "booking_agent", "A2Z Driving School Booking"),
+            # The Driving School booking desk needs the same complete calendar
+            # controls as the Heavy and Technical branch booking desks.  It is
+            # still a branch administrator, never a super administrator, so
+            # all reads and writes remain limited to Driving School records.
+            (agent_username, agent_password, "admin", "A2Z Driving School Booking"),
         ):
             existing = conn.execute(
-                "SELECT id, branch_id FROM users WHERE lower(username) = lower(?)", (username,)
+                "SELECT id, branch_id, role FROM users WHERE lower(username) = lower(?)",
+                (username,),
             ).fetchone()
             if existing and existing["branch_id"] != branch_id:
                 raise RuntimeError(f"Username '{username}' is already used by another portal.")
@@ -1505,6 +1524,16 @@ def seed_portal_accounts() -> None:
                     VALUES (?, ?, ?, ?, ?, 0, 1, 1, 1)
                     """,
                     (username, generate_password_hash(password), role, full_name, branch_id),
+                )
+            elif existing["role"] != role:
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET role = ?, permission_mask = NULL, is_super_admin = 0,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND branch_id = ?
+                    """,
+                    (role, existing["id"], branch_id),
                 )
 
 
