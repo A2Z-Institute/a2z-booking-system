@@ -865,6 +865,12 @@ tr.is-instructor-drop-target td {
   box-shadow: 0 0 0 3px rgb(200 20 27 / 10%);
 }
 
+.instructor-transfer-zone.is-order-target {
+  border-color: var(--success, #16834a);
+  background: color-mix(in srgb, var(--surface-alt) 86%, #dcfce7);
+  box-shadow: 0 0 0 3px rgb(22 131 74 / 10%);
+}
+
 .instructor-transfer-zone-header {
   display: flex;
   align-items: baseline;

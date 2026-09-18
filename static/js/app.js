@@ -354,8 +354,10 @@
     const message = transferBoard.querySelector("[data-instructor-transfer-message]");
     const csrfToken = transferBoard.dataset.csrfToken || "";
     const urlTemplate = transferBoard.dataset.transferUrlTemplate || "";
+    const orderUrl = transferBoard.dataset.orderUrl || "";
     let draggedCard = null;
     let savingTransfer = false;
+    let dragOrigin = null;
 
     const setTransferMessage = (text, error = false) => {
       if (!message) return;
@@ -364,7 +366,43 @@
     };
 
     const clearTransferTargets = () => {
-      zones.forEach((zone) => zone.classList.remove("is-transfer-target"));
+      zones.forEach((zone) => zone.classList.remove("is-transfer-target", "is-order-target"));
+    };
+
+    const cardsInZone = (zone, except = null) => Array.from(
+      zone.querySelectorAll("[data-instructor-transfer-card]"),
+    ).filter((card) => card !== except);
+
+    const insertCardAtPointer = (zone, card, pointerY) => {
+      const list = zone.querySelector("[data-instructor-transfer-list]");
+      if (!list) return;
+      const nextCard = cardsInZone(zone, card).find((candidate) => {
+        const bounds = candidate.getBoundingClientRect();
+        return pointerY < bounds.top + bounds.height / 2;
+      });
+      const emptyState = list.querySelector(".instructor-transfer-empty");
+      list.insertBefore(card, nextCard || emptyState || null);
+    };
+
+    const saveBranchOrder = async (zone) => {
+      const instructorIds = cardsInZone(zone)
+        .map((card) => Number(card.dataset.instructorId))
+        .filter(Number.isInteger);
+      if (!orderUrl || !instructorIds.length) {
+        throw new Error("The calendar order could not be prepared.");
+      }
+      const response = await fetch(orderUrl, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({ instructor_ids: instructorIds }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "The calendar order could not be saved.");
+      }
     };
 
     transferBoard.querySelectorAll("[data-instructor-transfer-card]").forEach((card) => {
@@ -374,6 +412,10 @@
           return;
         }
         draggedCard = card;
+        dragOrigin = {
+          list: card.parentElement,
+          nextSibling: card.nextElementSibling,
+        };
         card.classList.add("is-transfer-dragging");
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", card.dataset.userId || "");
@@ -381,6 +423,7 @@
       card.addEventListener("dragend", () => {
         card.classList.remove("is-transfer-dragging");
         draggedCard = null;
+        dragOrigin = null;
         clearTransferTargets();
       });
     });
@@ -388,14 +431,19 @@
     zones.forEach((zone) => {
       zone.addEventListener("dragover", (event) => {
         if (!draggedCard || savingTransfer) return;
-        if (zone.dataset.branchId === draggedCard.dataset.sourceBranchId) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
         clearTransferTargets();
-        zone.classList.add("is-transfer-target");
+        zone.classList.add(
+          zone.dataset.branchId === draggedCard.dataset.sourceBranchId
+            ? "is-order-target"
+            : "is-transfer-target",
+        );
       });
       zone.addEventListener("dragleave", (event) => {
-        if (!zone.contains(event.relatedTarget)) zone.classList.remove("is-transfer-target");
+        if (!zone.contains(event.relatedTarget)) {
+          zone.classList.remove("is-transfer-target", "is-order-target");
+        }
       });
       zone.addEventListener("drop", async (event) => {
         event.preventDefault();
@@ -404,11 +452,34 @@
         // Keep a local reference: the browser fires dragend while the network
         // request is in progress, and dragend deliberately clears draggedCard.
         const transferredCard = draggedCard;
+        const originalPosition = dragOrigin;
         const sourceBranchId = Number(transferredCard.dataset.sourceBranchId);
         const targetBranchId = Number(zone.dataset.branchId);
         const userId = Number(transferredCard.dataset.userId);
-        if (!Number.isInteger(targetBranchId) || targetBranchId === sourceBranchId) return;
+        if (!Number.isInteger(targetBranchId)) return;
         const instructorName = transferredCard.dataset.instructorName || "This instructor";
+        if (targetBranchId === sourceBranchId) {
+          savingTransfer = true;
+          insertCardAtPointer(zone, transferredCard, event.clientY);
+          setTransferMessage(`Saving ${instructorName}'s calendar position…`);
+          try {
+            await saveBranchOrder(zone);
+            setTransferMessage(`${instructorName}'s calendar position was saved.`);
+          } catch (error) {
+            if (originalPosition?.list) {
+              originalPosition.list.insertBefore(
+                transferredCard,
+                originalPosition.nextSibling?.parentElement === originalPosition.list
+                  ? originalPosition.nextSibling
+                  : null,
+              );
+            }
+            setTransferMessage(error.message || "The calendar order could not be saved.", true);
+          } finally {
+            savingTransfer = false;
+          }
+          return;
+        }
         const destinationName = zone.dataset.branchName || "the destination branch";
         if (!window.confirm(`Transfer ${instructorName} to ${destinationName}? Old bookings will remain in the original branch.`)) return;
 

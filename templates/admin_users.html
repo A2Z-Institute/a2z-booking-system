@@ -91,12 +91,13 @@
          aria-labelledby="instructor-transfer-title"
          data-instructor-transfer-board
          data-transfer-url-template="{{ url_for('api_admin_transfer_instructor', user_id=0) }}"
+         data-order-url="{{ url_for('api_admin_reorder_instructors') }}"
          data-csrf-token="{{ csrf_token() }}">
   <div class="section-header">
     <div>
       <p class="eyebrow">Super Admin only</p>
-      <h2 id="instructor-transfer-title">Move instructors between branches</h2>
-      <p>Drag an instructor into the destination branch. Their login moves immediately, while old bookings remain unchanged in the original branch.</p>
+      <h2 id="instructor-transfer-title">Arrange or move instructors</h2>
+      <p>Drag up or down inside a branch to change the calendar order. Drag into another branch to transfer the instructor.</p>
       <p class="field-hint" data-instructor-transfer-message aria-live="polite">Weekly availability and matching course access are copied. If upcoming bookings remain, the old calendar profile stays visible so they can be reassigned or completed.</p>
     </div>
   </div>
@@ -109,7 +110,7 @@
                aria-label="{{ branch.name }} instructors">
         <header class="instructor-transfer-zone-header">
           <strong>{{ branch.name }}</strong>
-          <span>Drop here to transfer</span>
+          <span>Reorder or transfer</span>
         </header>
         <div class="instructor-transfer-list" data-instructor-transfer-list>
           {% for managed in user_list %}
@@ -119,9 +120,10 @@
                       draggable="true"
                       data-instructor-transfer-card
                       data-user-id="{{ managed.id }}"
+                      data-instructor-id="{{ managed.instructor_id }}"
                       data-source-branch-id="{{ managed.branch_id }}"
                       data-instructor-name="{{ managed.full_name }}"
-                      aria-label="Drag {{ managed.full_name }} to another branch">
+                      aria-label="Drag {{ managed.full_name }} to reorder or move to another branch">
                 <span class="instructor-transfer-grip" aria-hidden="true">⋮⋮</span>
                 <span><strong>{{ managed.full_name }}</strong><small>{{ managed.username }}</small></span>
               </button>
