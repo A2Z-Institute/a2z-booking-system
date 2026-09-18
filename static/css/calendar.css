@@ -1657,6 +1657,11 @@
     top: 59px;
     box-shadow: 0 2px 7px rgba(14, 14, 16, 0.1);
   }
+
+  .calendar-scroll {
+    height: auto;
+    max-height: none;
+  }
 }
 
 /* Smooth 15-minute booking interaction.  The grid stays white and calm; a
