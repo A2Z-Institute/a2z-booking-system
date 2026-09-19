@@ -3436,7 +3436,8 @@ def _calendar_event(row):
             and row["validation_status"] not in {"Cancelled", "Rejected"}
         ),
         "can_edit": (
-            current_user.has_permission("write_access")
+            current_user.role in {"admin", "booking_agent"}
+            and current_user.has_permission("write_access")
             and row["validation_status"] != "Cancelled"
             and (
                 current_user.role == "admin"

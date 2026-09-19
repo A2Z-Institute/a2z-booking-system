@@ -1177,7 +1177,7 @@
       }
       if (permanentDeleteButton) permanentDeleteButton.hidden = currentRole !== "admin";
       setEditorType("appointment");
-      if (!event.can_edit) {
+      if (!event.can_edit || currentRole === "instructor") {
         if (titleText) titleText.textContent = "Appointment details";
         if (descriptionText) descriptionText.textContent = "View the active customer details needed for follow-up.";
         editor.querySelectorAll('[data-editor-panel="appointment"] input, [data-editor-panel="appointment"] select, [data-editor-panel="appointment"] textarea, [data-editor-panel="appointment"] button').forEach((control) => {
