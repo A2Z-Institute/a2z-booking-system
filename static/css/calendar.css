@@ -924,9 +924,15 @@
   border-left-width: 3px;
 }
 
-.calendar-event.is-overlapping .calendar-event-service,
-.calendar-event.is-overlapping .calendar-event-status {
+.calendar-event.is-overlapping .calendar-event-service {
   display: none;
+}
+
+/* Overlapping appointments still need their instructor-marked status visible.
+   Only secondary service text is hidden in narrow lanes. */
+.calendar-event.is-overlapping .calendar-event-status:not(:empty) {
+  display: block;
+  max-width: calc(100% - 4px);
 }
 
 .calendar-drag-time-preview {
