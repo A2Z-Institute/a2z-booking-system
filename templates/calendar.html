@@ -381,10 +381,6 @@
                 <label for="editor-repeat-count">Occurrences</label>
                 <input id="editor-repeat-count" name="repeat_count" type="number" min="1" max="52" value="1" data-editor-repeat-count>
               </div>
-              {% if current_user.role == 'admin' %}<label class="checkbox-row field-span-2">
-                <input type="checkbox" name="allow_double_booking" data-editor-allow-double-booking>
-                <span><strong>Allow Double Booking</strong><small>Permit this appointment to overlap another booking for the same instructor or equipment.</small></span>
-              </label>{% endif %}
             </div>
           </div>
         </details>
@@ -590,5 +586,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20260919-1') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20260923-1') }}" defer></script>
 {% endblock %}

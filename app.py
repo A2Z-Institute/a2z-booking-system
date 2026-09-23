@@ -1255,6 +1255,41 @@ class AppointmentConflictError(ValueError):
     pass
 
 
+def _lock_instructor_day(conn, instructor_id, target):
+    """Serialize appointment checks for one instructor/day on PostgreSQL."""
+    if postgres_url():
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(?, ?)",
+            (int(instructor_id), int(target.toordinal())),
+        )
+
+
+def _exact_active_appointment(conn, student_id, instructor_id, target, start_time, end_time):
+    """Return an already-saved identical appointment, if one exists."""
+    placeholders = ", ".join("?" for _ in ACTIVE_BOOKING_STATUSES)
+    return conn.execute(
+        f"""
+        SELECT id FROM bookings
+        WHERE student_user_id = ?
+          AND instructor_id = ?
+          AND target_date = ?
+          AND start_time = ?
+          AND end_time = ?
+          AND validation_status IN ({placeholders})
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (
+            int(student_id),
+            int(instructor_id),
+            target.isoformat(),
+            start_time,
+            end_time,
+            *ACTIVE_BOOKING_STATUSES,
+        ),
+    ).fetchone()
+
+
 class InstructorTransferBlocked(ValueError):
     """Raised when a branch transfer would strand upcoming appointments."""
 
@@ -4959,6 +4994,52 @@ def api_calendar_create_appointment():
                 )
             _validate_staff_day_range(start_minutes, end_minutes, "Appointments")
             end_time = _minutes_to_time(end_minutes)
+            # SQLite's BEGIN IMMEDIATE already serializes writers. PostgreSQL
+            # needs a narrow instructor/day transaction lock so two agents
+            # cannot both pass availability checks before either insert lands.
+            for occurrence_date in dates:
+                _lock_instructor_day(conn, instructor_id, occurrence_date)
+            exact_matches = [
+                _exact_active_appointment(
+                    conn,
+                    student_id,
+                    instructor_id,
+                    occurrence_date,
+                    start_time,
+                    end_time,
+                )
+                for occurrence_date in dates
+            ]
+            if any(exact_matches):
+                if len(dates) == 1:
+                    existing_row = _booking_rows(
+                        conn, "b.id = ?", (exact_matches[0]["id"],)
+                    )[0]
+                    existing_event = _calendar_event(existing_row)
+                    existing_event["service_ids"] = [
+                        row["service_id"]
+                        for row in conn.execute(
+                            """
+                            SELECT service_id FROM booking_services
+                            WHERE booking_id = ? AND service_id IS NOT NULL
+                            ORDER BY sort_order, id
+                            """,
+                            (exact_matches[0]["id"],),
+                        ).fetchall()
+                    ]
+                    return jsonify(
+                        {
+                            "success": True,
+                            "event": existing_event,
+                            "events": [existing_event],
+                            "created_count": 0,
+                            "duplicate_prevented": True,
+                        }
+                    )
+                raise ValueError(
+                    "This repeated schedule includes an appointment that is already saved. "
+                    "No duplicate appointments were created."
+                )
             allow_admin_past = (
                 current_user.role == "admin"
                 and payload.get("allow_past_appointment") is True
@@ -4983,10 +5064,13 @@ def api_calendar_create_appointment():
             # padding was removed because it made visibly free slots fail.
             buffer_before = 0
             buffer_after = 0
-            # Booking agents may record an intentional variance after the
-            # calendar conflict prompt. Instructors cannot bypass conflicts.
+            # An overlap is accepted only after the server first reports the
+            # conflict and the authorised user explicitly confirms the retry.
+            # Strict identity checks prevent strings such as "false" from
+            # becoming truthy and silently bypassing availability validation.
             allow_double_booking = (
-                bool(payload.get("allow_double_booking"))
+                payload.get("allow_double_booking") is True
+                and payload.get("double_booking_confirmed") is True
                 if current_user.role in {"admin", "booking_agent"}
                 else False
             )
@@ -5105,6 +5189,7 @@ def api_calendar_create_appointment():
                         "target_date": occurrence_date.isoformat(),
                         "start_time": start_time,
                         "repeat_rule": repeat_rule,
+                        "double_booking_override": allow_double_booking,
                     },
                 )
                 if requested_status == "Approved":
@@ -5290,7 +5375,8 @@ def api_calendar_reschedule_appointment(booking_id):
             next_buffer_before = 0
             next_buffer_after = 0
             allow_double_booking = (
-                bool(payload.get("allow_double_booking", booking["allow_double_booking"]))
+                payload.get("allow_double_booking") is True
+                and payload.get("double_booking_confirmed") is True
                 if current_user.role in {"admin", "booking_agent"}
                 else bool(booking["allow_double_booking"])
             )
@@ -5436,6 +5522,7 @@ def api_calendar_reschedule_appointment(booking_id):
                         "student_user_id": student_id,
                         "status": next_status,
                         "service_ids": service_ids,
+                        "double_booking_override": allow_double_booking,
                     },
                 },
             )

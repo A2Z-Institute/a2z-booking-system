@@ -48,7 +48,6 @@
   const bufferAfter = editor.querySelector("[data-editor-buffer-after]");
   const repeatInput = editor.querySelector("[data-editor-repeat]");
   const repeatCount = editor.querySelector("[data-editor-repeat-count]");
-  const allowDoubleBooking = editor.querySelector("[data-editor-allow-double-booking]");
   const clientFirstName = editor.querySelector("[data-new-client-first-name]");
   const clientLastName = editor.querySelector("[data-new-client-last-name]");
   const clientPhone = editor.querySelector("[data-new-client-phone]");
@@ -145,6 +144,10 @@
   let trailerFinishAuto = false;
   let reconcileTimer = null;
   let whatsappConfirmationEvent = null;
+  const calendarSyncStorageKey = "a2z-calendar-saved-v1";
+  const calendarSyncChannel = "BroadcastChannel" in window
+    ? new BroadcastChannel("a2z-calendar-saved")
+    : null;
   // The calendar column is the authoritative instructor selection. Keep it
   // outside the hidden form control so branch filtering or form resets cannot
   // discard the instructor while a new client is being created.
@@ -505,6 +508,15 @@
         .localeCompare(`${b.date || ""}-${b.start_time || ""}`)
     ));
     renderCalendar();
+  };
+  const notifyOtherCalendarWindows = () => {
+    const signal = { at: Date.now(), path: window.location.pathname };
+    calendarSyncChannel?.postMessage(signal);
+    try {
+      window.localStorage.setItem(calendarSyncStorageKey, JSON.stringify(signal));
+    } catch {
+      // Calendar saving must not fail when browser storage is unavailable.
+    }
   };
   // Route templates may end at the ID (`.../0`) or continue with an action
   // (`.../0/permanent`). Replace the placeholder in both forms.
@@ -908,10 +920,8 @@
     if (emailInput) emailInput.value = event.student_email || "";
     if (bufferBefore) bufferBefore.value = String(event.buffer_before_minutes || 0);
     if (bufferAfter) bufferAfter.value = String(event.buffer_after_minutes || 0);
-    if (allowDoubleBooking) allowDoubleBooking.checked = Boolean(event.allow_double_booking);
     if (repeatInput) repeatInput.value = "none";
     if (repeatCount) repeatCount.value = "1";
-    if (allowDoubleBooking) allowDoubleBooking.checked = false;
     setServiceSelection([]);
     syncEditorOptions();
     setServiceSelection(event.service_ids?.length ? event.service_ids : [event.service_id].filter(Boolean));
@@ -1566,7 +1576,10 @@
           ? replaceId(calendar.dataset.busyUpdateUrlTemplate, event.id)
           : replaceId(calendar.dataset.updateUrlTemplate, event.id);
       let currentEvent = event;
-      let allowDoubleBooking = Boolean(event.allow_double_booking);
+      // Always check the proposed time on the server first. Even an existing
+      // allowed overlap must receive a fresh confirmation when it is moved.
+      let allowDoubleBooking = false;
+      let doubleBookingConfirmed = false;
       let allowPastAppointment = false;
       let allowPastBusyTime = false;
       if (isAppointment) {
@@ -1643,7 +1656,10 @@
             machine_id: Number(target.machineId || currentEvent.machine_id),
             ...(isAppointment && allowPastAppointment ? { allow_past_appointment: true } : {}),
             ...(isBusyTime && allowPastBusyTime ? { allow_past_busy_time: true } : {}),
-            ...(isAppointment ? { allow_double_booking: allowDoubleBooking } : {}),
+            ...(isAppointment ? {
+              allow_double_booking: allowDoubleBooking,
+              double_booking_confirmed: doubleBookingConfirmed,
+            } : {}),
             ...(isBusyTime ? {
               break_type: currentEvent.busy_kind || "busy",
               title: currentEvent.title || "Busy time",
@@ -1678,6 +1694,7 @@
           );
           if (approved) {
             allowDoubleBooking = true;
+            doubleBookingConfirmed = true;
             continue;
           }
         }
@@ -1685,9 +1702,9 @@
       }
       if (!response.ok) throw new Error(data.error || `The ${isBookingSlot ? "booking slot" : isBusyTime ? "busy time" : "appointment"} could not be moved.`);
       if (data.event) mergeSavedEvents([data.event]);
+      notifyOtherCalendarWindows();
       announce(isBookingSlot ? "Booking slot moved." : isBusyTime ? "Busy time moved." : "Appointment moved.");
       message.hidden = true;
-      await loadEvents({ silent: true, force: true });
       queueCalendarReconcile();
     } catch (error) {
       // Restore the server-backed size and position after a rejected resize/drop.
@@ -2036,7 +2053,10 @@
       buffer_after_minutes: 0,
       repeat,
       repeat_count: repeat === "none" ? 1 : Math.max(2, Number(repeatCount?.value || 2)),
-      allow_double_booking: Boolean(allowDoubleBooking?.checked),
+      // The first request must always be checked by the server. An overlap is
+      // permitted only by the explicit confirmation/retry path below.
+      allow_double_booking: false,
+      double_booking_confirmed: false,
       notes: editorNotes?.value || "",
       revision: Number(revisionInput.value || 0),
     };
@@ -2109,14 +2129,19 @@
         `${data.error}\n\nBook anyway and record this as an allowed double booking?`
       );
       if (approved) {
-        if (allowDoubleBooking) allowDoubleBooking.checked = true;
-        payload = { ...payload, allow_double_booking: true };
+        payload = {
+          ...payload,
+          allow_double_booking: true,
+          double_booking_confirmed: true,
+        };
         ({ response, data } = await submit(payload));
       }
     }
     if (!response.ok) throw new Error(data.error || "The appointment could not be saved.");
     return {
-      message: editing ? "Appointment updated." : (
+      message: data.duplicate_prevented
+        ? "This appointment was already saved. The existing booking is now shown."
+        : editing ? "Appointment updated." : (
         Number(data.created_count || 1) > 1
           ? `${data.created_count} appointments created.`
           : "Appointment added."
@@ -2283,7 +2308,10 @@
       }
       dialog.close();
       announce(result?.message || result);
-      await loadEvents({ silent: true, force: true });
+      // Keep the authoritative event returned by the save response on screen.
+      // A full immediate reload could briefly replace it with an older cached
+      // calendar response, making agents think that a refresh is required.
+      notifyOtherCalendarWindows();
       queueCalendarReconcile();
     } catch (error) {
       showError(error.message || "The schedule item could not be saved.");
@@ -2790,4 +2818,21 @@
       void loadEvents({ silent: true });
     }
   });
+  calendarSyncChannel?.addEventListener("message", (event) => {
+    if (event.data?.path === window.location.pathname && !saveInFlight) {
+      void loadEvents({ silent: true, force: true });
+    }
+  });
+  window.addEventListener("storage", (event) => {
+    if (event.key !== calendarSyncStorageKey || !event.newValue || saveInFlight) return;
+    try {
+      const signal = JSON.parse(event.newValue);
+      if (signal.path === window.location.pathname) {
+        void loadEvents({ silent: true, force: true });
+      }
+    } catch {
+      // Ignore malformed or browser-extension storage events.
+    }
+  });
+  window.addEventListener("pagehide", () => calendarSyncChannel?.close());
 })();
