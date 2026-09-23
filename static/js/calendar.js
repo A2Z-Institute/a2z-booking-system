@@ -470,6 +470,8 @@
       `Instructor: ${appointment.instructor_name || ""}`,
     ];
     if (equipment && equipment !== service) lines.push(`Equipment: ${equipment}`);
+    const bookingAgentNote = String(appointment.notes || "").trim();
+    if (bookingAgentNote) lines.push(`Booking Agent: ${bookingAgentNote}`);
     lines.push("Please arrive on time. Thank you.");
     lines.push("", "Note: Instructors may vary based on availability.");
     window.open(`https://wa.me/${number}?text=${encodeURIComponent(lines.join("\n"))}`, "_blank", "noopener");

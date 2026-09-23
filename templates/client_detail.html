@@ -197,7 +197,8 @@
                     data-whatsapp-instructor="{{ booking.instructor_name }}"
                     data-whatsapp-date="{{ booking.target_date }}"
                     data-whatsapp-start="{{ booking.start_time }}"
-                    data-whatsapp-end="{{ booking.end_time }}">WhatsApp confirmation</button>
+                    data-whatsapp-end="{{ booking.end_time }}"
+                    data-whatsapp-note="{{ booking.notes|default('', true) }}">WhatsApp confirmation</button>
                 {% endif %}
               </div>
             </div>
@@ -306,6 +307,8 @@
         `Instructor: ${button.dataset.whatsappInstructor || ''}`,
       ];
       if (equipment && equipment !== service) lines.push(`Equipment: ${equipment}`);
+      const bookingAgentNote = String(button.dataset.whatsappNote || '').trim();
+      if (bookingAgentNote) lines.push(`Booking Agent: ${bookingAgentNote}`);
       lines.push('Please arrive on time. Thank you.');
       window.open(`https://wa.me/${number}?text=${encodeURIComponent(lines.join('\n'))}`, '_blank', 'noopener');
     });
