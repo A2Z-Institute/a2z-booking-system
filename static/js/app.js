@@ -266,6 +266,55 @@
     });
   }
 
+  // Native HTML dragging does not scroll long staff lists automatically in
+  // every browser. While a staff row/card is being held, scroll the page when
+  // the pointer approaches the top or bottom of the visible window.
+  const staffDragAutoScroll = (() => {
+    const edgeSize = 110;
+    const maximumStep = 24;
+    let active = false;
+    let pointerY = 0;
+    let animationFrame = null;
+
+    const tick = () => {
+      if (!active) {
+        animationFrame = null;
+        return;
+      }
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+      let step = 0;
+      if (pointerY < edgeSize) {
+        step = -Math.ceil(maximumStep * (edgeSize - Math.max(0, pointerY)) / edgeSize);
+      } else if (pointerY > viewportHeight - edgeSize) {
+        step = Math.ceil(
+          maximumStep * (pointerY - (viewportHeight - edgeSize)) / edgeSize,
+        );
+      }
+      if (step) window.scrollBy(0, step);
+      animationFrame = window.requestAnimationFrame(tick);
+    };
+
+    return {
+      start(clientY) {
+        active = true;
+        pointerY = clientY;
+        if (animationFrame === null) animationFrame = window.requestAnimationFrame(tick);
+      },
+      update(clientY) {
+        if (active) pointerY = clientY;
+      },
+      stop() {
+        active = false;
+        if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
+        animationFrame = null;
+      },
+    };
+  })();
+  document.addEventListener("dragover", (event) => {
+    staffDragAutoScroll.update(event.clientY);
+  });
+  document.addEventListener("drop", () => staffDragAutoScroll.stop());
+
   const instructorOrderTable = document.querySelector("[data-instructor-order-table]");
   if (instructorOrderTable) {
     const body = instructorOrderTable.querySelector("tbody");
@@ -322,12 +371,14 @@
         }
         draggedRow = row;
         row.classList.add("is-instructor-dragging");
+        staffDragAutoScroll.start(event.clientY);
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", row.dataset.instructorId || "");
       });
       handle.addEventListener("dragend", () => {
         draggedRow?.classList.remove("is-instructor-dragging");
         draggedRow = null;
+        staffDragAutoScroll.stop();
         clearDropTargets();
       });
       row.addEventListener("dragover", (event) => {
@@ -417,6 +468,7 @@
           nextSibling: card.nextElementSibling,
         };
         card.classList.add("is-transfer-dragging");
+        staffDragAutoScroll.start(event.clientY);
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", card.dataset.userId || "");
       });
@@ -424,6 +476,7 @@
         card.classList.remove("is-transfer-dragging");
         draggedCard = null;
         dragOrigin = null;
+        staffDragAutoScroll.stop();
         clearTransferTargets();
       });
     });
