@@ -3413,7 +3413,11 @@ def _calendar_instructors(conn):
 
 def _calendar_event(row):
     can_view_contacts = current_user.has_permission("contact_details")
-    can_view_notes = current_user.has_permission("client_notes")
+    # Booking notes are operational instructions for the scheduled training,
+    # so every authorised staff role viewing that appointment must receive
+    # them. Keep private client-profile notes behind the separate client_notes
+    # permission used by the client detail screen.
+    can_view_notes = current_user.role in {"admin", "booking_agent", "instructor"}
     student_name, admission_number = _booking_client_identity_fields(
         row["student_name"], row["admission_number"]
     )
