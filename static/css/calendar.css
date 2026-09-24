@@ -2140,6 +2140,21 @@
 
   .calendar-scroll {
     max-height: calc(100dvh - 258px);
+    overflow: auto;
+    overscroll-behavior: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: none;
+    touch-action: pan-x pan-y;
+  }
+
+  /* Appointment cards previously declared touch-action:none. That made a
+     swipe appear frozen whenever the finger landed on a booking. On phones,
+     scrolling takes priority; bookings can still be opened with a tap and
+     edited through the appointment form. */
+  .calendar-event.is-movable,
+  .calendar-event-resize,
+  .calendar-slot {
+    touch-action: pan-x pan-y;
   }
 
   .calendar-schedule-column {
