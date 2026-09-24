@@ -139,6 +139,10 @@
   let lastHorizontalScroll = 0;
   let suppressHorizontalScrollSave = false;
   let horizontalScrollRestoreGeneration = 0;
+  let horizontalScrollSaveTimer = null;
+  let calendarScrollIdleTimer = null;
+  let calendarIsScrolling = false;
+  let lastEventsPayloadSignature = "";
   let saveInFlight = false;
   let moveInFlight = false;
   let trailerFinishAuto = false;
@@ -240,8 +244,21 @@
 
   const rememberHorizontalScroll = () => {
     if (!calendarScroll || suppressHorizontalScrollSave) return;
-    lastHorizontalScroll = Math.max(0, calendarScroll.scrollLeft);
-    persistHorizontalScroll(lastHorizontalScroll);
+    calendarIsScrolling = true;
+    window.clearTimeout(calendarScrollIdleTimer);
+    calendarScrollIdleTimer = window.setTimeout(() => {
+      calendarIsScrolling = false;
+    }, 180);
+
+    const nextHorizontalScroll = Math.max(0, calendarScroll.scrollLeft);
+    if (nextHorizontalScroll === lastHorizontalScroll) return;
+    lastHorizontalScroll = nextHorizontalScroll;
+    // Storage is synchronous in mobile browsers. Persist once scrolling has
+    // settled instead of blocking the main thread for every touch frame.
+    window.clearTimeout(horizontalScrollSaveTimer);
+    horizontalScrollSaveTimer = window.setTimeout(() => {
+      persistHorizontalScroll(lastHorizontalScroll);
+    }, 220);
   };
 
   const setHorizontalScroll = (value) => {
@@ -1943,10 +1960,22 @@
       if (requestGeneration !== loadGeneration) return false;
       // A silent background refresh must never rebuild the calendar while a
       // pointer drag or resize is active; doing so creates duplicate trackers.
-      if (silent && (activePointerDragCleanup || draggedEvent || resizingEventId !== null)) {
+      if (silent && (
+        calendarIsScrolling
+        || activePointerDragCleanup
+        || draggedEvent
+        || resizingEventId !== null
+      )) {
         return false;
       }
-      events = data.events || [];
+      const incomingEvents = data.events || [];
+      const incomingSignature = JSON.stringify(incomingEvents);
+      // The live poll used to rebuild hundreds of time cells every two
+      // seconds even when the server returned identical data. Preserve the
+      // existing DOM when nothing changed so a touch scroll cannot stutter.
+      if (silent && incomingSignature === lastEventsPayloadSignature) return true;
+      lastEventsPayloadSignature = incomingSignature;
+      events = incomingEvents;
       if (!silent) message.hidden = true;
       renderCalendar();
       if (resetHorizontalScroll && calendarScroll) {
@@ -2786,6 +2815,8 @@
 
   calendarScroll?.addEventListener("scroll", rememberHorizontalScroll, { passive: true });
   window.addEventListener("pagehide", () => {
+    window.clearTimeout(horizontalScrollSaveTimer);
+    window.clearTimeout(calendarScrollIdleTimer);
     persistHorizontalScroll(Math.max(lastHorizontalScroll, calendarScroll?.scrollLeft || 0));
     persistCalendarDate();
   });
