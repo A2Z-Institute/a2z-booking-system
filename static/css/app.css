@@ -734,6 +734,8 @@ h3 {
 .table-scroll {
   max-width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
 }
 
 .data-table {
@@ -3620,6 +3622,8 @@ body {
 
 .client-table-wrap {
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
 }
 
 .compact-data-table th,
@@ -3765,6 +3769,14 @@ body {
 }
 
 @media (max-width: 859px) {
+  /* A swipe may begin on the reorder grip while reading a long staff list.
+     Keep native two-axis page/table scrolling available on touch screens;
+     desktop mouse drag-and-drop is unaffected. */
+  .instructor-order-handle,
+  .instructor-transfer-card {
+    touch-action: pan-x pan-y;
+  }
+
   .site-nav {
     max-height: calc(100dvh - 59px);
     overflow-y: auto;
