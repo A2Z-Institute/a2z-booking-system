@@ -2157,6 +2157,57 @@
     touch-action: pan-x pan-y;
   }
 
+  /* Keep the primary booking action inside narrow phone screens. Secondary
+     controls may occupy the first row; Save always receives a full-width row. */
+  .appointment-editor-footer {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.45rem;
+    max-width: 100%;
+    padding: 0.55rem 0.65rem max(0.55rem, env(safe-area-inset-bottom));
+    overflow: visible;
+  }
+
+  .appointment-editor-footer > [data-editor-additional-toggle] {
+    grid-column: 1;
+  }
+
+  .appointment-editor-footer > .editor-booking-menu {
+    grid-column: 2;
+    margin-left: 0;
+  }
+
+  .appointment-editor-footer > [data-editor-busy-delete],
+  .appointment-editor-footer > [data-editor-busy-delete-upcoming],
+  .appointment-editor-footer > [data-editor-busy-delete-all],
+  .appointment-editor-footer > [data-editor-slot-delete],
+  .appointment-editor-footer > [data-editor-slot-delete-upcoming] {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .appointment-editor-actions {
+    grid-column: 1 / -1;
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
+    margin-left: 0;
+  }
+
+  .appointment-editor-actions .button {
+    width: 100%;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  .appointment-editor-actions [data-editor-save] {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
   .calendar-schedule-column {
     width: min(78vw, 272px);
     min-width: min(78vw, 272px);
