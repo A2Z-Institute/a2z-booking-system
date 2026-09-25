@@ -17,6 +17,7 @@ import sqlite3
 from calendar import monthrange
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from difflib import SequenceMatcher
 from functools import wraps
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -677,14 +678,9 @@ def _driving_test_related_client_ids(conn, client_id):
         current.get("full_name"), current.get("admission_number")
     )
     name_key = " ".join(clean_name.casefold().split())
-    phone_keys = {
-        value
-        for value in (
-            _phone_digits(current.get("phone")),
-            _phone_digits(current.get("secondary_phone")),
-        )
-        if value
-    }
+    phone_keys = set()
+    for value in (current.get("phone"), current.get("secondary_phone")):
+        phone_keys.update(_driving_test_phone_variants(value))
     admission_key = " ".join(str(current.get("admission_number") or "").casefold().split())
     if not name_key or (not phone_keys and not admission_key):
         return [client_id]
@@ -722,20 +718,17 @@ def _driving_test_related_client_ids(conn, client_id):
             candidate.get("full_name"), candidate.get("admission_number")
         )
         candidate_name_key = " ".join(candidate_name.casefold().split())
-        candidate_phones = {
-            value
-            for value in (
-                _phone_digits(candidate.get("phone")),
-                _phone_digits(candidate.get("secondary_phone")),
-            )
-            if value
-        }
+        candidate_phones = set()
+        for value in (candidate.get("phone"), candidate.get("secondary_phone")):
+            candidate_phones.update(_driving_test_phone_variants(value))
         candidate_admission = " ".join(
             str(candidate.get("admission_number") or "").casefold().split()
         )
         same_phone = bool(phone_keys & candidate_phones)
         same_admission = bool(admission_key and admission_key == candidate_admission)
-        if candidate_name_key == name_key and (same_phone or same_admission):
+        if _driving_test_names_compatible(clean_name, candidate_name) and (
+            same_phone or same_admission
+        ):
             related.append(int(candidate["id"]))
     return related or [client_id]
 
@@ -743,6 +736,23 @@ def _driving_test_related_client_ids(conn, client_id):
 def _driving_test_name_key(value):
     """Return a punctuation-insensitive name used only for import matching."""
     return " ".join(re.findall(r"[\w]+", str(value or "").casefold(), re.UNICODE))
+
+
+def _driving_test_phone_variants(value):
+    """Return equivalent Indian phone formats for reliable client matching."""
+    digits = _phone_digits(value)
+    if len(digits) < 8:
+        return set()
+    local = digits
+    if len(local) == 13 and local.startswith("091"):
+        local = local[-10:]
+    elif len(local) == 12 and local.startswith("91"):
+        local = local[-10:]
+    elif len(local) == 11 and local.startswith("0"):
+        local = local[1:]
+    if len(local) != 10:
+        return {digits}
+    return {local, f"0{local}", f"91{local}", f"091{local}"}
 
 
 def _driving_test_names_compatible(imported_name, client_name):
@@ -755,13 +765,33 @@ def _driving_test_names_compatible(imported_name, client_name):
         return True
     imported_parts = imported_key.split()
     client_parts = client_key.split()
-    return bool(
+    if bool(
         imported_parts[0] == client_parts[0]
         and (
             imported_parts[: len(client_parts)] == client_parts
             or client_parts[: len(imported_parts)] == imported_parts
         )
+    ):
+        return True
+    imported_compact = "".join(imported_parts)
+    client_compact = "".join(client_parts)
+    return SequenceMatcher(None, imported_compact, client_compact).ratio() >= 0.84
+
+
+def _driving_test_duplicate_identity_key(record):
+    """Return a strong identity key for harmless duplicate client records."""
+    clean_name, _ = _booking_client_identity_fields(
+        record.get("full_name"), record.get("admission_number")
     )
+    name_key = _driving_test_name_key(clean_name)
+    admission_key = "".join(
+        re.findall(
+            r"[\w]+",
+            str(record.get("admission_number") or "").casefold(),
+            re.UNICODE,
+        )
+    )
+    return (name_key, admission_key) if name_key and admission_key else None
 
 
 def _driving_test_import_client(conn, candidate, target_branch_id):
@@ -776,20 +806,7 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
     phone = _phone_digits(candidate.get("phone"))
     if not _driving_test_name_key(imported_name) or len(phone) < 8:
         return None
-    phone_variants = {phone}
-    if len(phone) == 10:
-        phone_variants.add(f"0{phone}")
-        phone_variants.add(f"91{phone}")
-        phone_variants.add(f"091{phone}")
-    elif len(phone) == 11 and phone.startswith("0"):
-        phone_variants.add(phone[1:])
-        phone_variants.add(f"91{phone[1:]}")
-    elif len(phone) == 12 and phone.startswith("91"):
-        phone_variants.add(phone[-10:])
-        phone_variants.add(f"0{phone[-10:]}")
-    elif len(phone) == 13 and phone.startswith("091"):
-        phone_variants.add(phone[-10:])
-        phone_variants.add(phone[-12:])
+    phone_variants = _driving_test_phone_variants(phone)
     phone_sql = (
         "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE({column}, ''), "
         "' ', ''), '-', ''), '(', ''), ')', ''), '+', '')"
@@ -836,9 +853,23 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
     if not target_phone_matches and len(phone_matches) == 1:
         return phone_matches[0]
 
+    # Identical name + admission records are harmless duplicate client copies.
+    # Select a stable representative; related-client history will combine all
+    # of their bookings without deleting or modifying either client record.
+    candidates = target_phone_matches or phone_matches
+    duplicate_keys = {
+        key
+        for key in (_driving_test_duplicate_identity_key(item) for item in candidates)
+        if key
+    }
+    if len(duplicate_keys) == 1 and all(
+        _driving_test_duplicate_identity_key(item) in duplicate_keys
+        for item in candidates
+    ):
+        return min(candidates, key=lambda item: int(item["id"]))
+
     # The phone is shared by multiple client records. Use the name only to
     # disambiguate; never silently choose when more than one candidate remains.
-    candidates = target_phone_matches or phone_matches
     name_matches = []
     for record in candidates:
         clean_name, _ = _booking_client_identity_fields(
@@ -846,7 +877,23 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
         )
         if _driving_test_names_compatible(imported_name, clean_name):
             name_matches.append(record)
-    return name_matches[0] if len(name_matches) == 1 else None
+    if len(name_matches) == 1:
+        return name_matches[0]
+    if name_matches:
+        first_name, _ = _booking_client_identity_fields(
+            name_matches[0].get("full_name"), name_matches[0].get("admission_number")
+        )
+        if all(
+            _driving_test_names_compatible(
+                first_name,
+                _booking_client_identity_fields(
+                    item.get("full_name"), item.get("admission_number")
+                )[0],
+            )
+            for item in name_matches[1:]
+        ):
+            return min(name_matches, key=lambda item: int(item["id"]))
+    return None
 
 
 def _driving_test_import_storage():
@@ -7412,9 +7459,11 @@ def admin_driving_tests_import_pdf():
                 item["client_name"] = match["full_name"] if match else ""
                 item["client_branch_name"] = match["branch_name"] if match else ""
                 item["client_admission_number"] = match["admission_number"] if match else ""
+                item["matched_client_count"] = 0
                 item["duplicate_attempt_id"] = None
                 if match:
                     related_ids = _driving_test_related_client_ids(conn, int(match["id"]))
+                    item["matched_client_count"] = len(related_ids)
                     placeholders = ",".join("?" for _ in related_ids)
                     duplicate = conn.execute(
                         f"""
