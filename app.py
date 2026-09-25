@@ -726,8 +726,10 @@ def _driving_test_related_client_ids(conn, client_id):
         )
         same_phone = bool(phone_keys & candidate_phones)
         same_admission = bool(admission_key and admission_key == candidate_admission)
-        if _driving_test_names_compatible(clean_name, candidate_name) and (
-            same_phone or same_admission
+        same_strong_identity = bool(same_phone and same_admission)
+        if same_strong_identity or (
+            _driving_test_names_compatible(clean_name, candidate_name)
+            and (same_phone or same_admission)
         ):
             related.append(int(candidate["id"]))
     return related or [client_id]
@@ -753,6 +755,13 @@ def _driving_test_phone_variants(value):
     if len(local) != 10:
         return {digits}
     return {local, f"0{local}", f"91{local}", f"091{local}"}
+
+
+def _driving_test_admission_key(value):
+    """Return a punctuation-insensitive admission identifier."""
+    return "".join(
+        re.findall(r"[\w]+", str(value or "").casefold(), re.UNICODE)
+    )
 
 
 def _driving_test_names_compatible(imported_name, client_name):
@@ -784,13 +793,7 @@ def _driving_test_duplicate_identity_key(record):
         record.get("full_name"), record.get("admission_number")
     )
     name_key = _driving_test_name_key(clean_name)
-    admission_key = "".join(
-        re.findall(
-            r"[\w]+",
-            str(record.get("admission_number") or "").casefold(),
-            re.UNICODE,
-        )
-    )
+    admission_key = _driving_test_admission_key(record.get("admission_number"))
     return (name_key, admission_key) if name_key and admission_key else None
 
 
@@ -857,6 +860,17 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
     # Select a stable representative; related-client history will combine all
     # of their bookings without deleting or modifying either client record.
     candidates = target_phone_matches or phone_matches
+    admission_keys = {
+        _driving_test_admission_key(item.get("admission_number"))
+        for item in candidates
+        if _driving_test_admission_key(item.get("admission_number"))
+    }
+    if len(admission_keys) == 1 and all(
+        _driving_test_admission_key(item.get("admission_number")) in admission_keys
+        for item in candidates
+    ):
+        return min(candidates, key=lambda item: int(item["id"]))
+
     duplicate_keys = {
         key
         for key in (_driving_test_duplicate_identity_key(item) for item in candidates)
