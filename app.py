@@ -47,6 +47,7 @@ from werkzeug.utils import secure_filename
 
 from backup_database import backup_directory, verify_database
 from database import database_path, get_db, init_db, postgres_url, seed_portal_accounts, seed_reference_data
+from driving_test_pdf import DrivingTestPdfError, parse_driving_test_pdf
 from free_slots import WORK_WINDOWS, compute_free_slots, intersect_free_slots
 from gemini_insights import (
     GeminiInsightsError,
@@ -737,6 +738,92 @@ def _driving_test_related_client_ids(conn, client_id):
         if candidate_name_key == name_key and (same_phone or same_admission):
             related.append(int(candidate["id"]))
     return related or [client_id]
+
+
+def _driving_test_import_client(conn, candidate, target_branch_id):
+    """Conservatively match an imported candidate to an existing client."""
+    phone = _phone_digits(candidate.get("phone"))
+    imported_name = " ".join(str(candidate.get("candidate_name") or "").casefold().split())
+    if not phone or not imported_name:
+        return None
+    phone_sql = (
+        "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE({column}, ''), "
+        "' ', ''), '-', ''), '(', ''), ')', ''), '+', '')"
+    )
+    scope_clause = ""
+    values = [phone, phone, target_branch_id]
+    if not current_user.is_super_admin:
+        scope_clause = " AND u.branch_id = ?"
+        values.append(target_branch_id)
+    rows = conn.execute(
+        f"""
+        SELECT u.id, u.full_name, u.branch_id, br.name AS branch_name,
+               cp.admission_number
+        FROM users u
+        JOIN branches br ON br.id = u.branch_id
+        LEFT JOIN client_profiles cp ON cp.user_id = u.id
+        WHERE u.role = 'student' AND u.is_active = 1
+          AND ({phone_sql.format(column='u.phone')} = ? OR
+               {phone_sql.format(column='cp.secondary_phone')} = ?)
+          {scope_clause}
+        ORDER BY CASE WHEN u.branch_id = ? THEN 0 ELSE 1 END, u.id
+        """,
+        values,
+    ).fetchall()
+    matches = []
+    for row in rows:
+        record = dict(row)
+        clean_name, _ = _booking_client_identity_fields(
+            record.get("full_name"), record.get("admission_number")
+        )
+        if " ".join(clean_name.casefold().split()) == imported_name:
+            matches.append(record)
+    if not matches:
+        return None
+    preferred = next(
+        (item for item in matches if int(item["branch_id"]) == int(target_branch_id)),
+        matches[0],
+    )
+    return preferred
+
+
+def _driving_test_import_storage():
+    storage = Path(app.instance_path) / "driving_test_imports"
+    storage.mkdir(parents=True, exist_ok=True)
+    return storage
+
+
+def _save_driving_test_import(payload, pdf_content):
+    token = secrets.token_urlsafe(24)
+    storage = _driving_test_import_storage()
+    payload["token"] = token
+    payload["created_by"] = int(current_user.id)
+    payload["created_at"] = datetime.now(timezone.utc).isoformat()
+    payload["confirmed"] = False
+    (storage / f"{token}.json").write_text(
+        json.dumps(payload, ensure_ascii=True), encoding="utf-8"
+    )
+    (storage / f"{token}.pdf").write_bytes(pdf_content)
+    return token
+
+
+def _load_driving_test_import(token):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{20,100}", str(token or "")):
+        raise ValueError("This PDF preview link is invalid.")
+    path = _driving_test_import_storage() / f"{token}.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raise ValueError("This PDF preview has expired. Upload the form again.") from None
+    if int(payload.get("created_by") or 0) != int(current_user.id):
+        abort(403)
+    try:
+        created_at = datetime.fromisoformat(payload["created_at"])
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("This PDF preview is invalid.") from None
+    if datetime.now(timezone.utc) - created_at > timedelta(hours=8):
+        raise ValueError("This PDF preview has expired. Upload the form again.")
+    return payload, path
 
 
 def _parse_resource_ids(machine_value, instructor_value):
@@ -7226,6 +7313,162 @@ def _booking_insights_data(conn, days, branch_id=None):
         "weekdays": weekdays,
         "start_hours": hours,
     }
+
+
+@app.post("/admin/driving-tests/import-pdf")
+@role_required("admin")
+def admin_driving_tests_import_pdf():
+    try:
+        upload = request.files.get("test_form_pdf")
+        if not upload or not upload.filename:
+            raise ValueError("Choose an SRTO test-form PDF to upload.")
+        filename = secure_filename(upload.filename) or "srto-test-form.pdf"
+        if Path(filename).suffix.lower() != ".pdf":
+            raise ValueError("Upload a PDF test form.")
+        content = upload.read(5 * 1024 * 1024 + 1)
+        if len(content) > 5 * 1024 * 1024:
+            raise ValueError("Keep the test-form PDF under 5 MB.")
+        parsed = parse_driving_test_pdf(content, filename)
+
+        portal_branch_id = _portal_branch_id()
+        if portal_branch_id is not None:
+            target_branch_id = int(portal_branch_id)
+        else:
+            target_branch_id = int(request.form.get("import_branch_id") or 0)
+        with get_db() as conn:
+            branch = conn.execute(
+                "SELECT id, name FROM branches WHERE id = ? AND is_active = 1",
+                (target_branch_id,),
+            ).fetchone()
+            if not branch:
+                raise ValueError("Choose the A2Z branch for this test form.")
+            preview_rows = []
+            for candidate in parsed["rows"]:
+                item = dict(candidate)
+                match = _driving_test_import_client(conn, item, target_branch_id)
+                item["client_id"] = int(match["id"]) if match else None
+                item["client_name"] = match["full_name"] if match else ""
+                item["client_branch_name"] = match["branch_name"] if match else ""
+                item["duplicate_attempt_id"] = None
+                if match:
+                    related_ids = _driving_test_related_client_ids(conn, int(match["id"]))
+                    placeholders = ",".join("?" for _ in related_ids)
+                    duplicate = conn.execute(
+                        f"""
+                        SELECT id FROM driving_test_candidates
+                        WHERE client_id IN ({placeholders}) AND test_date = ?
+                        ORDER BY id LIMIT 1
+                        """,
+                        (*related_ids, parsed["test_date"]),
+                    ).fetchone()
+                    if duplicate:
+                        item["duplicate_attempt_id"] = int(duplicate["id"])
+                preview_rows.append(item)
+        payload = {
+            "filename": filename,
+            "branch_id": target_branch_id,
+            "branch_name": branch["name"],
+            "test_date": parsed["test_date"],
+            "test_location": parsed["test_location"],
+            "rows": preview_rows,
+        }
+        token = _save_driving_test_import(payload, content)
+        registerable = sum(
+            1 for item in preview_rows
+            if item["client_id"] and not item["duplicate_attempt_id"]
+        )
+        return render_template(
+            "driving_test_import_preview.html",
+            import_data=payload,
+            import_token=token,
+            registerable=registerable,
+            unmatched=sum(1 for item in preview_rows if not item["client_id"]),
+            duplicates=sum(1 for item in preview_rows if item["duplicate_attempt_id"]),
+        )
+    except (TypeError, ValueError, DrivingTestPdfError) as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("admin_driving_tests", _anchor="upload-test-form"))
+
+
+@app.post("/admin/driving-tests/import-pdf/confirm")
+@role_required("admin")
+def admin_driving_tests_import_pdf_confirm():
+    try:
+        payload, preview_path = _load_driving_test_import(request.form.get("import_token"))
+        if payload.get("confirmed"):
+            raise ValueError("This PDF import has already been confirmed.")
+        portal_branch_id = _portal_branch_id()
+        if portal_branch_id is not None and int(payload["branch_id"]) != int(portal_branch_id):
+            abort(403)
+        registered = 0
+        skipped = 0
+        with get_db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            for item in payload["rows"]:
+                client_id = int(item.get("client_id") or 0)
+                if not client_id:
+                    skipped += 1
+                    continue
+                client = conn.execute(
+                    "SELECT id FROM users WHERE id = ? AND role = 'student' AND is_active = 1",
+                    (client_id,),
+                ).fetchone()
+                if not client:
+                    skipped += 1
+                    continue
+                related_ids = _driving_test_related_client_ids(conn, client_id)
+                placeholders = ",".join("?" for _ in related_ids)
+                duplicate = conn.execute(
+                    f"""
+                    SELECT id FROM driving_test_candidates
+                    WHERE client_id IN ({placeholders}) AND test_date = ?
+                    LIMIT 1
+                    """,
+                    (*related_ids, payload["test_date"]),
+                ).fetchone()
+                if duplicate:
+                    skipped += 1
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO driving_test_candidates
+                        (branch_id, client_id, test_date, test_type, test_location,
+                         course_name, application_number, appointment_date,
+                         source_filename, result_status, created_by)
+                    VALUES (?, ?, ?, 'First attempt', ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        int(payload["branch_id"]), client_id, payload["test_date"],
+                        payload["test_location"], item["course_name"],
+                        item["application_number"], item["appointment_date"],
+                        payload["filename"], item.get("result_status") or "Pending",
+                        current_user.id,
+                    ),
+                )
+                registered += 1
+            _audit(
+                conn,
+                "driving_test_pdf_imported",
+                details={
+                    "filename": payload["filename"], "branch_id": payload["branch_id"],
+                    "test_date": payload["test_date"], "registered": registered,
+                    "skipped": skipped,
+                },
+            )
+        payload["confirmed"] = True
+        payload["confirmed_at"] = datetime.now(timezone.utc).isoformat()
+        preview_path.write_text(json.dumps(payload, ensure_ascii=True), encoding="utf-8")
+        flash(
+            f"PDF import completed: {registered} candidates registered; "
+            f"{skipped} unmatched or duplicate rows skipped.",
+            "success",
+        )
+        return redirect(
+            url_for("admin_driving_tests", date_from=payload["test_date"], date_to=payload["test_date"])
+        )
+    except (TypeError, ValueError) as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("admin_driving_tests", _anchor="upload-test-form"))
 
 
 @app.route("/admin/driving-tests", methods=["GET", "POST"])

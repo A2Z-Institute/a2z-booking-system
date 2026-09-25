@@ -23,6 +23,29 @@
   <article class="stat-card"><span class="stat-label">Pass rate</span><strong class="stat-value stat-value-word">{{ stats.pass_rate }}%</strong><span class="stat-detail">Passed ÷ passed and failed</span></article>
 </section>
 
+<details class="management-panel service-create-panel" id="upload-test-form">
+  <summary>+ Upload SRTO test-form PDF</summary>
+  <div class="section-body">
+    <form method="post" action="{{ url_for('admin_driving_tests_import_pdf') }}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-grid two-column">
+        <div class="field">
+          <label for="test-form-pdf">SRTO candidate-list PDF</label>
+          <input id="test-form-pdf" name="test_form_pdf" type="file" accept="application/pdf,.pdf" required>
+          <span class="field-hint">Maximum 5 MB. The PDF is read first and shown for confirmation.</span>
+        </div>
+        {% if current_user.is_super_admin %}
+          <div class="field">
+            <label for="import-branch-id">A2Z branch</label>
+            <select id="import-branch-id" name="import_branch_id" required><option value="">Choose branch</option>{% for branch in branches %}<option value="{{ branch.id }}">{{ branch.name }}</option>{% endfor %}</select>
+          </div>
+        {% endif %}
+      </div>
+      <div class="form-actions"><button class="button button-primary" type="submit">Read PDF and preview</button></div>
+    </form>
+  </div>
+</details>
+
 <details class="management-panel service-create-panel" id="add-test-candidate" {% if request.method == 'POST' %}open{% endif %}>
   <summary>+ Register a candidate before the test</summary>
   <div class="section-body">
@@ -97,7 +120,7 @@
             {% set status_class = 'approved' if attempt.result_status == 'Passed' else 'rejected' if attempt.result_status == 'Failed' else 'unknown' if attempt.result_status == 'Absent' else 'pending' %}
             <tr>
               <td><strong>{{ attempt.test_date|friendly_date }}</strong><span class="cell-detail">{{ attempt.test_type }}</span></td>
-              <td><span class="cell-title">{{ attempt.client_name }}</span><span class="cell-detail">{{ attempt.admission_number|default('No admission number', true) }} · {{ attempt.client_phone|default('No phone', true) }}</span></td>
+              <td><span class="cell-title">{{ attempt.client_name }}</span><span class="cell-detail">{{ attempt.admission_number|default('No admission number', true) }} · {{ attempt.client_phone|default('No phone', true) }}{% if attempt.application_number %} · App {{ attempt.application_number }}{% endif %}</span></td>
               <td>{{ attempt.course_name|default('Not recorded', true) }}<span class="cell-detail">{{ attempt.branch_name }}</span></td>
               <td><span class="status-badge status-{{ status_class }}">{{ attempt.result_status }}</span></td>
               <td>{{ attempt.training_instructor_names }}<span class="cell-detail">{{ attempt.training_instructor_count }} instructor{% if attempt.training_instructor_count != 1 %}s{% endif %} · {{ attempt.training_sessions }} sessions · {{ (attempt.training_minutes / 60)|round(1) }} hours{% if attempt.matched_client_count > 1 %} · {{ attempt.matched_client_count }} matching client records combined{% endif %}</span></td>

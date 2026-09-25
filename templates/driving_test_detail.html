@@ -8,7 +8,7 @@
   <div>
     <p class="eyebrow">Driving test candidate</p>
     <h1>{{ attempt.client_name }}</h1>
-    <p>{{ attempt.admission_number|default('No admission number', true) }} · {{ attempt.test_date|friendly_date }} · {{ attempt.test_type }}</p>
+    <p>{{ attempt.admission_number|default('No admission number', true) }} · {{ attempt.test_date|friendly_date }} · {{ attempt.test_type }}{% if attempt.application_number %} · Application {{ attempt.application_number }}{% endif %}</p>
   </div>
   <div class="management-panel-actions"><span class="status-badge status-{{ status_class }}">{{ attempt.result_status }}</span><a class="button button-secondary button-small" href="{{ url_for('admin_driving_tests') }}">Back to tests</a><a class="button button-secondary button-small" href="{{ url_for('client_detail', client_id=attempt.client_id) }}">Client record</a></div>
 </header>
@@ -16,7 +16,7 @@
 <section class="stats-grid driving-test-detail-stats" aria-label="Candidate summary">
   <article class="stat-card"><span class="stat-label">Course</span><strong class="stat-value stat-value-word">{{ attempt.course_name|default('Not recorded', true) }}</strong><span class="stat-detail">{{ attempt.vehicle_details|default('No vehicle recorded', true) }}</span></article>
   <article class="stat-card"><span class="stat-label">Assigned instructor</span><strong class="stat-value stat-value-word">{{ attempt.assigned_instructor_name|default('Not assigned', true) }}</strong><span class="stat-detail">Before-test assignment</span></article>
-  <article class="stat-card"><span class="stat-label">Branch</span><strong class="stat-value stat-value-word">{{ attempt.branch_name }}</strong><span class="stat-detail">{{ attempt.test_location|default('No test location', true) }}</span></article>
+  <article class="stat-card"><span class="stat-label">Branch</span><strong class="stat-value stat-value-word">{{ attempt.branch_name }}</strong><span class="stat-detail">{{ attempt.test_location|default('No test location', true) }}{% if attempt.appointment_date %} · Appointment {{ attempt.appointment_date|friendly_date }}{% endif %}</span></article>
   <article class="stat-card"><span class="stat-label">Failure review</span><strong class="stat-value stat-value-word">{{ attempt.responsibility_status }}</strong><span class="stat-detail">{{ attempt.responsible_instructor_name|default('No instructor attributed', true) }}</span></article>
 </section>
 

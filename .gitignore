@@ -29,6 +29,7 @@ env/
 data/
 backups/
 imports/
+instance/
 *.xlsx
 *.log
 *.zip

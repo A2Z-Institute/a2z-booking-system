@@ -479,6 +479,9 @@ def _init_sqlite_db() -> None:
                 test_location TEXT,
                 course_name TEXT,
                 vehicle_details TEXT,
+                application_number TEXT,
+                appointment_date TEXT,
+                source_filename TEXT,
                 assigned_instructor_id INTEGER,
                 result_status TEXT NOT NULL DEFAULT 'Pending',
                 failure_reason TEXT,
@@ -800,6 +803,15 @@ def _init_sqlite_db() -> None:
             conn,
             "booking_slots",
             {"source_reference": "TEXT"},
+        )
+        _ensure_columns(
+            conn,
+            "driving_test_candidates",
+            {
+                "application_number": "TEXT",
+                "appointment_date": "TEXT",
+                "source_filename": "TEXT",
+            },
         )
         for index_name in (
             "uq_bookings_source_reference", "uq_booking_slots_source_reference",
