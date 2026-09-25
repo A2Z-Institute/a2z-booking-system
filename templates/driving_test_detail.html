@@ -65,10 +65,11 @@
 
 <section class="management-panel" aria-labelledby="training-history-title">
   <header class="management-panel-header"><div><h2 id="training-history-title">Instructor training history</h2><p>Calculated from the candidate's recorded appointments on or before the test date.</p></div></header>
+  {% if attempt.matched_client_count > 1 %}<div class="alert alert-info" role="status"><span class="alert-icon" aria-hidden="true"></span><div>Training history combines {{ attempt.matched_client_count }} matching client records found by candidate name and phone/admission number. The original branch records remain unchanged.</div></div>{% endif %}
   {% if history %}
-    <div class="table-scroll"><table class="data-table"><thead><tr><th>Instructor</th><th>Sessions</th><th>Training time</th><th>Last class</th><th>Training/services</th><th>Relationship</th></tr></thead><tbody>{% for item in history %}<tr><td><strong>{{ item.instructor_name }}</strong></td><td>{{ item.sessions }}</td><td>{{ item.hours_label }}</td><td>{{ item.latest_date|friendly_date }}</td><td>{{ item.services|join(', ')|default('General training', true) }}</td><td>{% if item.is_primary %}<span class="status-badge status-approved">Primary</span>{% endif %} {% if item.is_latest %}<span class="status-badge status-pending">Latest</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>Instructor</th><th>Sessions</th><th>Training time</th><th>Last class</th><th>Branch</th><th>Training/services</th><th>Relationship</th></tr></thead><tbody>{% for item in history %}<tr><td><strong>{{ item.instructor_name }}</strong></td><td>{{ item.sessions }}</td><td>{{ item.hours_label }}</td><td>{{ item.latest_date|friendly_date }}</td><td>{{ item.branches|join(', ') }}</td><td>{{ item.services|join(', ')|default('General training', true) }}</td><td>{% if item.is_primary %}<span class="status-badge status-approved">Primary</span>{% endif %} {% if item.is_latest %}<span class="status-badge status-pending">Latest</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
   {% else %}
-    <div class="empty-state compact-empty"><h3>No linked training found</h3><p>Check that the booking was created against this exact client record.</p></div>
+    <div class="empty-state compact-empty"><h3>No linked training found</h3><p>No eligible appointments were found across matching client records before this test date.</p></div>
   {% endif %}
 </section>
 

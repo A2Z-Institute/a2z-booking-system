@@ -29,7 +29,7 @@
     <form method="post" action="{{ url_for('admin_driving_tests') }}" data-driving-test-create>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="form-grid two-column">
-        <div class="field field-span-2 driving-client-picker" data-driving-client-picker data-search-url="{{ url_for('api_calendar_search_clients') }}">
+        <div class="field field-span-2 driving-client-picker" data-driving-client-picker data-search-url="{{ url_for('api_calendar_search_clients', driving_test=1) }}">
           <label for="driving-client-search">Candidate</label>
           <input id="driving-client-search" type="search" autocomplete="off" placeholder="Search name, admission number or phone" data-driving-client-search>
           <input type="hidden" name="client_id" required data-driving-client-id>
@@ -91,7 +91,7 @@
   {% if attempts %}
     <div class="table-scroll">
       <table class="data-table driving-test-table">
-        <thead><tr><th>Test date</th><th>Candidate</th><th>Course</th><th>Result</th><th>Primary instructor</th><th>Review</th><th></th></tr></thead>
+        <thead><tr><th>Test date</th><th>Candidate</th><th>Course</th><th>Result</th><th>Training instructors</th><th>Review</th><th></th></tr></thead>
         <tbody>
           {% for attempt in attempts %}
             {% set status_class = 'approved' if attempt.result_status == 'Passed' else 'rejected' if attempt.result_status == 'Failed' else 'unknown' if attempt.result_status == 'Absent' else 'pending' %}
@@ -100,7 +100,7 @@
               <td><span class="cell-title">{{ attempt.client_name }}</span><span class="cell-detail">{{ attempt.admission_number|default('No admission number', true) }} · {{ attempt.client_phone|default('No phone', true) }}</span></td>
               <td>{{ attempt.course_name|default('Not recorded', true) }}<span class="cell-detail">{{ attempt.branch_name }}</span></td>
               <td><span class="status-badge status-{{ status_class }}">{{ attempt.result_status }}</span></td>
-              <td>{{ attempt.primary_instructor_name }}<span class="cell-detail">{{ attempt.training_sessions }} sessions · {{ (attempt.training_minutes / 60)|round(1) }} hours</span></td>
+              <td>{{ attempt.training_instructor_names }}<span class="cell-detail">{{ attempt.training_instructor_count }} instructor{% if attempt.training_instructor_count != 1 %}s{% endif %} · {{ attempt.training_sessions }} sessions · {{ (attempt.training_minutes / 60)|round(1) }} hours{% if attempt.matched_client_count > 1 %} · {{ attempt.matched_client_count }} matching client records combined{% endif %}</span></td>
               <td>{{ attempt.responsibility_status }}{% if attempt.responsible_instructor_name %}<span class="cell-detail">{{ attempt.responsible_instructor_name }}</span>{% endif %}</td>
               <td><a class="button button-secondary button-small" href="{{ url_for('admin_driving_test_detail', attempt_id=attempt.id) }}">Open</a></td>
             </tr>

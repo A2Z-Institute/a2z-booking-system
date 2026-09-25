@@ -552,28 +552,37 @@ def _driving_test_rows(conn, clauses=None, params=None, order_by=None):
 
 
 def _driving_test_training_histories(conn, attempts):
-    """Return real booking-derived teaching history for each test attempt."""
+    """Return booking-derived teaching history, including duplicate client records."""
     if not attempts:
         return {}
     client_ids = sorted({int(item["client_id"]) for item in attempts})
-    placeholders = ",".join("?" for _ in client_ids)
+    related_by_client = {
+        client_id: _driving_test_related_client_ids(conn, client_id)
+        for client_id in client_ids
+    }
+    booking_client_ids = sorted(
+        {related_id for related in related_by_client.values() for related_id in related}
+    )
+    placeholders = ",".join("?" for _ in booking_client_ids)
     rows = [
         dict(row)
         for row in conn.execute(
             f"""
             SELECT b.student_user_id, b.instructor_id, i.name AS instructor_name,
                    b.target_date, b.start_time, b.end_time,
+                   br.name AS branch_name,
                    COALESCE(NULLIF(b.service_name, ''), s.name, m.category, 'Training')
                        AS service_name
             FROM bookings b
             JOIN instructors i ON i.id = b.instructor_id
+            JOIN branches br ON br.id = b.branch_id
             LEFT JOIN services s ON s.id = b.service_id
             LEFT JOIN machines m ON m.id = b.machine_id
             WHERE b.student_user_id IN ({placeholders})
               AND b.validation_status IN ('Approved', 'Completed', 'Arrived', 'No Action')
             ORDER BY b.target_date, b.start_time, b.id
             """,
-            client_ids,
+            booking_client_ids,
         ).fetchall()
     ]
     by_client = {}
@@ -582,8 +591,15 @@ def _driving_test_training_histories(conn, attempts):
 
     histories = {}
     for attempt in attempts:
+        related_ids = related_by_client[int(attempt["client_id"])]
+        attempt["matched_client_count"] = len(related_ids)
         grouped = {}
-        for booking in by_client.get(int(attempt["client_id"]), []):
+        related_bookings = [
+            booking
+            for related_id in related_ids
+            for booking in by_client.get(related_id, [])
+        ]
+        for booking in related_bookings:
             if str(booking["target_date"]) > str(attempt["test_date"]):
                 continue
             instructor_id = int(booking["instructor_id"])
@@ -596,6 +612,7 @@ def _driving_test_training_histories(conn, attempts):
                     "total_minutes": 0,
                     "latest_date": "",
                     "services": set(),
+                    "branches": set(),
                 },
             )
             try:
@@ -609,6 +626,8 @@ def _driving_test_training_histories(conn, attempts):
             item["latest_date"] = max(item["latest_date"], str(booking["target_date"]))
             if booking.get("service_name"):
                 item["services"].add(str(booking["service_name"]))
+            if booking.get("branch_name"):
+                item["branches"].add(str(booking["branch_name"]))
         history = sorted(
             grouped.values(),
             key=lambda item: (-item["total_minutes"], -item["sessions"], item["instructor_name"].lower()),
@@ -627,8 +646,97 @@ def _driving_test_training_histories(conn, attempts):
                 else f"{item['total_minutes']}m"
             )
             item["services"] = sorted(item["services"])
+            item["branches"] = sorted(item["branches"])
         histories[int(attempt["id"])] = history
     return histories
+
+
+def _driving_test_related_client_ids(conn, client_id):
+    """Match duplicate cross-branch client records without changing client data.
+
+    A match requires the same normalized candidate name plus either a matching
+    phone number or admission number. This keeps family members who share a
+    phone separate while allowing a candidate's training history to span
+    branch-specific client records.
+    """
+    current = conn.execute(
+        """
+        SELECT u.id, u.full_name, u.phone, cp.secondary_phone, cp.admission_number
+        FROM users u
+        LEFT JOIN client_profiles cp ON cp.user_id = u.id
+        WHERE u.id = ? AND u.role = 'student'
+        """,
+        (client_id,),
+    ).fetchone()
+    if not current:
+        return [client_id]
+
+    current = dict(current)
+    clean_name, _ = _booking_client_identity_fields(
+        current.get("full_name"), current.get("admission_number")
+    )
+    name_key = " ".join(clean_name.casefold().split())
+    phone_keys = {
+        value
+        for value in (
+            _phone_digits(current.get("phone")),
+            _phone_digits(current.get("secondary_phone")),
+        )
+        if value
+    }
+    admission_key = " ".join(str(current.get("admission_number") or "").casefold().split())
+    if not name_key or (not phone_keys and not admission_key):
+        return [client_id]
+
+    phone_sql = (
+        "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE({column}, ''), "
+        "' ', ''), '-', ''), '(', ''), ')', ''), '+', '')"
+    )
+    match_clauses = []
+    match_values = []
+    for phone_key in sorted(phone_keys):
+        match_clauses.append(
+            f"({phone_sql.format(column='u.phone')} = ? OR "
+            f"{phone_sql.format(column='cp.secondary_phone')} = ?)"
+        )
+        match_values.extend((phone_key, phone_key))
+    if admission_key:
+        match_clauses.append("lower(trim(COALESCE(cp.admission_number, ''))) = ?")
+        match_values.append(admission_key)
+
+    candidates = conn.execute(
+        f"""
+        SELECT u.id, u.full_name, u.phone, cp.secondary_phone, cp.admission_number
+        FROM users u
+        LEFT JOIN client_profiles cp ON cp.user_id = u.id
+        WHERE u.role = 'student' AND ({' OR '.join(match_clauses)})
+        ORDER BY u.id
+        """,
+        match_values,
+    ).fetchall()
+    related = []
+    for candidate_row in candidates:
+        candidate = dict(candidate_row)
+        candidate_name, _ = _booking_client_identity_fields(
+            candidate.get("full_name"), candidate.get("admission_number")
+        )
+        candidate_name_key = " ".join(candidate_name.casefold().split())
+        candidate_phones = {
+            value
+            for value in (
+                _phone_digits(candidate.get("phone")),
+                _phone_digits(candidate.get("secondary_phone")),
+            )
+            if value
+        }
+        candidate_admission = " ".join(
+            str(candidate.get("admission_number") or "").casefold().split()
+        )
+        same_phone = bool(phone_keys & candidate_phones)
+        same_admission = bool(admission_key and admission_key == candidate_admission)
+        if candidate_name_key == name_key and (same_phone or same_admission):
+            related.append(int(candidate["id"]))
+    return related or [client_id]
 
 
 def _parse_resource_ids(machine_value, instructor_value):
@@ -6203,7 +6311,11 @@ def api_calendar_search_clients():
         ).fetchall()
         for row in rows:
             record = dict(row)
-            canonical_id = _canonical_client_id(conn, record["id"])
+            if request.args.get("driving_test") == "1":
+                related_ids = _driving_test_related_client_ids(conn, record["id"])
+                canonical_id = min(related_ids) if related_ids else record["id"]
+            else:
+                canonical_id = _canonical_client_id(conn, record["id"])
             if canonical_id in emitted_client_ids:
                 continue
             if canonical_id != record["id"]:
@@ -7153,13 +7265,16 @@ def admin_driving_tests():
                     ).fetchone()
                     if not instructor:
                         raise ValueError("Choose an active instructor from the client's branch.")
+                related_client_ids = _driving_test_related_client_ids(conn, client_id)
+                related_placeholders = ",".join("?" for _ in related_client_ids)
                 duplicate = conn.execute(
-                    """
+                    f"""
                     SELECT id FROM driving_test_candidates
-                    WHERE client_id = ? AND test_date = ? AND test_type = ?
+                    WHERE client_id IN ({related_placeholders})
+                      AND test_date = ? AND test_type = ?
                     LIMIT 1
                     """,
-                    (client_id, test_date, test_type),
+                    (*related_client_ids, test_date, test_type),
                 ).fetchone()
                 if duplicate:
                     raise ValueError("This candidate already has the same test attempt recorded for that date.")
@@ -7170,11 +7285,12 @@ def admin_driving_tests():
                         FROM bookings b
                         LEFT JOIN services s ON s.id = b.service_id
                         LEFT JOIN machines m ON m.id = b.machine_id
-                        WHERE b.student_user_id = ? AND b.target_date <= ?
+                        WHERE b.student_user_id IN ({related_placeholders})
+                          AND b.target_date <= ?
                         ORDER BY b.target_date DESC, b.start_time DESC, b.id DESC
                         LIMIT 1
-                        """,
-                        (client_id, test_date),
+                        """.format(related_placeholders=related_placeholders),
+                        (*related_client_ids, test_date),
                     ).fetchone()
                     course_name = recent_training[0] if recent_training and recent_training[0] else ""
                 cursor = conn.execute(
@@ -7262,21 +7378,32 @@ def admin_driving_tests():
     if selected_instructor:
         try:
             instructor_id = int(selected_instructor)
-            clauses.append(
-                "(dt.assigned_instructor_id = ? OR dt.responsible_instructor_id = ? OR EXISTS ("
-                "SELECT 1 FROM bookings training WHERE training.student_user_id = dt.client_id "
-                "AND training.instructor_id = ? AND training.target_date <= dt.test_date))"
-            )
-            params.extend((instructor_id, instructor_id, instructor_id))
         except ValueError:
             selected_instructor = ""
+            instructor_id = None
+    else:
+        instructor_id = None
 
     with get_db() as conn:
         attempts = _driving_test_rows(conn, clauses, params)
         histories = _driving_test_training_histories(conn, attempts)
+        if instructor_id:
+            attempts = [
+                attempt for attempt in attempts
+                if int(attempt.get("assigned_instructor_id") or 0) == instructor_id
+                or int(attempt.get("responsible_instructor_id") or 0) == instructor_id
+                or any(
+                    int(item["instructor_id"]) == instructor_id
+                    for item in histories.get(int(attempt["id"]), [])
+                )
+            ]
         for attempt in attempts:
             history = histories.get(int(attempt["id"]), [])
             attempt["primary_instructor_name"] = history[0]["instructor_name"] if history else "Not found"
+            attempt["training_instructor_names"] = ", ".join(
+                item["instructor_name"] for item in history
+            ) or "Not found"
+            attempt["training_instructor_count"] = len(history)
             attempt["training_sessions"] = sum(item["sessions"] for item in history)
             attempt["training_minutes"] = sum(item["total_minutes"] for item in history)
         branch_clause = ""
@@ -7367,16 +7494,25 @@ def admin_driving_test_detail(attempt_id):
             abort(404)
         attempt = rows[0]
         history = _driving_test_training_histories(conn, rows).get(attempt_id, [])
+        training_instructor_ids = sorted(
+            {int(item["instructor_id"]) for item in history}
+        )
+        instructor_clauses = ["branch_id = ?"]
+        instructor_values = [attempt["branch_id"]]
+        if training_instructor_ids:
+            placeholders = ",".join("?" for _ in training_instructor_ids)
+            instructor_clauses.append(f"id IN ({placeholders})")
+            instructor_values.extend(training_instructor_ids)
         instructors = [
             dict(row)
             for row in conn.execute(
-                """
+                f"""
                 SELECT id, name FROM instructors
-                WHERE branch_id = ? AND is_active = 1
+                WHERE ({' OR '.join(instructor_clauses)}) AND is_active = 1
                   AND verification_status = 'verified'
                 ORDER BY lower(name)
                 """,
-                (attempt["branch_id"],),
+                instructor_values,
             ).fetchall()
         ]
     return render_template(
@@ -7534,14 +7670,24 @@ def admin_driving_test_review_update(attempt_id):
             if responsibility_status in {"Not reviewed", "Not responsible"}:
                 responsible_instructor_id = None
             if responsible_instructor_id:
+                history = _driving_test_training_histories(conn, [attempt]).get(attempt_id, [])
+                training_instructor_ids = {
+                    int(item["instructor_id"]) for item in history
+                }
                 valid = conn.execute(
-                    """
-                    SELECT 1 FROM instructors WHERE id = ? AND branch_id = ?
-                    """,
+                    "SELECT 1 FROM instructors WHERE id = ? AND is_active = 1",
+                    (responsible_instructor_id,),
+                ).fetchone()
+                same_branch = conn.execute(
+                    "SELECT 1 FROM instructors WHERE id = ? AND branch_id = ?",
                     (responsible_instructor_id, attempt["branch_id"]),
                 ).fetchone()
-                if not valid:
-                    raise ValueError("Choose an instructor from the candidate's branch.")
+                if not valid or (
+                    responsible_instructor_id not in training_instructor_ids and not same_branch
+                ):
+                    raise ValueError(
+                        "Choose an instructor from the test branch or this candidate's training history."
+                    )
             review_reason = _driving_test_text(
                 request.form.get("review_reason"), "review reason", 1000,
                 required=responsibility_status in {"Confirmed", "Partially responsible"},
