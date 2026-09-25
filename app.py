@@ -726,7 +726,12 @@ def _driving_test_related_client_ids(conn, client_id):
         )
         same_phone = bool(phone_keys & candidate_phones)
         same_admission = bool(admission_key and admission_key == candidate_admission)
-        same_strong_identity = bool(same_phone and same_admission)
+        similar_admission = _driving_test_admissions_compatible(
+            admission_key, candidate_admission
+        )
+        same_strong_identity = bool(
+            same_phone and (same_admission or similar_admission)
+        )
         if same_strong_identity or (
             _driving_test_names_compatible(clean_name, candidate_name)
             and (same_phone or same_admission)
@@ -762,6 +767,19 @@ def _driving_test_admission_key(value):
     return "".join(
         re.findall(r"[\w]+", str(value or "").casefold(), re.UNICODE)
     )
+
+
+def _driving_test_admissions_compatible(first, second):
+    """Recognize a small typo in otherwise identical admission numbers."""
+    first_key = _driving_test_admission_key(first)
+    second_key = _driving_test_admission_key(second)
+    if not first_key or not second_key:
+        return False
+    if first_key == second_key:
+        return True
+    if min(len(first_key), len(second_key)) < 8:
+        return False
+    return SequenceMatcher(None, first_key, second_key).ratio() >= 0.90
 
 
 def _driving_test_names_compatible(imported_name, client_name):
@@ -870,6 +888,24 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
         for item in candidates
     ):
         return min(candidates, key=lambda item: int(item["id"]))
+
+    first_admission = candidates[0].get("admission_number")
+    near_admission_group = bool(first_admission) and all(
+        _driving_test_admissions_compatible(
+            first_admission, item.get("admission_number")
+        )
+        for item in candidates[1:]
+    )
+    if near_admission_group:
+        clear_name_matches = []
+        for item in candidates:
+            clean_name, _ = _booking_client_identity_fields(
+                item.get("full_name"), item.get("admission_number")
+            )
+            if _driving_test_names_compatible(imported_name, clean_name):
+                clear_name_matches.append(item)
+        if clear_name_matches:
+            return min(clear_name_matches, key=lambda item: int(item["id"]))
 
     duplicate_keys = {
         key
