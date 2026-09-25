@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}Driving Tests{% endblock %}
+
+{% block content %}
+<header class="management-panel-header standalone-management-header">
+  <div>
+    <p class="eyebrow">Administration</p>
+    <h1>Driving test results</h1>
+    <p>Register candidates before their test, record results, and review the real instructors who trained each candidate.</p>
+  </div>
+  <div class="management-panel-actions">
+    <a class="button button-primary button-small" href="#add-test-candidate">+ Add test candidate</a>
+  </div>
+</header>
+
+<section class="stats-grid driving-test-stats" aria-label="Driving test summary">
+  <article class="stat-card"><span class="stat-label">Candidates</span><strong class="stat-value">{{ stats.total }}</strong><span class="stat-detail">Matching the current filters</span></article>
+  <article class="stat-card"><span class="stat-label">Pending</span><strong class="stat-value">{{ stats.pending }}</strong><span class="stat-detail">Awaiting result</span></article>
+  <article class="stat-card"><span class="stat-label">Passed</span><strong class="stat-value">{{ stats.passed }}</strong><span class="stat-detail">Recorded passes</span></article>
+  <article class="stat-card"><span class="stat-label">Failed</span><strong class="stat-value">{{ stats.failed }}</strong><span class="stat-detail">Require review</span></article>
+  <article class="stat-card"><span class="stat-label">Absent</span><strong class="stat-value">{{ stats.absent }}</strong><span class="stat-detail">Did not attend</span></article>
+  <article class="stat-card"><span class="stat-label">Pass rate</span><strong class="stat-value stat-value-word">{{ stats.pass_rate }}%</strong><span class="stat-detail">Passed ÷ passed and failed</span></article>
+</section>
+
+<details class="management-panel service-create-panel" id="add-test-candidate" {% if request.method == 'POST' %}open{% endif %}>
+  <summary>+ Register a candidate before the test</summary>
+  <div class="section-body">
+    <form method="post" action="{{ url_for('admin_driving_tests') }}" data-driving-test-create>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-grid two-column">
+        <div class="field field-span-2 driving-client-picker" data-driving-client-picker data-search-url="{{ url_for('api_calendar_search_clients') }}">
+          <label for="driving-client-search">Candidate</label>
+          <input id="driving-client-search" type="search" autocomplete="off" placeholder="Search name, admission number or phone" data-driving-client-search>
+          <input type="hidden" name="client_id" required data-driving-client-id>
+          <div class="driving-client-selection" data-driving-client-selection hidden></div>
+          <div class="driving-client-results" data-driving-client-results hidden></div>
+          <small class="field-hint">Select an existing client so training history can be matched accurately.</small>
+        </div>
+        <div class="field">
+          <label for="driving-test-date">Test date</label>
+          <input id="driving-test-date" name="test_date" type="date" value="{{ request.form.get('test_date', today) }}" required>
+        </div>
+        <div class="field">
+          <label for="driving-test-type">Attempt</label>
+          <select id="driving-test-type" name="test_type" required>
+            <option value="First attempt" {% if request.form.get('test_type', 'First attempt') == 'First attempt' %}selected{% endif %}>First attempt</option>
+            <option value="Retest" {% if request.form.get('test_type') == 'Retest' %}selected{% endif %}>Retest</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="driving-test-location">Test location <span class="text-muted">(optional)</span></label>
+          <input id="driving-test-location" name="test_location" maxlength="180" value="{{ request.form.get('test_location', '') }}">
+        </div>
+        <div class="field">
+          <label for="driving-test-course">Course/category <span class="text-muted">(optional)</span></label>
+          <input id="driving-test-course" name="course_name" maxlength="180" value="{{ request.form.get('course_name', '') }}" placeholder="Uses latest training when left blank">
+        </div>
+        <div class="field">
+          <label for="driving-test-vehicle">Vehicle/equipment <span class="text-muted">(optional)</span></label>
+          <input id="driving-test-vehicle" name="vehicle_details" maxlength="180" value="{{ request.form.get('vehicle_details', '') }}">
+        </div>
+        <div class="field">
+          <label for="driving-test-instructor">Assigned instructor <span class="text-muted">(optional)</span></label>
+          <select id="driving-test-instructor" name="assigned_instructor_id" data-driving-instructor-select>
+            <option value="">Not assigned</option>
+            {% for instructor in instructors %}
+              <option value="{{ instructor.id }}" data-branch-id="{{ instructor.branch_id }}">{{ instructor.name }}{% if current_user.is_super_admin %} · {{ instructor.branch_name }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="form-actions"><button class="button button-primary" type="submit">Add candidate</button></div>
+    </form>
+  </div>
+</details>
+
+<section class="management-panel driving-test-register" aria-labelledby="driving-test-register-title">
+  <header class="management-panel-header">
+    <div><h2 id="driving-test-register-title">Test candidate register</h2><p>Search candidates and open a record to update the result or review a failure.</p></div>
+  </header>
+  <form class="filter-bar driving-test-filters" method="get" action="{{ url_for('admin_driving_tests') }}">
+    <div class="field"><label for="test-filter-search">Candidate</label><input id="test-filter-search" name="q" type="search" value="{{ filters.q }}" placeholder="Name, admission, phone or course"></div>
+    <div class="field"><label for="test-filter-status">Result</label><select id="test-filter-status" name="status"><option value="">All results</option>{% for status in statuses %}<option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></div>
+    {% if current_user.is_super_admin %}<div class="field"><label for="test-filter-branch">Branch</label><select id="test-filter-branch" name="branch"><option value="">All branches</option>{% for branch in branches %}<option value="{{ branch.id }}" {% if filters.branch == branch.id|string %}selected{% endif %}>{{ branch.name }}</option>{% endfor %}</select></div>{% endif %}
+    <div class="field"><label for="test-filter-instructor">Instructor</label><select id="test-filter-instructor" name="instructor"><option value="">All instructors</option>{% for instructor in instructors %}<option value="{{ instructor.id }}" {% if filters.instructor == instructor.id|string %}selected{% endif %}>{{ instructor.name }}{% if current_user.is_super_admin %} · {{ instructor.branch_name }}{% endif %}</option>{% endfor %}</select></div>
+    <div class="field"><label for="test-filter-from">From</label><input id="test-filter-from" name="date_from" type="date" value="{{ filters.date_from }}"></div>
+    <div class="field"><label for="test-filter-to">To</label><input id="test-filter-to" name="date_to" type="date" value="{{ filters.date_to }}"></div>
+    <div class="filter-actions"><button class="button button-primary button-small" type="submit">Apply</button><a class="button button-secondary button-small" href="{{ url_for('admin_driving_tests') }}">Clear</a></div>
+  </form>
+  {% if attempts %}
+    <div class="table-scroll">
+      <table class="data-table driving-test-table">
+        <thead><tr><th>Test date</th><th>Candidate</th><th>Course</th><th>Result</th><th>Primary instructor</th><th>Review</th><th></th></tr></thead>
+        <tbody>
+          {% for attempt in attempts %}
+            {% set status_class = 'approved' if attempt.result_status == 'Passed' else 'rejected' if attempt.result_status == 'Failed' else 'unknown' if attempt.result_status == 'Absent' else 'pending' %}
+            <tr>
+              <td><strong>{{ attempt.test_date|friendly_date }}</strong><span class="cell-detail">{{ attempt.test_type }}</span></td>
+              <td><span class="cell-title">{{ attempt.client_name }}</span><span class="cell-detail">{{ attempt.admission_number|default('No admission number', true) }} · {{ attempt.client_phone|default('No phone', true) }}</span></td>
+              <td>{{ attempt.course_name|default('Not recorded', true) }}<span class="cell-detail">{{ attempt.branch_name }}</span></td>
+              <td><span class="status-badge status-{{ status_class }}">{{ attempt.result_status }}</span></td>
+              <td>{{ attempt.primary_instructor_name }}<span class="cell-detail">{{ attempt.training_sessions }} sessions · {{ (attempt.training_minutes / 60)|round(1) }} hours</span></td>
+              <td>{{ attempt.responsibility_status }}{% if attempt.responsible_instructor_name %}<span class="cell-detail">{{ attempt.responsible_instructor_name }}</span>{% endif %}</td>
+              <td><a class="button button-secondary button-small" href="{{ url_for('admin_driving_test_detail', attempt_id=attempt.id) }}">Open</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state"><div class="empty-illustration" aria-hidden="true">✓</div><h3>No test candidates found</h3><p>Register a candidate or clear the filters to view earlier results.</p></div>
+  {% endif %}
+</section>
+
+<section class="management-panel" aria-labelledby="instructor-test-report-title">
+  <header class="management-panel-header"><div><h2 id="instructor-test-report-title">Instructor outcome overview</h2><p>Based on each candidate's primary instructor by total training time. This is evidence for review, not automatic blame.</p></div></header>
+  {% if instructor_performance %}
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>Primary instructor</th><th>Candidates</th><th>Passed</th><th>Failed</th><th>Absent</th><th>Pass rate</th></tr></thead><tbody>{% for item in instructor_performance %}<tr><td><strong>{{ item.name }}</strong></td><td>{{ item.candidates }}</td><td>{{ item.passed }}</td><td>{{ item.failed }}</td><td>{{ item.absent }}</td><td><strong>{{ item.pass_rate }}%</strong></td></tr>{% endfor %}</tbody></table></div>
+  {% else %}
+    <div class="empty-state compact-empty"><h3>No decided results yet</h3><p>Instructor outcome statistics appear after pass or fail results are recorded.</p></div>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='js/driving_tests.js', v='20260925-1') }}" defer></script>{% endblock %}

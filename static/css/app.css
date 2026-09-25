@@ -3626,6 +3626,108 @@ body {
   touch-action: pan-x pan-y;
 }
 
+/* Admin-only driving test register and evidence review. */
+.driving-client-picker {
+  position: relative;
+}
+
+.driving-client-selection {
+  margin-top: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #9bcdb6;
+  border-radius: var(--radius-sm);
+  background: var(--success-bg);
+  color: var(--success);
+  font-size: 0.83rem;
+  font-weight: 750;
+}
+
+.driving-client-results {
+  position: absolute;
+  z-index: 35;
+  top: calc(100% - 1.2rem);
+  right: 0;
+  left: 0;
+  max-height: min(320px, 52vh);
+  padding: 0.35rem;
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.driving-client-results button {
+  display: grid;
+  width: 100%;
+  gap: 0.12rem;
+  padding: 0.7rem 0.75rem;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-900);
+  text-align: left;
+}
+
+.driving-client-results button:hover,
+.driving-client-results button:focus-visible {
+  background: var(--blue-100);
+}
+
+.driving-client-results span,
+.driving-client-results p {
+  margin: 0;
+  color: var(--ink-600);
+  font-size: 0.76rem;
+}
+
+.driving-test-table {
+  min-width: 1040px;
+}
+
+.driving-test-table td {
+  vertical-align: middle;
+}
+
+.driving-test-detail-stats .stat-value-word {
+  overflow-wrap: anywhere;
+}
+
+.driving-test-edit-grid {
+  margin-bottom: 1.25rem;
+}
+
+.driving-test-edit-grid textarea {
+  min-height: 92px;
+}
+
+@media (min-width: 1060px) {
+  .driving-test-stats {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .driving-test-filters {
+    grid-template-columns: minmax(210px, 1.3fr) repeat(5, minmax(125px, 0.72fr)) auto;
+  }
+}
+
+@media (max-width: 759px) {
+  .driving-test-stats,
+  .driving-test-detail-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .driving-client-results {
+    position: static;
+    max-height: 42vh;
+    margin-top: 0.4rem;
+  }
+
+  .driving-test-edit-grid .section-body {
+    padding: 0.8rem;
+  }
+}
+
 .compact-data-table th,
 .compact-data-table td {
   padding: 0.7rem 0.85rem;

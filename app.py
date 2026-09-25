@@ -78,6 +78,15 @@ DEFAULT_STAFF_BREAKS = (
     ("tea", "Tea Break", "16:30", "17:00"),
 )
 FINAL_BOOKING_STATUSES = ("Rejected", "Cancelled", "Completed", "No-show")
+DRIVING_TEST_STATUSES = ("Pending", "Passed", "Failed", "Absent", "Postponed")
+DRIVING_TEST_TYPES = ("First attempt", "Retest")
+DRIVING_TEST_RESPONSIBILITY_STATUSES = (
+    "Not reviewed",
+    "Under review",
+    "Confirmed",
+    "Partially responsible",
+    "Not responsible",
+)
 MIN_PASSWORD_LENGTH = 5
 DAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 MANAGED_ROLES = ("student", "booking_agent", "instructor", "admin")
@@ -492,6 +501,134 @@ def _audit(conn, event_type, booking_id=None, details=None):
         """,
         (actor_id, booking_id, event_type, json.dumps(details or {}, ensure_ascii=True)),
     )
+
+
+def _driving_test_text(value, label, maximum, *, required=False):
+    cleaned = " ".join(str(value or "").split())
+    if required and not cleaned:
+        raise ValueError(f"Enter {label}.")
+    if len(cleaned) > maximum:
+        raise ValueError(f"{label.title()} must be {maximum} characters or fewer.")
+    return cleaned
+
+
+def _driving_test_date(value, label="test date", *, required=True):
+    cleaned = str(value or "").strip()
+    if not cleaned and not required:
+        return None
+    try:
+        return date.fromisoformat(cleaned).isoformat()
+    except (TypeError, ValueError):
+        raise ValueError(f"Choose a valid {label}.") from None
+
+
+def _driving_test_rows(conn, clauses=None, params=None, order_by=None):
+    where = list(clauses or [])
+    values = list(params or [])
+    portal_branch_id = _portal_branch_id()
+    if portal_branch_id is not None:
+        where.append("dt.branch_id = ?")
+        values.append(portal_branch_id)
+    query = """
+        SELECT dt.*, u.full_name AS client_name, u.phone AS client_phone,
+               u.email AS client_email,
+               COALESCE(cp.admission_number, '') AS admission_number,
+               br.name AS branch_name,
+               assigned.name AS assigned_instructor_name,
+               responsible.name AS responsible_instructor_name,
+               COALESCE(reviewer.full_name, reviewer.username) AS reviewer_name
+        FROM driving_test_candidates dt
+        JOIN users u ON u.id = dt.client_id AND u.role = 'student'
+        JOIN branches br ON br.id = dt.branch_id
+        LEFT JOIN client_profiles cp ON cp.user_id = u.id
+        LEFT JOIN instructors assigned ON assigned.id = dt.assigned_instructor_id
+        LEFT JOIN instructors responsible ON responsible.id = dt.responsible_instructor_id
+        LEFT JOIN users reviewer ON reviewer.id = dt.reviewed_by
+    """
+    if where:
+        query += " WHERE " + " AND ".join(where)
+    query += " ORDER BY " + (order_by or "dt.test_date DESC, dt.id DESC")
+    return [dict(row) for row in conn.execute(query, values).fetchall()]
+
+
+def _driving_test_training_histories(conn, attempts):
+    """Return real booking-derived teaching history for each test attempt."""
+    if not attempts:
+        return {}
+    client_ids = sorted({int(item["client_id"]) for item in attempts})
+    placeholders = ",".join("?" for _ in client_ids)
+    rows = [
+        dict(row)
+        for row in conn.execute(
+            f"""
+            SELECT b.student_user_id, b.instructor_id, i.name AS instructor_name,
+                   b.target_date, b.start_time, b.end_time,
+                   COALESCE(NULLIF(b.service_name, ''), s.name, m.category, 'Training')
+                       AS service_name
+            FROM bookings b
+            JOIN instructors i ON i.id = b.instructor_id
+            LEFT JOIN services s ON s.id = b.service_id
+            LEFT JOIN machines m ON m.id = b.machine_id
+            WHERE b.student_user_id IN ({placeholders})
+              AND b.validation_status IN ('Approved', 'Completed', 'Arrived', 'No Action')
+            ORDER BY b.target_date, b.start_time, b.id
+            """,
+            client_ids,
+        ).fetchall()
+    ]
+    by_client = {}
+    for row in rows:
+        by_client.setdefault(int(row["student_user_id"]), []).append(row)
+
+    histories = {}
+    for attempt in attempts:
+        grouped = {}
+        for booking in by_client.get(int(attempt["client_id"]), []):
+            if str(booking["target_date"]) > str(attempt["test_date"]):
+                continue
+            instructor_id = int(booking["instructor_id"])
+            item = grouped.setdefault(
+                instructor_id,
+                {
+                    "instructor_id": instructor_id,
+                    "instructor_name": booking["instructor_name"],
+                    "sessions": 0,
+                    "total_minutes": 0,
+                    "latest_date": "",
+                    "services": set(),
+                },
+            )
+            try:
+                start = datetime.strptime(booking["start_time"], "%H:%M")
+                finish = datetime.strptime(booking["end_time"], "%H:%M")
+                duration = max(0, int((finish - start).total_seconds() // 60))
+            except (TypeError, ValueError):
+                duration = 0
+            item["sessions"] += 1
+            item["total_minutes"] += duration
+            item["latest_date"] = max(item["latest_date"], str(booking["target_date"]))
+            if booking.get("service_name"):
+                item["services"].add(str(booking["service_name"]))
+        history = sorted(
+            grouped.values(),
+            key=lambda item: (-item["total_minutes"], -item["sessions"], item["instructor_name"].lower()),
+        )
+        latest_instructor_id = None
+        if history:
+            latest_instructor_id = max(
+                history, key=lambda item: (item["latest_date"], item["total_minutes"])
+            )["instructor_id"]
+        for position, item in enumerate(history):
+            item["is_primary"] = position == 0
+            item["is_latest"] = item["instructor_id"] == latest_instructor_id
+            item["hours_label"] = (
+                f"{item['total_minutes'] // 60}h {item['total_minutes'] % 60}m"
+                if item["total_minutes"] >= 60
+                else f"{item['total_minutes']}m"
+            )
+            item["services"] = sorted(item["services"])
+        histories[int(attempt["id"])] = history
+    return histories
 
 
 def _parse_resource_ids(machine_value, instructor_value):
@@ -6977,6 +7114,474 @@ def _booking_insights_data(conn, days, branch_id=None):
         "weekdays": weekdays,
         "start_hours": hours,
     }
+
+
+@app.route("/admin/driving-tests", methods=["GET", "POST"])
+@role_required("admin")
+def admin_driving_tests():
+    if request.method == "POST":
+        try:
+            client_id = int(request.form.get("client_id") or 0)
+            test_date = _driving_test_date(request.form.get("test_date"))
+            test_type = (request.form.get("test_type") or "").strip()
+            if test_type not in DRIVING_TEST_TYPES:
+                raise ValueError("Choose first attempt or retest.")
+            test_location = _driving_test_text(
+                request.form.get("test_location"), "test location", 180
+            )
+            course_name = _driving_test_text(
+                request.form.get("course_name"), "course or category", 180
+            )
+            vehicle_details = _driving_test_text(
+                request.form.get("vehicle_details"), "vehicle or equipment", 180
+            )
+            assigned_instructor_id = int(request.form.get("assigned_instructor_id") or 0) or None
+            with get_db() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                client = _client_access_row(conn, client_id)
+                if not client:
+                    raise ValueError("Choose a valid client from your branch.")
+                branch_id = int(client["branch_id"])
+                if assigned_instructor_id:
+                    instructor = conn.execute(
+                        """
+                        SELECT id FROM instructors
+                        WHERE id = ? AND branch_id = ? AND is_active = 1
+                          AND verification_status = 'verified'
+                        """,
+                        (assigned_instructor_id, branch_id),
+                    ).fetchone()
+                    if not instructor:
+                        raise ValueError("Choose an active instructor from the client's branch.")
+                duplicate = conn.execute(
+                    """
+                    SELECT id FROM driving_test_candidates
+                    WHERE client_id = ? AND test_date = ? AND test_type = ?
+                    LIMIT 1
+                    """,
+                    (client_id, test_date, test_type),
+                ).fetchone()
+                if duplicate:
+                    raise ValueError("This candidate already has the same test attempt recorded for that date.")
+                if not course_name:
+                    recent_training = conn.execute(
+                        """
+                        SELECT COALESCE(NULLIF(b.service_name, ''), s.name, m.category)
+                        FROM bookings b
+                        LEFT JOIN services s ON s.id = b.service_id
+                        LEFT JOIN machines m ON m.id = b.machine_id
+                        WHERE b.student_user_id = ? AND b.target_date <= ?
+                        ORDER BY b.target_date DESC, b.start_time DESC, b.id DESC
+                        LIMIT 1
+                        """,
+                        (client_id, test_date),
+                    ).fetchone()
+                    course_name = recent_training[0] if recent_training and recent_training[0] else ""
+                cursor = conn.execute(
+                    """
+                    INSERT INTO driving_test_candidates
+                        (branch_id, client_id, test_date, test_type, test_location,
+                         course_name, vehicle_details, assigned_instructor_id, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        branch_id,
+                        client_id,
+                        test_date,
+                        test_type,
+                        test_location or None,
+                        course_name or None,
+                        vehicle_details or None,
+                        assigned_instructor_id,
+                        current_user.id,
+                    ),
+                )
+                attempt_id = cursor.lastrowid
+                _audit(
+                    conn,
+                    "driving_test_candidate_added",
+                    details={
+                        "driving_test_id": attempt_id,
+                        "client_id": client_id,
+                        "branch_id": branch_id,
+                        "test_date": test_date,
+                    },
+                )
+            flash("Driving test candidate added.", "success")
+            return redirect(url_for("admin_driving_test_detail", attempt_id=attempt_id))
+        except (TypeError, ValueError) as exc:
+            flash(str(exc), "error")
+
+    selected_status = (request.args.get("status") or "").strip().title()
+    if selected_status not in DRIVING_TEST_STATUSES:
+        selected_status = ""
+    selected_branch = (request.args.get("branch") or "").strip()
+    selected_instructor = (request.args.get("instructor") or "").strip()
+    selected_date_from = (request.args.get("date_from") or "").strip()
+    selected_date_to = (request.args.get("date_to") or "").strip()
+    search_query = " ".join((request.args.get("q") or "").split())[:100]
+    clauses = []
+    params = []
+    if selected_status:
+        clauses.append("dt.result_status = ?")
+        params.append(selected_status)
+    if current_user.is_super_admin and selected_branch:
+        try:
+            clauses.append("dt.branch_id = ?")
+            params.append(int(selected_branch))
+        except ValueError:
+            selected_branch = ""
+    elif not current_user.is_super_admin:
+        selected_branch = str(current_user.branch_id or "")
+    if selected_date_from:
+        try:
+            selected_date_from = date.fromisoformat(selected_date_from).isoformat()
+            clauses.append("dt.test_date >= ?")
+            params.append(selected_date_from)
+        except ValueError:
+            selected_date_from = ""
+    if selected_date_to:
+        try:
+            selected_date_to = date.fromisoformat(selected_date_to).isoformat()
+            clauses.append("dt.test_date <= ?")
+            params.append(selected_date_to)
+        except ValueError:
+            selected_date_to = ""
+    if selected_date_from and selected_date_to and selected_date_from > selected_date_to:
+        clauses.append("1 = 0")
+        flash("From date must be on or before To date.", "error")
+    if search_query:
+        pattern = f"%{search_query}%"
+        clauses.append(
+            "(lower(COALESCE(u.full_name, '')) LIKE lower(?) "
+            "OR lower(COALESCE(cp.admission_number, '')) LIKE lower(?) "
+            "OR COALESCE(u.phone, '') LIKE ? "
+            "OR lower(COALESCE(dt.course_name, '')) LIKE lower(?))"
+        )
+        params.extend((pattern, pattern, pattern, pattern))
+    if selected_instructor:
+        try:
+            instructor_id = int(selected_instructor)
+            clauses.append(
+                "(dt.assigned_instructor_id = ? OR dt.responsible_instructor_id = ? OR EXISTS ("
+                "SELECT 1 FROM bookings training WHERE training.student_user_id = dt.client_id "
+                "AND training.instructor_id = ? AND training.target_date <= dt.test_date))"
+            )
+            params.extend((instructor_id, instructor_id, instructor_id))
+        except ValueError:
+            selected_instructor = ""
+
+    with get_db() as conn:
+        attempts = _driving_test_rows(conn, clauses, params)
+        histories = _driving_test_training_histories(conn, attempts)
+        for attempt in attempts:
+            history = histories.get(int(attempt["id"]), [])
+            attempt["primary_instructor_name"] = history[0]["instructor_name"] if history else "Not found"
+            attempt["training_sessions"] = sum(item["sessions"] for item in history)
+            attempt["training_minutes"] = sum(item["total_minutes"] for item in history)
+        branch_clause = ""
+        branch_values = []
+        if _portal_branch_id() is not None:
+            branch_clause = " WHERE id = ?"
+            branch_values.append(_portal_branch_id())
+        branches = [
+            dict(row)
+            for row in conn.execute(
+                f"SELECT id, name FROM branches{branch_clause} ORDER BY name", branch_values
+            ).fetchall()
+        ]
+        instructor_clause = ""
+        instructor_values = []
+        if _portal_branch_id() is not None:
+            instructor_clause = " AND i.branch_id = ?"
+            instructor_values.append(_portal_branch_id())
+        instructors = [
+            dict(row)
+            for row in conn.execute(
+                f"""
+                SELECT i.id, i.name, i.branch_id, br.name AS branch_name
+                FROM instructors i JOIN branches br ON br.id = i.branch_id
+                WHERE i.is_active = 1 AND i.verification_status = 'verified'
+                {instructor_clause}
+                ORDER BY br.name, lower(i.name)
+                """,
+                instructor_values,
+            ).fetchall()
+        ]
+
+    counts = {status: 0 for status in DRIVING_TEST_STATUSES}
+    instructor_report = {}
+    for attempt in attempts:
+        counts[attempt["result_status"]] = counts.get(attempt["result_status"], 0) + 1
+        history = histories.get(int(attempt["id"]), [])
+        if not history or attempt["result_status"] not in {"Passed", "Failed", "Absent"}:
+            continue
+        primary = history[0]
+        report = instructor_report.setdefault(
+            primary["instructor_id"],
+            {"name": primary["instructor_name"], "passed": 0, "failed": 0, "absent": 0},
+        )
+        report[attempt["result_status"].lower()] += 1
+    instructor_performance = []
+    for report in instructor_report.values():
+        decided = report["passed"] + report["failed"]
+        report["candidates"] = decided + report["absent"]
+        report["pass_rate"] = round(report["passed"] * 100 / decided, 1) if decided else 0
+        instructor_performance.append(report)
+    instructor_performance.sort(key=lambda item: (-item["candidates"], item["name"].lower()))
+    decided_total = counts["Passed"] + counts["Failed"]
+    stats = {
+        "total": len(attempts),
+        "pending": counts["Pending"],
+        "passed": counts["Passed"],
+        "failed": counts["Failed"],
+        "absent": counts["Absent"],
+        "pass_rate": round(counts["Passed"] * 100 / decided_total, 1) if decided_total else 0,
+    }
+    return render_template(
+        "driving_tests.html",
+        attempts=attempts,
+        branches=branches,
+        instructors=instructors,
+        stats=stats,
+        instructor_performance=instructor_performance,
+        statuses=DRIVING_TEST_STATUSES,
+        today=datetime.now(IST).date().isoformat(),
+        filters={
+            "status": selected_status,
+            "branch": selected_branch,
+            "instructor": selected_instructor,
+            "date_from": selected_date_from,
+            "date_to": selected_date_to,
+            "q": search_query,
+        },
+    )
+
+
+@app.get("/admin/driving-tests/<int:attempt_id>")
+@role_required("admin")
+def admin_driving_test_detail(attempt_id):
+    with get_db() as conn:
+        rows = _driving_test_rows(conn, ["dt.id = ?"], [attempt_id])
+        if not rows:
+            abort(404)
+        attempt = rows[0]
+        history = _driving_test_training_histories(conn, rows).get(attempt_id, [])
+        instructors = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT id, name FROM instructors
+                WHERE branch_id = ? AND is_active = 1
+                  AND verification_status = 'verified'
+                ORDER BY lower(name)
+                """,
+                (attempt["branch_id"],),
+            ).fetchall()
+        ]
+    return render_template(
+        "driving_test_detail.html",
+        attempt=attempt,
+        history=history,
+        instructors=instructors,
+        statuses=DRIVING_TEST_STATUSES,
+        responsibility_statuses=DRIVING_TEST_RESPONSIBILITY_STATUSES,
+    )
+
+
+def _driving_test_for_update(conn, attempt_id):
+    rows = _driving_test_rows(conn, ["dt.id = ?"], [attempt_id])
+    if not rows:
+        abort(404)
+    return rows[0]
+
+
+@app.post("/admin/driving-tests/<int:attempt_id>/details")
+@role_required("admin")
+def admin_driving_test_details_update(attempt_id):
+    try:
+        with get_db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            attempt = _driving_test_for_update(conn, attempt_id)
+            test_date = _driving_test_date(request.form.get("test_date"))
+            test_type = (request.form.get("test_type") or "").strip()
+            if test_type not in DRIVING_TEST_TYPES:
+                raise ValueError("Choose first attempt or retest.")
+            assigned_instructor_id = int(request.form.get("assigned_instructor_id") or 0) or None
+            if assigned_instructor_id:
+                valid = conn.execute(
+                    """
+                    SELECT 1 FROM instructors WHERE id = ? AND branch_id = ?
+                      AND is_active = 1 AND verification_status = 'verified'
+                    """,
+                    (assigned_instructor_id, attempt["branch_id"]),
+                ).fetchone()
+                if not valid:
+                    raise ValueError("Choose an active instructor from this branch.")
+            conn.execute(
+                """
+                UPDATE driving_test_candidates
+                SET test_date = ?, test_type = ?, test_location = ?, course_name = ?,
+                    vehicle_details = ?, assigned_instructor_id = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    test_date,
+                    test_type,
+                    _driving_test_text(request.form.get("test_location"), "test location", 180) or None,
+                    _driving_test_text(request.form.get("course_name"), "course or category", 180) or None,
+                    _driving_test_text(request.form.get("vehicle_details"), "vehicle or equipment", 180) or None,
+                    assigned_instructor_id,
+                    attempt_id,
+                ),
+            )
+            _audit(conn, "driving_test_details_updated", details={"driving_test_id": attempt_id})
+        flash("Test details updated.", "success")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc), "error")
+    return redirect(url_for("admin_driving_test_detail", attempt_id=attempt_id))
+
+
+@app.post("/admin/driving-tests/<int:attempt_id>/result")
+@role_required("admin")
+def admin_driving_test_result_update(attempt_id):
+    try:
+        with get_db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            attempt = _driving_test_for_update(conn, attempt_id)
+            result_status = (request.form.get("result_status") or "").strip().title()
+            if result_status not in DRIVING_TEST_STATUSES:
+                raise ValueError("Choose a valid test result.")
+            failure_reason = _driving_test_text(
+                request.form.get("failure_reason"), "failure reason", 500,
+                required=result_status == "Failed",
+            )
+            failed_section = _driving_test_text(
+                request.form.get("failed_section"), "failed test section", 200
+            )
+            examiner_remarks = _driving_test_text(
+                request.form.get("examiner_remarks"), "examiner remarks", 1000
+            )
+            if result_status != "Failed":
+                failure_reason = ""
+                failed_section = ""
+            retest_required = result_status == "Failed" and request.form.get("retest_required") == "1"
+            retest_date = _driving_test_date(
+                request.form.get("retest_date"), "retest date", required=False
+            ) if retest_required else None
+            if retest_date and retest_date < attempt["test_date"]:
+                raise ValueError("Retest date cannot be before the current test date.")
+            additional_training = (
+                result_status == "Failed"
+                and request.form.get("additional_training_required") == "1"
+            )
+            reset_review = result_status != "Failed"
+            conn.execute(
+                """
+                UPDATE driving_test_candidates
+                SET result_status = ?, failure_reason = ?, failed_section = ?,
+                    examiner_remarks = ?, retest_required = ?, retest_date = ?,
+                    additional_training_required = ?,
+                    responsibility_status = CASE WHEN ? = 1 THEN 'Not reviewed' ELSE responsibility_status END,
+                    responsible_instructor_id = CASE WHEN ? = 1 THEN NULL ELSE responsible_instructor_id END,
+                    review_reason = CASE WHEN ? = 1 THEN NULL ELSE review_reason END,
+                    management_notes = CASE WHEN ? = 1 THEN NULL ELSE management_notes END,
+                    reviewed_by = CASE WHEN ? = 1 THEN NULL ELSE reviewed_by END,
+                    reviewed_at = CASE WHEN ? = 1 THEN NULL ELSE reviewed_at END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    result_status,
+                    failure_reason or None,
+                    failed_section or None,
+                    examiner_remarks or None,
+                    int(retest_required),
+                    retest_date,
+                    int(additional_training),
+                    int(reset_review), int(reset_review), int(reset_review),
+                    int(reset_review), int(reset_review), int(reset_review),
+                    attempt_id,
+                ),
+            )
+            _audit(
+                conn,
+                "driving_test_result_updated",
+                details={"driving_test_id": attempt_id, "result_status": result_status},
+            )
+        flash("Driving test result updated.", "success")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc), "error")
+    return redirect(url_for("admin_driving_test_detail", attempt_id=attempt_id))
+
+
+@app.post("/admin/driving-tests/<int:attempt_id>/review")
+@role_required("admin")
+def admin_driving_test_review_update(attempt_id):
+    try:
+        with get_db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            attempt = _driving_test_for_update(conn, attempt_id)
+            if attempt["result_status"] != "Failed":
+                raise ValueError("Instructor responsibility can only be reviewed for a failed result.")
+            responsibility_status = (request.form.get("responsibility_status") or "").strip()
+            if responsibility_status not in DRIVING_TEST_RESPONSIBILITY_STATUSES:
+                raise ValueError("Choose a valid responsibility review status.")
+            responsible_instructor_id = int(request.form.get("responsible_instructor_id") or 0) or None
+            if responsibility_status in {"Confirmed", "Partially responsible"} and not responsible_instructor_id:
+                raise ValueError("Choose the instructor included in this review.")
+            if responsibility_status in {"Not reviewed", "Not responsible"}:
+                responsible_instructor_id = None
+            if responsible_instructor_id:
+                valid = conn.execute(
+                    """
+                    SELECT 1 FROM instructors WHERE id = ? AND branch_id = ?
+                    """,
+                    (responsible_instructor_id, attempt["branch_id"]),
+                ).fetchone()
+                if not valid:
+                    raise ValueError("Choose an instructor from the candidate's branch.")
+            review_reason = _driving_test_text(
+                request.form.get("review_reason"), "review reason", 1000,
+                required=responsibility_status in {"Confirmed", "Partially responsible"},
+            )
+            management_notes = _driving_test_text(
+                request.form.get("management_notes"), "management notes", 1000
+            )
+            reviewed = responsibility_status != "Not reviewed"
+            conn.execute(
+                """
+                UPDATE driving_test_candidates
+                SET responsibility_status = ?, responsible_instructor_id = ?,
+                    review_reason = ?, management_notes = ?, reviewed_by = ?,
+                    reviewed_at = CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    responsibility_status,
+                    responsible_instructor_id,
+                    review_reason or None,
+                    management_notes or None,
+                    current_user.id if reviewed else None,
+                    int(reviewed),
+                    attempt_id,
+                ),
+            )
+            _audit(
+                conn,
+                "driving_test_failure_reviewed",
+                details={
+                    "driving_test_id": attempt_id,
+                    "responsibility_status": responsibility_status,
+                    "responsible_instructor_id": responsible_instructor_id,
+                },
+            )
+        flash("Failure review saved.", "success")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc), "error")
+    return redirect(url_for("admin_driving_test_detail", attempt_id=attempt_id))
 
 
 @app.route("/admin/booking-insights", methods=["GET", "POST"])

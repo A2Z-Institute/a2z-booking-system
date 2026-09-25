@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}{{ attempt.client_name }} · Driving Test{% endblock %}
+
+{% block content %}
+{% set status_class = 'approved' if attempt.result_status == 'Passed' else 'rejected' if attempt.result_status == 'Failed' else 'unknown' if attempt.result_status == 'Absent' else 'pending' %}
+<header class="management-panel-header standalone-management-header">
+  <div>
+    <p class="eyebrow">Driving test candidate</p>
+    <h1>{{ attempt.client_name }}</h1>
+    <p>{{ attempt.admission_number|default('No admission number', true) }} · {{ attempt.test_date|friendly_date }} · {{ attempt.test_type }}</p>
+  </div>
+  <div class="management-panel-actions"><span class="status-badge status-{{ status_class }}">{{ attempt.result_status }}</span><a class="button button-secondary button-small" href="{{ url_for('admin_driving_tests') }}">Back to tests</a><a class="button button-secondary button-small" href="{{ url_for('client_detail', client_id=attempt.client_id) }}">Client record</a></div>
+</header>
+
+<section class="stats-grid driving-test-detail-stats" aria-label="Candidate summary">
+  <article class="stat-card"><span class="stat-label">Course</span><strong class="stat-value stat-value-word">{{ attempt.course_name|default('Not recorded', true) }}</strong><span class="stat-detail">{{ attempt.vehicle_details|default('No vehicle recorded', true) }}</span></article>
+  <article class="stat-card"><span class="stat-label">Assigned instructor</span><strong class="stat-value stat-value-word">{{ attempt.assigned_instructor_name|default('Not assigned', true) }}</strong><span class="stat-detail">Before-test assignment</span></article>
+  <article class="stat-card"><span class="stat-label">Branch</span><strong class="stat-value stat-value-word">{{ attempt.branch_name }}</strong><span class="stat-detail">{{ attempt.test_location|default('No test location', true) }}</span></article>
+  <article class="stat-card"><span class="stat-label">Failure review</span><strong class="stat-value stat-value-word">{{ attempt.responsibility_status }}</strong><span class="stat-detail">{{ attempt.responsible_instructor_name|default('No instructor attributed', true) }}</span></article>
+</section>
+
+<div class="content-grid two-column driving-test-edit-grid">
+  <section class="management-panel">
+    <header class="section-header"><div><h2>Test details</h2><p>Correct the planned test information without changing the candidate.</p></div></header>
+    <div class="section-body">
+      <form method="post" action="{{ url_for('admin_driving_test_details_update', attempt_id=attempt.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-grid two-column">
+          <div class="field"><label for="attempt-test-date">Test date</label><input id="attempt-test-date" name="test_date" type="date" value="{{ attempt.test_date }}" required></div>
+          <div class="field"><label for="attempt-test-type">Attempt</label><select id="attempt-test-type" name="test_type"><option value="First attempt" {% if attempt.test_type == 'First attempt' %}selected{% endif %}>First attempt</option><option value="Retest" {% if attempt.test_type == 'Retest' %}selected{% endif %}>Retest</option></select></div>
+          <div class="field"><label for="attempt-location">Test location</label><input id="attempt-location" name="test_location" maxlength="180" value="{{ attempt.test_location|default('', true) }}"></div>
+          <div class="field"><label for="attempt-course">Course/category</label><input id="attempt-course" name="course_name" maxlength="180" value="{{ attempt.course_name|default('', true) }}"></div>
+          <div class="field"><label for="attempt-vehicle">Vehicle/equipment</label><input id="attempt-vehicle" name="vehicle_details" maxlength="180" value="{{ attempt.vehicle_details|default('', true) }}"></div>
+          <div class="field"><label for="attempt-assigned-instructor">Assigned instructor</label><select id="attempt-assigned-instructor" name="assigned_instructor_id"><option value="">Not assigned</option>{% for instructor in instructors %}<option value="{{ instructor.id }}" {% if attempt.assigned_instructor_id == instructor.id %}selected{% endif %}>{{ instructor.name }}</option>{% endfor %}</select></div>
+        </div>
+        <div class="form-actions"><button class="button button-secondary" type="submit">Save test details</button></div>
+      </form>
+    </div>
+  </section>
+
+  <section class="management-panel">
+    <header class="section-header"><div><h2>Result update</h2><p>Failure reason is required when the result is Failed.</p></div></header>
+    <div class="section-body">
+      <form method="post" action="{{ url_for('admin_driving_test_result_update', attempt_id=attempt.id) }}" data-driving-result-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-grid">
+          <div class="field"><label for="attempt-result">Result status</label><select id="attempt-result" name="result_status" required data-driving-result-status>{% for status in statuses %}<option value="{{ status }}" {% if attempt.result_status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></div>
+          <div data-driving-failure-fields>
+            <div class="form-grid two-column">
+              <div class="field"><label for="attempt-failure-reason">Failure reason</label><textarea id="attempt-failure-reason" name="failure_reason" maxlength="500" data-driving-failure-reason>{{ attempt.failure_reason|default('', true) }}</textarea></div>
+              <div class="field"><label for="attempt-failed-section">Failed section</label><input id="attempt-failed-section" name="failed_section" maxlength="200" value="{{ attempt.failed_section|default('', true) }}"></div>
+              <label class="check-row"><input type="checkbox" name="retest_required" value="1" {% if attempt.retest_required %}checked{% endif %} data-driving-retest-toggle><span><strong>Retest required</strong></span></label>
+              <div class="field"><label for="attempt-retest-date">Retest date</label><input id="attempt-retest-date" name="retest_date" type="date" value="{{ attempt.retest_date|default('', true) }}" data-driving-retest-date></div>
+              <label class="check-row field-span-2"><input type="checkbox" name="additional_training_required" value="1" {% if attempt.additional_training_required %}checked{% endif %}><span><strong>Additional training required</strong></span></label>
+            </div>
+          </div>
+          <div class="field"><label for="attempt-examiner-remarks">Examiner remarks</label><textarea id="attempt-examiner-remarks" name="examiner_remarks" maxlength="1000">{{ attempt.examiner_remarks|default('', true) }}</textarea></div>
+        </div>
+        <div class="form-actions"><button class="button button-primary" type="submit">Save result</button></div>
+      </form>
+    </div>
+  </section>
+</div>
+
+<section class="management-panel" aria-labelledby="training-history-title">
+  <header class="management-panel-header"><div><h2 id="training-history-title">Instructor training history</h2><p>Calculated from the candidate's recorded appointments on or before the test date.</p></div></header>
+  {% if history %}
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>Instructor</th><th>Sessions</th><th>Training time</th><th>Last class</th><th>Training/services</th><th>Relationship</th></tr></thead><tbody>{% for item in history %}<tr><td><strong>{{ item.instructor_name }}</strong></td><td>{{ item.sessions }}</td><td>{{ item.hours_label }}</td><td>{{ item.latest_date|friendly_date }}</td><td>{{ item.services|join(', ')|default('General training', true) }}</td><td>{% if item.is_primary %}<span class="status-badge status-approved">Primary</span>{% endif %} {% if item.is_latest %}<span class="status-badge status-pending">Latest</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}
+    <div class="empty-state compact-empty"><h3>No linked training found</h3><p>Check that the booking was created against this exact client record.</p></div>
+  {% endif %}
+</section>
+
+<section class="management-panel" aria-labelledby="failure-review-title">
+  <header class="management-panel-header"><div><h2 id="failure-review-title">Management failure review</h2><p>A failure does not automatically make an instructor responsible. Review the training evidence above before recording a decision.</p></div></header>
+  {% if attempt.result_status == 'Failed' %}
+    <div class="section-body">
+      <form method="post" action="{{ url_for('admin_driving_test_review_update', attempt_id=attempt.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-grid two-column">
+          <div class="field"><label for="responsibility-status">Review decision</label><select id="responsibility-status" name="responsibility_status" required>{% for status in responsibility_statuses %}<option value="{{ status }}" {% if attempt.responsibility_status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="responsible-instructor">Reviewed instructor</label><select id="responsible-instructor" name="responsible_instructor_id"><option value="">No instructor selected</option>{% for instructor in instructors %}<option value="{{ instructor.id }}" {% if attempt.responsible_instructor_id == instructor.id %}selected{% endif %}>{{ instructor.name }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="review-reason">Review reason</label><textarea id="review-reason" name="review_reason" maxlength="1000">{{ attempt.review_reason|default('', true) }}</textarea></div>
+          <div class="field"><label for="management-notes">Management notes</label><textarea id="management-notes" name="management_notes" maxlength="1000">{{ attempt.management_notes|default('', true) }}</textarea></div>
+        </div>
+        {% if attempt.reviewer_name %}<p class="field-hint">Last reviewed by {{ attempt.reviewer_name }}{% if attempt.reviewed_at %} on {{ attempt.reviewed_at }}{% endif %}.</p>{% endif %}
+        <div class="form-actions"><button class="button button-primary" type="submit">Save failure review</button></div>
+      </form>
+    </div>
+  {% else %}
+    <div class="empty-state compact-empty"><h3>Review is not required</h3><p>Instructor responsibility review becomes available only when the recorded result is Failed.</p></div>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='js/driving_tests.js', v='20260925-1') }}" defer></script>{% endblock %}

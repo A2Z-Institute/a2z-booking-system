@@ -470,6 +470,40 @@ def _init_sqlite_db() -> None:
                 FOREIGN KEY (updated_by) REFERENCES users(id)
             );
 
+            CREATE TABLE IF NOT EXISTS driving_test_candidates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                branch_id INTEGER NOT NULL,
+                client_id INTEGER NOT NULL,
+                test_date TEXT NOT NULL,
+                test_type TEXT NOT NULL DEFAULT 'First attempt',
+                test_location TEXT,
+                course_name TEXT,
+                vehicle_details TEXT,
+                assigned_instructor_id INTEGER,
+                result_status TEXT NOT NULL DEFAULT 'Pending',
+                failure_reason TEXT,
+                failed_section TEXT,
+                examiner_remarks TEXT,
+                retest_required INTEGER NOT NULL DEFAULT 0,
+                retest_date TEXT,
+                additional_training_required INTEGER NOT NULL DEFAULT 0,
+                responsibility_status TEXT NOT NULL DEFAULT 'Not reviewed',
+                responsible_instructor_id INTEGER,
+                review_reason TEXT,
+                management_notes TEXT,
+                reviewed_by INTEGER,
+                reviewed_at TEXT,
+                created_by INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (branch_id) REFERENCES branches(id),
+                FOREIGN KEY (client_id) REFERENCES users(id),
+                FOREIGN KEY (assigned_instructor_id) REFERENCES instructors(id),
+                FOREIGN KEY (responsible_instructor_id) REFERENCES instructors(id),
+                FOREIGN KEY (reviewed_by) REFERENCES users(id),
+                FOREIGN KEY (created_by) REFERENCES users(id)
+            );
+
             CREATE TABLE IF NOT EXISTS audit_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 actor_user_id INTEGER,
@@ -856,6 +890,14 @@ def _init_sqlite_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_client_profiles_secondary_phone
                 ON client_profiles(secondary_phone)
                 WHERE secondary_phone IS NOT NULL AND secondary_phone != '';
+            CREATE INDEX IF NOT EXISTS idx_driving_tests_branch_date
+                ON driving_test_candidates(branch_id, test_date);
+            CREATE INDEX IF NOT EXISTS idx_driving_tests_client_date
+                ON driving_test_candidates(client_id, test_date);
+            CREATE INDEX IF NOT EXISTS idx_driving_tests_result
+                ON driving_test_candidates(result_status, test_date);
+            CREATE INDEX IF NOT EXISTS idx_driving_tests_responsible
+                ON driving_test_candidates(responsible_instructor_id, test_date);
 
             CREATE TRIGGER IF NOT EXISTS validate_user_role_insert
             BEFORE INSERT ON users
