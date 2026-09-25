@@ -777,9 +777,18 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
         return None
     phone_variants = {phone}
     if len(phone) == 10:
+        phone_variants.add(f"0{phone}")
         phone_variants.add(f"91{phone}")
+        phone_variants.add(f"091{phone}")
+    elif len(phone) == 11 and phone.startswith("0"):
+        phone_variants.add(phone[1:])
+        phone_variants.add(f"91{phone[1:]}")
     elif len(phone) == 12 and phone.startswith("91"):
         phone_variants.add(phone[-10:])
+        phone_variants.add(f"0{phone[-10:]}")
+    elif len(phone) == 13 and phone.startswith("091"):
+        phone_variants.add(phone[-10:])
+        phone_variants.add(phone[-12:])
     phone_sql = (
         "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE({column}, ''), "
         "' ', ''), '-', ''), '(', ''), ')', ''), '+', '')"
