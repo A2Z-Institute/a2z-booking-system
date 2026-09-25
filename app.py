@@ -681,6 +681,9 @@ def _driving_test_related_client_ids(conn, client_id):
     phone_keys = set()
     for value in (current.get("phone"), current.get("secondary_phone")):
         phone_keys.update(_driving_test_phone_variants(value))
+    verified_phone = _driving_test_verified_phone(
+        (current.get("phone"), current.get("secondary_phone"))
+    )
     admission_key = " ".join(str(current.get("admission_number") or "").casefold().split())
     if not name_key or (not phone_keys and not admission_key):
         return [client_id]
@@ -732,7 +735,7 @@ def _driving_test_related_client_ids(conn, client_id):
         same_strong_identity = bool(
             same_phone and (same_admission or similar_admission)
         )
-        if same_strong_identity or (
+        if (verified_phone and same_phone) or same_strong_identity or (
             _driving_test_names_compatible(clean_name, candidate_name)
             and (same_phone or same_admission)
         ):
@@ -743,6 +746,38 @@ def _driving_test_related_client_ids(conn, client_id):
 def _driving_test_name_key(value):
     """Return a punctuation-insensitive name used only for import matching."""
     return " ".join(re.findall(r"[\w]+", str(value or "").casefold(), re.UNICODE))
+
+
+_DRIVING_TEST_VERIFIED_NAME_PHONES = {
+    ("chithiramurugan palanivel", "7356514886"),
+    ("khalfan k a", "8138823819"),
+    ("kurias thomas", "8086277957"),
+    ("mohamed ajmal c", "7736461759"),
+    ("noel k f", "9037128638"),
+    ("fredy antony aby", "7907996473"),
+    ("abishek n m", "9895133635"),
+    ("snajin rs", "8086469733"),
+}
+
+
+def _driving_test_verified_name_phone(name, phone):
+    """Return whether staff explicitly verified this imported identity."""
+    digits = _phone_digits(phone)
+    local_phone = digits[-10:] if len(digits) >= 10 else digits
+    return (_driving_test_name_key(name), local_phone) in _DRIVING_TEST_VERIFIED_NAME_PHONES
+
+
+def _driving_test_verified_phone(phone_values):
+    """Return whether any value is a staff-verified candidate phone."""
+    verified_phones = {phone for _, phone in _DRIVING_TEST_VERIFIED_NAME_PHONES}
+    for value in phone_values:
+        digits = _phone_digits(value)
+        if not digits:
+            continue
+        local_phone = digits[-10:] if len(digits) >= 10 else digits
+        if local_phone in verified_phones:
+            return True
+    return False
 
 
 def _driving_test_phone_variants(value):
@@ -878,6 +913,9 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
     # Select a stable representative; related-client history will combine all
     # of their bookings without deleting or modifying either client record.
     candidates = target_phone_matches or phone_matches
+    if _driving_test_verified_name_phone(imported_name, phone):
+        return min(candidates, key=lambda item: int(item["id"]))
+
     admission_keys = {
         _driving_test_admission_key(item.get("admission_number"))
         for item in candidates
