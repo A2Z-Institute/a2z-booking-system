@@ -740,21 +740,40 @@ def _driving_test_related_client_ids(conn, client_id):
     return related or [client_id]
 
 
+def _driving_test_name_key(value):
+    """Return a punctuation-insensitive name used only for import matching."""
+    return " ".join(re.findall(r"[\w]+", str(value or "").casefold(), re.UNICODE))
+
+
+def _driving_test_admission_key(value):
+    """Normalize an SRTO/application or A2Z admission identifier."""
+    return "".join(re.findall(r"[\w]+", str(value or "").casefold(), re.UNICODE))
+
+
 def _driving_test_import_client(conn, candidate, target_branch_id):
-    """Conservatively match an imported candidate to an existing client."""
-    phone = _phone_digits(candidate.get("phone"))
-    imported_name = " ".join(str(candidate.get("candidate_name") or "").casefold().split())
-    if not phone or not imported_name:
+    """Match a PDF candidate by normalized name and admission identifier.
+
+    The SRTO form calls this identifier an application number. For importing,
+    that value is compared with the A2Z client's admission number. Phone is
+    deliberately not used because SRTO and client-profile phone numbers may
+    differ.
+    """
+    imported_name = _driving_test_name_key(candidate.get("candidate_name"))
+    admission_key = _driving_test_admission_key(
+        candidate.get("admission_number") or candidate.get("application_number")
+    )
+    if not imported_name or not admission_key:
         return None
-    phone_sql = (
-        "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE({column}, ''), "
-        "' ', ''), '-', ''), '(', ''), ')', ''), '+', '')"
+    admission_sql = (
+        "lower(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE("
+        "COALESCE(cp.admission_number, ''), ' ', ''), '-', ''), '/', ''), '.', ''), '_', ''))"
     )
     scope_clause = ""
-    values = [phone, phone, target_branch_id]
+    values = [admission_key]
     if not current_user.is_super_admin:
         scope_clause = " AND u.branch_id = ?"
         values.append(target_branch_id)
+    values.append(target_branch_id)
     rows = conn.execute(
         f"""
         SELECT u.id, u.full_name, u.branch_id, br.name AS branch_name,
@@ -763,8 +782,7 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
         JOIN branches br ON br.id = u.branch_id
         LEFT JOIN client_profiles cp ON cp.user_id = u.id
         WHERE u.role = 'student' AND u.is_active = 1
-          AND ({phone_sql.format(column='u.phone')} = ? OR
-               {phone_sql.format(column='cp.secondary_phone')} = ?)
+          AND {admission_sql} = ?
           {scope_clause}
         ORDER BY CASE WHEN u.branch_id = ? THEN 0 ELSE 1 END, u.id
         """,
@@ -776,7 +794,7 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
         clean_name, _ = _booking_client_identity_fields(
             record.get("full_name"), record.get("admission_number")
         )
-        if " ".join(clean_name.casefold().split()) == imported_name:
+        if _driving_test_name_key(clean_name) == imported_name:
             matches.append(record)
     if not matches:
         return None
@@ -7405,15 +7423,19 @@ def admin_driving_tests_import_pdf_confirm():
         with get_db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             for item in payload["rows"]:
-                client_id = int(item.get("client_id") or 0)
+                manual_value = request.form.get(
+                    f"client_match_{int(item['serial_number'])}", ""
+                ).strip()
+                try:
+                    manual_client_id = int(manual_value) if manual_value else 0
+                except ValueError:
+                    manual_client_id = 0
+                client_id = manual_client_id or int(item.get("client_id") or 0)
                 if not client_id:
                     skipped += 1
                     continue
-                client = conn.execute(
-                    "SELECT id FROM users WHERE id = ? AND role = 'student' AND is_active = 1",
-                    (client_id,),
-                ).fetchone()
-                if not client:
+                client = _client_access_row(conn, client_id)
+                if not client or not client["is_active"]:
                     skipped += 1
                     continue
                 related_ids = _driving_test_related_client_ids(conn, client_id)

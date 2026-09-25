@@ -3689,6 +3689,14 @@ body {
   vertical-align: middle;
 }
 
+.driving-import-client-picker {
+  min-width: 260px;
+}
+
+.driving-import-client-picker > input[type="search"] {
+  min-width: 240px;
+}
+
 .driving-test-detail-stats .stat-value-word {
   overflow-wrap: anywhere;
 }

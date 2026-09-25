@@ -10,31 +10,33 @@
 
 <section class="stats-grid driving-test-stats" aria-label="Import summary">
   <article class="stat-card"><span class="stat-label">PDF rows</span><strong class="stat-value">{{ import_data.rows|length }}</strong><span class="stat-detail">Candidates extracted</span></article>
-  <article class="stat-card"><span class="stat-label">Ready</span><strong class="stat-value">{{ registerable }}</strong><span class="stat-detail">Matched and new</span></article>
+  <article class="stat-card"><span class="stat-label">Ready</span><strong class="stat-value" data-import-ready-count>{{ registerable }}</strong><span class="stat-detail">Matched or manually selected</span></article>
   <article class="stat-card"><span class="stat-label">Unmatched</span><strong class="stat-value">{{ unmatched }}</strong><span class="stat-detail">Will be skipped</span></article>
   <article class="stat-card"><span class="stat-label">Duplicates</span><strong class="stat-value">{{ duplicates }}</strong><span class="stat-detail">Already registered</span></article>
 </section>
 
-{% if unmatched %}<div class="alert alert-warning" role="status"><span class="alert-icon" aria-hidden="true"></span><div><strong>{{ unmatched }} candidate{% if unmatched != 1 %}s{% endif %} could not be matched.</strong><br>Create or correct those client records, then upload the PDF again. They will not be automatically created from uncertain data.</div></div>{% endif %}
+{% if unmatched %}<div class="alert alert-warning" role="status"><span class="alert-icon" aria-hidden="true"></span><div><strong>{{ unmatched }} candidate{% if unmatched != 1 %}s{% endif %} could not be matched automatically by name and admission number.</strong><br>Search and select the correct existing client in each required row. Any row left unselected will be skipped; no new client will be created automatically.</div></div>{% endif %}
 
-<section class="management-panel">
-  <header class="management-panel-header"><div><h2>Extracted candidate list</h2><p>Matching uses the exact phone number and normalized candidate name. Existing attempts for the same test date are skipped.</p></div></header>
+<section class="management-panel" data-import-client-search-url="{{ url_for('api_calendar_search_clients', driving_test=1) }}">
+  <header class="management-panel-header"><div><h2>Extracted candidate list</h2><p>Candidates are matched using the PDF name and application number against the client's name and admission number. Search manually to resolve an unmatched row. Existing attempts for the same test date are skipped.</p></div></header>
+  <form method="post" action="{{ url_for('admin_driving_tests_import_pdf_confirm') }}" data-import-confirm-form data-base-ready="{{ registerable }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="import_token" value="{{ import_token }}">
   <div class="table-scroll"><table class="data-table"><thead><tr><th>No.</th><th>Application</th><th>PDF candidate</th><th>Classes</th><th>Matched client</th><th>Import status</th></tr></thead><tbody>
     {% for item in import_data.rows %}<tr>
       <td>{{ item.serial_number }}</td>
       <td><strong>{{ item.application_number }}</strong><span class="cell-detail">Appointment {{ item.appointment_date|friendly_date }}</span></td>
       <td><strong>{{ item.candidate_name }}</strong><span class="cell-detail">{{ item.phone }}</span></td>
       <td>{{ item.course_name }}</td>
-      <td>{% if item.client_id %}<strong>{{ item.client_name }}</strong><span class="cell-detail">{{ item.client_branch_name }}</span>{% else %}<span class="text-muted">No safe match</span>{% endif %}</td>
-      <td>{% if item.duplicate_attempt_id %}<span class="status-badge status-pending">Already registered</span>{% elif item.client_id %}<span class="status-badge status-approved">Ready</span>{% else %}<span class="status-badge status-rejected">Will be skipped</span>{% endif %}</td>
+      <td>{% if item.client_id %}<strong>{{ item.client_name }}</strong><span class="cell-detail">{{ item.client_branch_name }} · admission {{ item.application_number }}</span>{% else %}<div class="driving-import-client-picker driving-client-picker" data-import-client-picker><input type="search" value="{{ item.application_number }}" autocomplete="off" aria-label="Find client for {{ item.candidate_name }}" data-import-client-search><input type="hidden" name="client_match_{{ item.serial_number }}" value="" data-import-client-id><div class="driving-client-selection" data-import-client-selection hidden></div><div class="driving-client-results" data-import-client-results hidden></div></div>{% endif %}</td>
+      <td>{% if item.duplicate_attempt_id %}<span class="status-badge status-pending">Already registered</span>{% elif item.client_id %}<span class="status-badge status-approved">Ready</span>{% else %}<span class="status-badge status-rejected" data-import-row-status>Needs selection</span>{% endif %}</td>
     </tr>{% endfor %}
   </tbody></table></div>
   <div class="section-body">
-    <form method="post" action="{{ url_for('admin_driving_tests_import_pdf_confirm') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="import_token" value="{{ import_token }}">
-      <div class="form-actions"><button class="button button-primary" type="submit" {% if not registerable %}disabled{% endif %}>Confirm and register {{ registerable }} candidate{% if registerable != 1 %}s{% endif %}</button><a class="button button-secondary" href="{{ url_for('admin_driving_tests') }}#upload-test-form">Cancel</a></div>
-    </form>
+      <div class="form-actions"><button class="button button-primary" type="submit" data-import-confirm-button {% if not registerable %}disabled{% endif %}>Confirm and register {{ registerable }} candidate{% if registerable != 1 %}s{% endif %}</button><a class="button button-secondary" href="{{ url_for('admin_driving_tests') }}#upload-test-form">Cancel</a></div>
   </div>
+  </form>
 </section>
 {% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='js/driving_test_import.js', v='20260925-1') }}" defer></script>{% endblock %}
