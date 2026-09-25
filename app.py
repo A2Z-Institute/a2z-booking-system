@@ -768,8 +768,9 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
     """Match a PDF candidate by phone, then verify the candidate name.
 
     The PDF application number is a government identifier and is not the A2Z
-    admission number. A unique compatible phone/name match is safe to select;
-    ambiguous matches are deliberately left for manual review.
+    admission number. A unique phone match is selected automatically. The
+    candidate name is used only to resolve multiple records with that phone;
+    unresolved ambiguity is deliberately left for manual review.
     """
     imported_name = candidate.get("candidate_name")
     phone = _phone_digits(candidate.get("phone"))
@@ -820,24 +821,32 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
         """,
         values,
     ).fetchall()
-    matches = []
+    phone_matches = []
     for row in rows:
         record = dict(row)
+        phone_matches.append(record)
+    if not phone_matches:
+        return None
+    target_phone_matches = [
+        item for item in phone_matches
+        if int(item["branch_id"]) == int(target_branch_id)
+    ]
+    if len(target_phone_matches) == 1:
+        return target_phone_matches[0]
+    if not target_phone_matches and len(phone_matches) == 1:
+        return phone_matches[0]
+
+    # The phone is shared by multiple client records. Use the name only to
+    # disambiguate; never silently choose when more than one candidate remains.
+    candidates = target_phone_matches or phone_matches
+    name_matches = []
+    for record in candidates:
         clean_name, _ = _booking_client_identity_fields(
             record.get("full_name"), record.get("admission_number")
         )
         if _driving_test_names_compatible(imported_name, clean_name):
-            matches.append(record)
-    if not matches:
-        return None
-    target_matches = [
-        item for item in matches if int(item["branch_id"]) == int(target_branch_id)
-    ]
-    if len(target_matches) == 1:
-        return target_matches[0]
-    if target_matches:
-        return None
-    return matches[0] if len(matches) == 1 else None
+            name_matches.append(record)
+    return name_matches[0] if len(name_matches) == 1 else None
 
 
 def _driving_test_import_storage():

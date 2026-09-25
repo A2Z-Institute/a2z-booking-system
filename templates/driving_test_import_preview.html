@@ -18,7 +18,7 @@
 {% if unmatched %}<div class="alert alert-warning" role="status"><span class="alert-icon" aria-hidden="true"></span><div><strong>{{ unmatched }} candidate{% if unmatched != 1 %}s{% endif %} could not be matched safely by phone number and name.</strong><br>Search and select the correct existing client in each required row. Any row left unselected will be skipped; no new client will be created automatically.</div></div>{% endif %}
 
 <section class="management-panel" data-import-client-search-url="{{ url_for('api_calendar_search_clients', driving_test=1) }}">
-  <header class="management-panel-header"><div><h2>Extracted candidate list</h2><p>Candidates are matched using the PDF phone number with name verification. The selected branch is preferred; shared or conflicting matches require manual selection. Existing attempts for the same test date are skipped.</p></div></header>
+  <header class="management-panel-header"><div><h2>Extracted candidate list</h2><p>A unique PDF phone number is matched automatically, including leading 0 and +91 formats. The selected branch is preferred; the name is used only when multiple clients share a number. Existing attempts for the same test date are skipped.</p></div></header>
   <form method="post" action="{{ url_for('admin_driving_tests_import_pdf_confirm') }}" data-import-confirm-form data-base-ready="{{ registerable }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="import_token" value="{{ import_token }}">
