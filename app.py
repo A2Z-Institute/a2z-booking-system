@@ -745,31 +745,54 @@ def _driving_test_name_key(value):
     return " ".join(re.findall(r"[\w]+", str(value or "").casefold(), re.UNICODE))
 
 
-def _driving_test_admission_key(value):
-    """Normalize an SRTO/application or A2Z admission identifier."""
-    return "".join(re.findall(r"[\w]+", str(value or "").casefold(), re.UNICODE))
+def _driving_test_names_compatible(imported_name, client_name):
+    """Allow harmless initials differences while rejecting a different person."""
+    imported_key = _driving_test_name_key(imported_name)
+    client_key = _driving_test_name_key(client_name)
+    if not imported_key or not client_key:
+        return False
+    if imported_key == client_key:
+        return True
+    imported_parts = imported_key.split()
+    client_parts = client_key.split()
+    return bool(
+        imported_parts[0] == client_parts[0]
+        and (
+            imported_parts[: len(client_parts)] == client_parts
+            or client_parts[: len(imported_parts)] == imported_parts
+        )
+    )
 
 
 def _driving_test_import_client(conn, candidate, target_branch_id):
-    """Match a PDF candidate by normalized name and admission identifier.
+    """Match a PDF candidate by phone, then verify the candidate name.
 
-    The SRTO form calls this identifier an application number. For importing,
-    that value is compared with the A2Z client's admission number. Phone is
-    deliberately not used because SRTO and client-profile phone numbers may
-    differ.
+    The PDF application number is a government identifier and is not the A2Z
+    admission number. A unique compatible phone/name match is safe to select;
+    ambiguous matches are deliberately left for manual review.
     """
-    imported_name = _driving_test_name_key(candidate.get("candidate_name"))
-    admission_key = _driving_test_admission_key(
-        candidate.get("admission_number") or candidate.get("application_number")
-    )
-    if not imported_name or not admission_key:
+    imported_name = candidate.get("candidate_name")
+    phone = _phone_digits(candidate.get("phone"))
+    if not _driving_test_name_key(imported_name) or len(phone) < 8:
         return None
-    admission_sql = (
-        "lower(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE("
-        "COALESCE(cp.admission_number, ''), ' ', ''), '-', ''), '/', ''), '.', ''), '_', ''))"
+    phone_variants = {phone}
+    if len(phone) == 10:
+        phone_variants.add(f"91{phone}")
+    elif len(phone) == 12 and phone.startswith("91"):
+        phone_variants.add(phone[-10:])
+    phone_sql = (
+        "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE({column}, ''), "
+        "' ', ''), '-', ''), '(', ''), ')', ''), '+', '')"
     )
+    variant_clauses = []
+    values = []
+    for phone_variant in sorted(phone_variants):
+        variant_clauses.append(
+            f"({phone_sql.format(column='u.phone')} = ? OR "
+            f"{phone_sql.format(column='cp.secondary_phone')} = ?)"
+        )
+        values.extend((phone_variant, phone_variant))
     scope_clause = ""
-    values = [admission_key]
     if not current_user.is_super_admin:
         scope_clause = " AND u.branch_id = ?"
         values.append(target_branch_id)
@@ -782,7 +805,7 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
         JOIN branches br ON br.id = u.branch_id
         LEFT JOIN client_profiles cp ON cp.user_id = u.id
         WHERE u.role = 'student' AND u.is_active = 1
-          AND {admission_sql} = ?
+          AND ({' OR '.join(variant_clauses)})
           {scope_clause}
         ORDER BY CASE WHEN u.branch_id = ? THEN 0 ELSE 1 END, u.id
         """,
@@ -794,15 +817,18 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
         clean_name, _ = _booking_client_identity_fields(
             record.get("full_name"), record.get("admission_number")
         )
-        if _driving_test_name_key(clean_name) == imported_name:
+        if _driving_test_names_compatible(imported_name, clean_name):
             matches.append(record)
     if not matches:
         return None
-    preferred = next(
-        (item for item in matches if int(item["branch_id"]) == int(target_branch_id)),
-        matches[0],
-    )
-    return preferred
+    target_matches = [
+        item for item in matches if int(item["branch_id"]) == int(target_branch_id)
+    ]
+    if len(target_matches) == 1:
+        return target_matches[0]
+    if target_matches:
+        return None
+    return matches[0] if len(matches) == 1 else None
 
 
 def _driving_test_import_storage():
@@ -7367,6 +7393,7 @@ def admin_driving_tests_import_pdf():
                 item["client_id"] = int(match["id"]) if match else None
                 item["client_name"] = match["full_name"] if match else ""
                 item["client_branch_name"] = match["branch_name"] if match else ""
+                item["client_admission_number"] = match["admission_number"] if match else ""
                 item["duplicate_attempt_id"] = None
                 if match:
                     related_ids = _driving_test_related_client_ids(conn, int(match["id"]))
