@@ -68,7 +68,11 @@ def parse_driving_test_pdf(content: bytes, filename: str) -> dict:
                         )
                     application_number = re.sub(r"\D", "", application_lines[0])
                     appointment_match = next(
-                        (line for line in application_lines[1:] if re.fullmatch(r"\d{2}/\d{2}/\d{4}", line)),
+                        (
+                            line
+                            for line in application_lines[1:]
+                            if re.fullmatch(r"\d{1,2}/\d{1,2}/\d{4}", line)
+                        ),
                         None,
                     )
                     phone = re.sub(r"\D", "", applicant_lines[-1])
