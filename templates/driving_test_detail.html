@@ -10,7 +10,7 @@
     <h1>{{ attempt.client_name }}</h1>
     <p>{{ attempt.admission_number|default('No admission number', true) }} · {{ attempt.test_date|friendly_date }} · {{ attempt.test_type }}{% if attempt.application_number %} · Application {{ attempt.application_number }}{% endif %}</p>
   </div>
-  <div class="management-panel-actions"><span class="status-badge status-{{ status_class }}">{{ attempt.result_status }}</span><a class="button button-secondary button-small" href="{{ url_for('admin_driving_tests') }}">Back to tests</a><a class="button button-secondary button-small" href="{{ url_for('client_detail', client_id=attempt.client_id) }}">Client record</a></div>
+  <div class="management-panel-actions"><span class="status-badge status-{{ status_class }}">{{ attempt.result_status }}</span><a class="button button-secondary button-small" href="{{ return_url }}">Back to tests</a><a class="button button-secondary button-small" href="{{ url_for('client_detail', client_id=attempt.client_id) }}">Client record</a></div>
 </header>
 
 <section class="stats-grid driving-test-detail-stats" aria-label="Candidate summary">
@@ -26,6 +26,7 @@
     <div class="section-body">
       <form method="post" action="{{ url_for('admin_driving_test_details_update', attempt_id=attempt.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ return_url }}">
         <div class="form-grid two-column">
           <div class="field"><label for="attempt-test-date">Test date</label><input id="attempt-test-date" name="test_date" type="date" value="{{ attempt.test_date }}" required></div>
           <div class="field"><label for="attempt-test-type">Attempt</label><select id="attempt-test-type" name="test_type"><option value="First attempt" {% if attempt.test_type == 'First attempt' %}selected{% endif %}>First attempt</option><option value="Retest" {% if attempt.test_type == 'Retest' %}selected{% endif %}>Retest</option></select></div>
@@ -44,6 +45,7 @@
     <div class="section-body">
       <form method="post" action="{{ url_for('admin_driving_test_result_update', attempt_id=attempt.id) }}" data-driving-result-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ return_url }}">
         <div class="form-grid">
           <div class="field"><label for="attempt-result">Result status</label><select id="attempt-result" name="result_status" required data-driving-result-status>{% for status in statuses %}<option value="{{ status }}" {% if attempt.result_status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></div>
           <div data-driving-failure-fields>
@@ -79,6 +81,7 @@
     <div class="section-body">
       <form method="post" action="{{ url_for('admin_driving_test_review_update', attempt_id=attempt.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ return_url }}">
         <div class="form-grid two-column">
           <div class="field"><label for="responsibility-status">Review decision</label><select id="responsibility-status" name="responsibility_status" required>{% for status in responsibility_statuses %}<option value="{{ status }}" {% if attempt.responsibility_status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></div>
           <div class="field"><label for="responsible-instructor">Reviewed instructor</label><select id="responsible-instructor" name="responsible_instructor_id"><option value="">No instructor selected</option>{% for instructor in instructors %}<option value="{{ instructor.id }}" {% if attempt.responsible_instructor_id == instructor.id %}selected{% endif %}>{{ instructor.name }}</option>{% endfor %}</select></div>
