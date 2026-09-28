@@ -100,7 +100,7 @@
 
 <section class="management-panel driving-test-register" aria-labelledby="driving-test-register-title">
   <header class="management-panel-header">
-    <div><h2 id="driving-test-register-title">Test candidate register</h2><p>Search candidates and open a record to update the result or review a failure.</p></div>
+    <div><h2 id="driving-test-register-title">Test candidate register</h2><p>Update results directly from this list. Open a record only when a detailed failure review is needed.</p></div>
   </header>
   <form class="filter-bar driving-test-filters" method="get" action="{{ url_for('admin_driving_tests') }}">
     <div class="field"><label for="test-filter-search">Candidate</label><input id="test-filter-search" name="q" type="search" value="{{ filters.q }}" placeholder="Name, admission, phone or course"></div>
@@ -124,7 +124,18 @@
               <td>{{ attempt.course_name|default('Not recorded', true) }}<span class="cell-detail">{{ attempt.branch_name }}</span></td>
               <td><span class="status-badge status-{{ status_class }}">{{ attempt.result_status }}</span></td>
               <td>{{ attempt.training_instructor_names }}<span class="cell-detail">{{ attempt.training_instructor_count }} instructor{% if attempt.training_instructor_count != 1 %}s{% endif %} · {{ attempt.training_sessions }} sessions · {{ (attempt.training_minutes / 60)|round(1) }} hours{% if attempt.matched_client_count > 1 %} · {{ attempt.matched_client_count }} matching client records combined{% endif %}</span></td>
-              <td>{{ attempt.responsibility_status }}{% if attempt.responsible_instructor_name %}<span class="cell-detail">{{ attempt.responsible_instructor_name }}</span>{% endif %}</td>
+              <td>
+                <form class="driving-test-quick-result" method="post" action="{{ url_for('admin_driving_test_quick_result_update', attempt_id=attempt.id) }}" data-driving-quick-result-form>
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <label class="sr-only" for="quick-result-{{ attempt.id }}">Result status for {{ attempt.client_name }}</label>
+                  <select id="quick-result-{{ attempt.id }}" name="result_status" data-driving-quick-result-status>
+                    {% for status in statuses %}<option value="{{ status }}" {% if attempt.result_status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}
+                  </select>
+                  <button class="button button-primary button-small" type="submit">Update</button>
+                </form>
+                <span class="cell-detail">{{ attempt.responsibility_status }}{% if attempt.responsible_instructor_name %} · {{ attempt.responsible_instructor_name }}{% endif %}</span>
+              </td>
               <td><a class="button button-secondary button-small" href="{{ url_for('admin_driving_test_detail', attempt_id=attempt.id) }}">Open</a></td>
             </tr>
           {% endfor %}
