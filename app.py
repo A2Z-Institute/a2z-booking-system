@@ -7925,6 +7925,9 @@ def admin_driving_tests():
 @app.get("/admin/driving-tests/<int:attempt_id>")
 @role_required("admin")
 def admin_driving_test_detail(attempt_id):
+    return_url = _safe_next_url(request.args.get("next")) or url_for(
+        "admin_driving_tests", _anchor="driving-test-register"
+    )
     with get_db() as conn:
         rows = _driving_test_rows(conn, ["dt.id = ?"], [attempt_id])
         if not rows:
@@ -7959,6 +7962,7 @@ def admin_driving_test_detail(attempt_id):
         instructors=instructors,
         statuses=DRIVING_TEST_STATUSES,
         responsibility_statuses=DRIVING_TEST_RESPONSIBILITY_STATUSES,
+        return_url=return_url,
     )
 
 
@@ -7967,6 +7971,15 @@ def _driving_test_for_update(conn, attempt_id):
     if not rows:
         abort(404)
     return rows[0]
+
+
+def _driving_test_detail_return_url(attempt_id):
+    return_url = _safe_next_url(request.form.get("next"))
+    if return_url:
+        return url_for(
+            "admin_driving_test_detail", attempt_id=attempt_id, next=return_url
+        )
+    return url_for("admin_driving_test_detail", attempt_id=attempt_id)
 
 
 @app.post("/admin/driving-tests/<int:attempt_id>/details")
@@ -8013,7 +8026,7 @@ def admin_driving_test_details_update(attempt_id):
         flash("Test details updated.", "success")
     except (TypeError, ValueError) as exc:
         flash(str(exc), "error")
-    return redirect(url_for("admin_driving_test_detail", attempt_id=attempt_id))
+    return redirect(_driving_test_detail_return_url(attempt_id))
 
 
 @app.post("/admin/driving-tests/<int:attempt_id>/result")
@@ -8086,7 +8099,7 @@ def admin_driving_test_result_update(attempt_id):
         flash("Driving test result updated.", "success")
     except (TypeError, ValueError) as exc:
         flash(str(exc), "error")
-    return redirect(url_for("admin_driving_test_detail", attempt_id=attempt_id))
+    return redirect(_driving_test_detail_return_url(attempt_id))
 
 
 @app.post("/admin/driving-tests/<int:attempt_id>/quick-result")
@@ -8218,7 +8231,7 @@ def admin_driving_test_review_update(attempt_id):
         flash("Failure review saved.", "success")
     except (TypeError, ValueError) as exc:
         flash(str(exc), "error")
-    return redirect(url_for("admin_driving_test_detail", attempt_id=attempt_id))
+    return redirect(_driving_test_detail_return_url(attempt_id))
 
 
 @app.route("/admin/booking-insights", methods=["GET", "POST"])
