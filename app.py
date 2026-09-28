@@ -2881,10 +2881,16 @@ def _transfer_instructor_profile(conn, user, target_branch_id):
     if not source:
         raise ValueError("The instructor profile does not match its current branch.")
     if conn.execute(
-        "SELECT 1 FROM users WHERE instructor_id = ? AND id != ? LIMIT 1",
+        """
+        SELECT 1 FROM users
+        WHERE instructor_id = ? AND id != ? AND is_active = 1
+        LIMIT 1
+        """,
         (source["id"], user["id"]),
     ).fetchone():
-        raise ValueError("This instructor profile is linked to another login and cannot be moved.")
+        raise ValueError(
+            "This instructor profile is linked to another active login and cannot be moved."
+        )
 
     now = datetime.now(IST)
     active_placeholders = ",".join("?" for _ in ACTIVE_BOOKING_STATUSES)
@@ -2908,10 +2914,16 @@ def _transfer_instructor_profile(conn, user, target_branch_id):
         (source["name"], target_branch_id),
     ).fetchone()
     if destination and conn.execute(
-        "SELECT 1 FROM users WHERE instructor_id = ? AND id != ? LIMIT 1",
+        """
+        SELECT 1 FROM users
+        WHERE instructor_id = ? AND id != ? AND is_active = 1
+        LIMIT 1
+        """,
         (destination["id"], user["id"]),
     ).fetchone():
-        raise ValueError("An instructor with this name already has a login in the destination branch.")
+        raise ValueError(
+            "An instructor with this name already has an active login in the destination branch."
+        )
 
     if destination:
         destination_id = destination["id"]
@@ -3287,6 +3299,22 @@ def admin_user_toggle(user_id):
                 flash("Keep at least one active administrator account.", "warning")
                 return redirect(url_for("admin_users"))
         next_active = 0 if deactivating else 1
+        if not deactivating and user["role"] == "instructor" and user["instructor_id"]:
+            profile_in_use = conn.execute(
+                """
+                SELECT 1 FROM users
+                WHERE instructor_id = ? AND id != ? AND is_active = 1
+                LIMIT 1
+                """,
+                (user["instructor_id"], user_id),
+            ).fetchone()
+            if profile_in_use:
+                flash(
+                    "This archived instructor profile is now used by another active login. "
+                    "Create or select a separate instructor profile before restoring this account.",
+                    "warning",
+                )
+                return redirect(url_for("admin_users"))
         conn.execute(
             """
             UPDATE users SET is_active = ?,
