@@ -850,7 +850,7 @@ def _driving_test_duplicate_identity_key(record):
     return (name_key, admission_key) if name_key and admission_key else None
 
 
-def _driving_test_import_client(conn, candidate, target_branch_id):
+def _driving_test_import_client(conn, candidate):
     """Match a PDF candidate by phone, then verify the candidate name.
 
     The PDF application number is a government identifier and is not the A2Z
@@ -876,10 +876,10 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
         )
         values.extend((phone_variant, phone_variant))
     scope_clause = ""
-    if not current_user.is_super_admin:
+    portal_branch_id = _portal_branch_id()
+    if portal_branch_id is not None:
         scope_clause = " AND u.branch_id = ?"
-        values.append(target_branch_id)
-    values.append(target_branch_id)
+        values.append(portal_branch_id)
     rows = conn.execute(
         f"""
         SELECT u.id, u.full_name, u.branch_id, br.name AS branch_name,
@@ -890,7 +890,7 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
         WHERE u.role = 'student' AND u.is_active = 1
           AND ({' OR '.join(variant_clauses)})
           {scope_clause}
-        ORDER BY CASE WHEN u.branch_id = ? THEN 0 ELSE 1 END, u.id
+        ORDER BY u.id
         """,
         values,
     ).fetchall()
@@ -900,19 +900,13 @@ def _driving_test_import_client(conn, candidate, target_branch_id):
         phone_matches.append(record)
     if not phone_matches:
         return None
-    target_phone_matches = [
-        item for item in phone_matches
-        if int(item["branch_id"]) == int(target_branch_id)
-    ]
-    if len(target_phone_matches) == 1:
-        return target_phone_matches[0]
-    if not target_phone_matches and len(phone_matches) == 1:
+    if len(phone_matches) == 1:
         return phone_matches[0]
 
     # Identical name + admission records are harmless duplicate client copies.
     # Select a stable representative; related-client history will combine all
     # of their bookings without deleting or modifying either client record.
-    candidates = target_phone_matches or phone_matches
+    candidates = phone_matches
     if _driving_test_verified_name_phone(imported_name, phone):
         return min(candidates, key=lambda item: int(item["id"]))
 
@@ -7527,22 +7521,11 @@ def admin_driving_tests_import_pdf():
             raise ValueError("Keep the test-form PDF under 5 MB.")
         parsed = parse_driving_test_pdf(content, filename)
 
-        portal_branch_id = _portal_branch_id()
-        if portal_branch_id is not None:
-            target_branch_id = int(portal_branch_id)
-        else:
-            target_branch_id = int(request.form.get("import_branch_id") or 0)
         with get_db() as conn:
-            branch = conn.execute(
-                "SELECT id, name FROM branches WHERE id = ? AND is_active = 1",
-                (target_branch_id,),
-            ).fetchone()
-            if not branch:
-                raise ValueError("Choose the A2Z branch for this test form.")
             preview_rows = []
             for candidate in parsed["rows"]:
                 item = dict(candidate)
-                match = _driving_test_import_client(conn, item, target_branch_id)
+                match = _driving_test_import_client(conn, item)
                 item["client_id"] = int(match["id"]) if match else None
                 item["client_name"] = match["full_name"] if match else ""
                 item["client_branch_name"] = match["branch_name"] if match else ""
@@ -7566,8 +7549,6 @@ def admin_driving_tests_import_pdf():
                 preview_rows.append(item)
         payload = {
             "filename": filename,
-            "branch_id": target_branch_id,
-            "branch_name": branch["name"],
             "test_date": parsed["test_date"],
             "test_location": parsed["test_location"],
             "rows": preview_rows,
@@ -7597,11 +7578,9 @@ def admin_driving_tests_import_pdf_confirm():
         payload, preview_path = _load_driving_test_import(request.form.get("import_token"))
         if payload.get("confirmed"):
             raise ValueError("This PDF import has already been confirmed.")
-        portal_branch_id = _portal_branch_id()
-        if portal_branch_id is not None and int(payload["branch_id"]) != int(portal_branch_id):
-            abort(403)
         registered = 0
         skipped = 0
+        imported_branch_ids = set()
         with get_db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             for item in payload["rows"]:
@@ -7642,19 +7621,21 @@ def admin_driving_tests_import_pdf_confirm():
                     VALUES (?, ?, ?, 'First attempt', ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        int(payload["branch_id"]), client_id, payload["test_date"],
+                        int(client["branch_id"]), client_id, payload["test_date"],
                         payload["test_location"], item["course_name"],
                         item["application_number"], item["appointment_date"],
                         payload["filename"], item.get("result_status") or "Pending",
                         current_user.id,
                     ),
                 )
+                imported_branch_ids.add(int(client["branch_id"]))
                 registered += 1
             _audit(
                 conn,
                 "driving_test_pdf_imported",
                 details={
-                    "filename": payload["filename"], "branch_id": payload["branch_id"],
+                    "filename": payload["filename"],
+                    "branch_ids": sorted(imported_branch_ids),
                     "test_date": payload["test_date"], "registered": registered,
                     "skipped": skipped,
                 },
