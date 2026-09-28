@@ -7882,6 +7882,14 @@ def admin_driving_tests():
                 instructor_values,
             ).fetchall()
         ]
+        selected_instructor_name = ""
+        for instructor in instructors:
+            if str(instructor["id"]) != selected_instructor:
+                continue
+            selected_instructor_name = instructor["name"]
+            if current_user.is_super_admin:
+                selected_instructor_name += f" · {instructor['branch_name']}"
+            break
 
     counts = {status: 0 for status in DRIVING_TEST_STATUSES}
     instructor_report = {}
@@ -7925,6 +7933,7 @@ def admin_driving_tests():
             "status": selected_status,
             "branch": selected_branch,
             "instructor": selected_instructor,
+            "instructor_name": selected_instructor_name,
             "date_from": selected_date_from,
             "date_to": selected_date_to,
             "q": search_query,
