@@ -1817,6 +1817,14 @@ class InstructorTransferBlocked(ValueError):
     """Raised when a branch transfer would strand upcoming appointments."""
 
 
+class InstructorTransferMergeRequired(InstructorTransferBlocked):
+    """Raised when a same-name active destination login needs confirmation."""
+
+    def __init__(self, message, duplicate_user_ids):
+        super().__init__(message)
+        self.duplicate_user_ids = duplicate_user_ids
+
+
 def _appointment_conflict_message(buffer_before=0, buffer_after=0):
     """Return an actionable staff-calendar conflict explanation."""
     padding = []
@@ -1962,6 +1970,54 @@ def _phone_digits(value):
     return re.sub(r"\D", "", str(value or ""))
 
 
+def _indian_phone_key(value):
+    """Return one stable key for common Indian phone-number formats."""
+    digits = _phone_digits(value)
+    if len(digits) == 13 and digits.startswith("091"):
+        digits = digits[-10:]
+    elif len(digits) == 12 and digits.startswith("91"):
+        digits = digits[-10:]
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = digits[-10:]
+    return digits if len(digits) >= 8 else ""
+
+
+def _client_record_identity(record):
+    """Build conservative keys used to present duplicate client rows as one."""
+    clean_name, _ = _booking_client_identity_fields(
+        record.get("full_name"), record.get("admission_number")
+    )
+    phone_keys = {
+        key
+        for key in (
+            _indian_phone_key(record.get("phone")),
+            _indian_phone_key(record.get("secondary_phone")),
+        )
+        if key
+    }
+    return {
+        "name": _driving_test_name_key(clean_name),
+        "phones": phone_keys,
+        "admission": _driving_test_admission_key(record.get("admission_number")),
+    }
+
+
+def _client_records_same_person(first, second):
+    """Match exact admissions, or normalized phones with compatible names."""
+    first_identity = _client_record_identity(first)
+    second_identity = _client_record_identity(second)
+    if (
+        first_identity["admission"]
+        and first_identity["admission"] == second_identity["admission"]
+    ):
+        return True
+    if not (first_identity["phones"] & second_identity["phones"]):
+        return False
+    return _driving_test_names_compatible(
+        first_identity["name"], second_identity["name"]
+    )
+
+
 def _client_identity_key(full_name, phone):
     """The conservative identity rule used for harmless client consolidation."""
     name = " ".join(str(full_name or "").casefold().split())
@@ -1998,41 +2054,96 @@ def _booking_client_identity_fields(full_name, admission_number):
 def _related_client_ids(conn, client_id):
     """Return client ids that are unquestionably the same person.
 
-    We only relate records in the same branch with the exact normalized full
-    name *and* primary phone. This deliberately avoids joining branch-specific
-    client records or relatives who share a number.
+    Exact normalized admission numbers match across branches. Phone numbers
+    also ignore +91/91/0 prefixes and formatting, but require compatible names
+    so relatives sharing one contact number are kept separate. Branch logins
+    remain scoped to their own records; Super Admin can see combined history.
     """
     current = conn.execute(
-        "SELECT id, full_name, phone, branch_id FROM users WHERE id = ? AND role = 'student'",
+        """
+        SELECT u.id, u.full_name, u.phone, u.branch_id,
+               cp.secondary_phone, cp.admission_number
+        FROM users u
+        LEFT JOIN client_profiles cp ON cp.user_id = u.id
+        WHERE u.id = ? AND u.role = 'student'
+        """,
         (client_id,),
     ).fetchone()
     if not current:
         return []
-    key = _client_identity_key(current["full_name"], current["phone"])
-    if not key:
+    current = dict(current)
+    identity = _client_record_identity(current)
+    if not identity["phones"] and not identity["admission"]:
         return [client_id]
+
+    phone_sql = (
+        "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE({column}, ''), "
+        "' ', ''), '-', ''), '(', ''), ')', ''), '+', '')"
+    )
+    match_clauses = []
+    params = []
+    for phone in sorted(identity["phones"]):
+        variants = {phone, f"0{phone}", f"91{phone}", f"091{phone}"}
+        for variant in sorted(variants):
+            match_clauses.append(
+                f"({phone_sql.format(column='u.phone')} = ? OR "
+                f"{phone_sql.format(column='cp.secondary_phone')} = ?)"
+            )
+            params.extend((variant, variant))
+    if identity["admission"]:
+        admission_sql = (
+            "lower(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(cp.admission_number, ''), "
+            "' ', ''), '/', ''), '-', ''), '.', ''))"
+        )
+        match_clauses.append(f"{admission_sql} = ?")
+        params.append(identity["admission"])
+    if not match_clauses:
+        return [client_id]
+
+    branch_clause = ""
+    portal_branch_id = _portal_branch_id()
+    if portal_branch_id is not None:
+        branch_clause = " AND u.branch_id = ?"
+        params.append(portal_branch_id)
     rows = conn.execute(
-        """
-        SELECT id, full_name, phone
-        FROM users
-        WHERE role = 'student'
-          AND branch_id = ?
-          AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone, ''), ' ', ''), '-', ''), '(', ''), ')', ''), '+', '') = ?
+        f"""
+        SELECT u.id, u.full_name, u.phone, u.branch_id,
+               cp.secondary_phone, cp.admission_number
+        FROM users u
+        LEFT JOIN client_profiles cp ON cp.user_id = u.id
+        WHERE u.role = 'student'
+          AND ({' OR '.join(match_clauses)})
+          {branch_clause}
         ORDER BY id
         """,
-        (current["branch_id"], key[1]),
+        params,
     ).fetchall()
     related = [
-        row["id"] for row in rows
-        if _client_identity_key(row["full_name"], row["phone"]) == key
+        row["id"] for row in rows if _client_records_same_person(current, dict(row))
     ]
     return related or [client_id]
 
 
 def _canonical_client_id(conn, client_id):
-    """Use one stable client id for future bookings of the same person."""
+    """Use one stable branch-local client id for future bookings."""
+    current = conn.execute(
+        "SELECT branch_id FROM users WHERE id = ? AND role = 'student'", (client_id,)
+    ).fetchone()
+    if not current:
+        return client_id
     related = _related_client_ids(conn, client_id)
-    return min(related) if related else client_id
+    if not related:
+        return client_id
+    placeholders = ",".join("?" for _ in related)
+    same_branch = conn.execute(
+        f"""
+        SELECT id FROM users
+        WHERE id IN ({placeholders}) AND branch_id = ?
+        ORDER BY id
+        """,
+        (*related, current["branch_id"]),
+    ).fetchone()
+    return same_branch["id"] if same_branch else client_id
 
 
 def _client_contact_values(payload):
@@ -2866,7 +2977,9 @@ def api_admin_reorder_instructors():
     return jsonify({"success": True, "instructor_ids": final_ids})
 
 
-def _transfer_instructor_profile(conn, user, target_branch_id):
+def _transfer_instructor_profile(
+    conn, user, target_branch_id, *, merge_duplicate_login=False
+):
     """Move a login to a new branch while retaining its old calendar history."""
     if user["role"] != "instructor" or not user["instructor_id"]:
         raise ValueError("Choose an instructor account to transfer.")
@@ -2909,21 +3022,51 @@ def _transfer_instructor_profile(conn, user, target_branch_id):
             now.strftime("%H:%M"),
         ),
     ).fetchone()["total"]
-    destination = conn.execute(
-        "SELECT * FROM instructors WHERE lower(name) = lower(?) AND branch_id = ?",
-        (source["name"], target_branch_id),
-    ).fetchone()
-    if destination and conn.execute(
+    destination_candidates = conn.execute(
         """
-        SELECT 1 FROM users
-        WHERE instructor_id = ? AND id != ? AND is_active = 1
-        LIMIT 1
+        SELECT * FROM instructors
+        WHERE lower(name) = lower(?) AND branch_id = ?
+        ORDER BY is_active DESC, id
         """,
-        (destination["id"], user["id"]),
-    ).fetchone():
-        raise ValueError(
-            "An instructor with this name already has an active login in the destination branch."
-        )
+        (source["name"], target_branch_id),
+    ).fetchall()
+    destination = destination_candidates[0] if destination_candidates else None
+    duplicate_destination_users = []
+    if destination_candidates:
+        candidate_ids = [candidate["id"] for candidate in destination_candidates]
+        placeholders = ",".join("?" for _ in candidate_ids)
+        duplicate_destination_users = conn.execute(
+            f"""
+            SELECT id, username, full_name FROM users
+            WHERE instructor_id IN ({placeholders})
+              AND id != ? AND is_active = 1
+            ORDER BY id
+            """,
+            (*candidate_ids, user["id"]),
+        ).fetchall()
+        if duplicate_destination_users and not merge_duplicate_login:
+            duplicate_names = ", ".join(
+                duplicate["username"] for duplicate in duplicate_destination_users
+            )
+            raise InstructorTransferMergeRequired(
+                f"{source['name']} already has an active destination login "
+                f"({duplicate_names}). Confirm the safe merge to keep this login and "
+                "archive the duplicate login without deleting history.",
+                [duplicate["id"] for duplicate in duplicate_destination_users],
+            )
+        if duplicate_destination_users:
+            duplicate_ids = [duplicate["id"] for duplicate in duplicate_destination_users]
+            duplicate_placeholders = ",".join("?" for _ in duplicate_ids)
+            conn.execute(
+                f"""
+                UPDATE users
+                SET is_active = 0, login_enabled = 0,
+                    deactivated_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id IN ({duplicate_placeholders})
+                """,
+                duplicate_ids,
+            )
 
     if destination:
         destination_id = destination["id"]
@@ -3042,9 +3185,17 @@ def _transfer_instructor_profile(conn, user, target_branch_id):
             "source_branch_id": source_branch_id,
             "target_branch_id": target_branch_id,
             "preserved_upcoming_appointments": upcoming_count,
+            "archived_duplicate_user_ids": [
+                duplicate["id"] for duplicate in duplicate_destination_users
+            ],
         },
     )
-    return destination_id, destination_branch["name"], upcoming_count
+    return (
+        destination_id,
+        destination_branch["name"],
+        upcoming_count,
+        len(duplicate_destination_users),
+    )
 
 
 @app.patch("/api/admin/instructors/<int:user_id>/transfer")
@@ -3068,8 +3219,13 @@ def api_admin_transfer_instructor(user_id):
                 raise InstructorTransferBlocked(
                     "This instructor was already changed. Refresh the staff page and try again."
                 )
-            destination_id, destination_name, upcoming_count = _transfer_instructor_profile(
-                conn, user, target_branch_id
+            destination_id, destination_name, upcoming_count, merged_login_count = (
+                _transfer_instructor_profile(
+                    conn,
+                    user,
+                    target_branch_id,
+                    merge_duplicate_login=payload.get("merge_duplicate_login") is True,
+                )
             )
         return jsonify(
             {
@@ -3079,8 +3235,17 @@ def api_admin_transfer_instructor(user_id):
                 "branch_name": destination_name,
                 "preserved_upcoming_appointments": upcoming_count,
                 "source_profile_active": bool(upcoming_count),
+                "archived_duplicate_logins": merged_login_count,
             }
         )
+    except InstructorTransferMergeRequired as exc:
+        return jsonify(
+            {
+                "error": str(exc),
+                "requires_merge_confirmation": True,
+                "duplicate_login_count": len(exc.duplicate_user_ids),
+            }
+        ), 409
     except InstructorTransferBlocked as exc:
         return jsonify({"error": str(exc)}), 409
     except (TypeError, ValueError) as exc:
@@ -6781,17 +6946,19 @@ def clients_directory():
              OR lower(COALESCE(u.email, '')) LIKE lower(?)
              OR COALESCE(u.phone, '') LIKE ?
              OR lower(COALESCE(cp.secondary_email, '')) LIKE lower(?)
-             OR COALESCE(cp.secondary_phone, '') LIKE ?)
+             OR COALESCE(cp.secondary_phone, '') LIKE ?
+             OR lower(COALESCE(cp.admission_number, '')) LIKE lower(?))
             """
         )
-        params.extend((pattern, pattern, pattern, pattern, pattern))
+        params.extend((pattern, pattern, pattern, pattern, pattern, pattern))
     with get_db() as conn:
-        clients = [
+        client_rows = [
             dict(row)
             for row in conn.execute(
                 f"""
                 SELECT u.id, u.full_name, u.email, u.phone, u.is_active,
                        u.branch_id, br.name AS branch_name,
+                       cp.secondary_phone, cp.admission_number,
                        count(b.id) AS appointment_count,
                        sum(CASE WHEN b.validation_status = 'Approved'
                                   AND b.target_date >= date('now')
@@ -6804,13 +6971,51 @@ def clients_directory():
                 LEFT JOIN bookings b ON b.student_user_id = u.id
                 WHERE {" AND ".join(clauses)}
                 GROUP BY u.id, u.full_name, u.email, u.phone, u.is_active,
-                         u.branch_id, br.name
+                         u.branch_id, br.name, cp.secondary_phone,
+                         cp.admission_number
                 ORDER BY u.is_active DESC, lower(u.full_name)
                 LIMIT 300
                 """,
                 params,
             ).fetchall()
         ]
+        clients = []
+        consumed_ids = set()
+        for record in client_rows:
+            if record["id"] in consumed_ids:
+                continue
+            duplicates = [
+                candidate
+                for candidate in client_rows
+                if candidate["id"] not in consumed_ids
+                and _client_records_same_person(record, candidate)
+            ]
+            if not duplicates:
+                duplicates = [record]
+            consumed_ids.update(candidate["id"] for candidate in duplicates)
+            representative = min(duplicates, key=lambda item: int(item["id"]))
+            merged = dict(representative)
+            merged["appointment_count"] = sum(
+                int(item.get("appointment_count") or 0) for item in duplicates
+            )
+            merged["upcoming_count"] = sum(
+                int(item.get("upcoming_count") or 0) for item in duplicates
+            )
+            merged["last_visit"] = max(
+                (item.get("last_visit") or "" for item in duplicates), default=""
+            )
+            merged["is_active"] = int(any(item.get("is_active") for item in duplicates))
+            merged["duplicate_count"] = len(duplicates)
+            merged["branch_name"] = ", ".join(
+                sorted(
+                    {
+                        str(item["branch_name"])
+                        for item in duplicates
+                        if item.get("branch_name")
+                    }
+                )
+            )
+            clients.append(merged)
     if not current_user.has_permission("contact_details"):
         for client in clients:
             phone = client.get("phone") or ""
