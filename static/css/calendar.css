@@ -1919,6 +1919,11 @@
   text-align: center;
 }
 
+.calendar-schedule-column .calendar-column-header strong {
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
 .calendar-schedule-column .calendar-column-header .calendar-branch-badge {
   justify-self: center;
 }
