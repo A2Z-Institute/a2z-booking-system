@@ -87,6 +87,80 @@
     });
   }
 
+  const instructorFilter = document.querySelector("[data-driving-instructor-filter]");
+  if (instructorFilter) {
+    const search = instructorFilter.querySelector("[data-driving-instructor-filter-search]");
+    const instructorId = instructorFilter.querySelector("[data-driving-instructor-filter-id]");
+    const results = instructorFilter.querySelector("[data-driving-instructor-filter-results]");
+    const empty = instructorFilter.querySelector("[data-driving-instructor-filter-empty]");
+    const options = Array.from(results?.querySelectorAll("button[data-instructor-id]") || []);
+    const branch = document.querySelector("#test-filter-branch");
+    const filterForm = instructorFilter.closest("form");
+
+    const refreshInstructorSuggestions = () => {
+      const query = (search?.value || "").trim().toLocaleLowerCase();
+      const branchId = branch?.value || "";
+      let matches = 0;
+      options.forEach((option) => {
+        const matchesName = !query || option.dataset.instructorLabel.toLocaleLowerCase().includes(query);
+        const matchesBranch = !branchId || option.dataset.instructorBranch === branchId;
+        option.hidden = !(matchesName && matchesBranch);
+        if (!option.hidden) matches += 1;
+      });
+      if (empty) empty.hidden = matches > 0;
+      if (results) results.hidden = false;
+    };
+
+    const chooseInstructor = (option) => {
+      search.value = option.dataset.instructorLabel;
+      instructorId.value = option.dataset.instructorId;
+      search.setCustomValidity("");
+      results.hidden = true;
+    };
+
+    options.forEach((option) => {
+      option.addEventListener("click", () => chooseInstructor(option));
+    });
+
+    search?.addEventListener("focus", refreshInstructorSuggestions);
+    search?.addEventListener("input", () => {
+      instructorId.value = "";
+      search.setCustomValidity("");
+      refreshInstructorSuggestions();
+    });
+    search?.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && results) results.hidden = true;
+    });
+    branch?.addEventListener("change", () => {
+      const selected = options.find((option) => option.dataset.instructorId === instructorId.value);
+      if (selected && branch.value && selected.dataset.instructorBranch !== branch.value) {
+        search.value = "";
+        instructorId.value = "";
+      }
+      if (document.activeElement === search) refreshInstructorSuggestions();
+    });
+    document.addEventListener("click", (event) => {
+      if (results && !instructorFilter.contains(event.target)) results.hidden = true;
+    });
+    filterForm?.addEventListener("submit", (event) => {
+      const typed = search.value.trim();
+      if (!typed || instructorId.value) return;
+      const branchId = branch?.value || "";
+      const exact = options.filter((option) => (
+        option.dataset.instructorLabel.toLocaleLowerCase() === typed.toLocaleLowerCase()
+        && (!branchId || option.dataset.instructorBranch === branchId)
+      ));
+      if (exact.length === 1) {
+        chooseInstructor(exact[0]);
+        return;
+      }
+      event.preventDefault();
+      search.setCustomValidity("Choose an instructor from the suggestions.");
+      search.reportValidity();
+      refreshInstructorSuggestions();
+    });
+  }
+
   const resultStatus = document.querySelector("[data-driving-result-status]");
   const failureFields = document.querySelector("[data-driving-failure-fields]");
   const failureReason = document.querySelector("[data-driving-failure-reason]");
