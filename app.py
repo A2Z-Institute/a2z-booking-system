@@ -8099,6 +8099,60 @@ def admin_driving_test_result_update(attempt_id):
     return redirect(url_for("admin_driving_test_detail", attempt_id=attempt_id))
 
 
+@app.post("/admin/driving-tests/<int:attempt_id>/quick-result")
+@role_required("admin")
+def admin_driving_test_quick_result_update(attempt_id):
+    next_url = _safe_next_url(request.form.get("next")) or url_for("admin_driving_tests")
+    try:
+        with get_db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            _driving_test_for_update(conn, attempt_id)
+            result_status = (request.form.get("result_status") or "").strip().title()
+            if result_status not in DRIVING_TEST_STATUSES:
+                raise ValueError("Choose a valid test result.")
+            reset_review = result_status != "Failed"
+            conn.execute(
+                """
+                UPDATE driving_test_candidates
+                SET result_status = ?,
+                    failure_reason = CASE WHEN ? = 'Failed' THEN failure_reason ELSE NULL END,
+                    failed_section = CASE WHEN ? = 'Failed' THEN failed_section ELSE NULL END,
+                    retest_required = CASE WHEN ? = 'Failed' THEN retest_required ELSE 0 END,
+                    retest_date = CASE WHEN ? = 'Failed' THEN retest_date ELSE NULL END,
+                    additional_training_required = CASE WHEN ? = 'Failed' THEN additional_training_required ELSE 0 END,
+                    responsibility_status = CASE WHEN ? = 1 THEN 'Not reviewed' ELSE responsibility_status END,
+                    responsible_instructor_id = CASE WHEN ? = 1 THEN NULL ELSE responsible_instructor_id END,
+                    review_reason = CASE WHEN ? = 1 THEN NULL ELSE review_reason END,
+                    management_notes = CASE WHEN ? = 1 THEN NULL ELSE management_notes END,
+                    reviewed_by = CASE WHEN ? = 1 THEN NULL ELSE reviewed_by END,
+                    reviewed_at = CASE WHEN ? = 1 THEN NULL ELSE reviewed_at END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    result_status,
+                    result_status, result_status, result_status, result_status,
+                    result_status,
+                    int(reset_review), int(reset_review), int(reset_review),
+                    int(reset_review), int(reset_review), int(reset_review),
+                    attempt_id,
+                ),
+            )
+            _audit(
+                conn,
+                "driving_test_result_updated",
+                details={
+                    "driving_test_id": attempt_id,
+                    "result_status": result_status,
+                    "quick_update": True,
+                },
+            )
+        flash("Driving test result updated.", "success")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc), "error")
+    return redirect(next_url)
+
+
 @app.post("/admin/driving-tests/<int:attempt_id>/review")
 @role_required("admin")
 def admin_driving_test_review_update(attempt_id):
