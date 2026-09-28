@@ -106,7 +106,17 @@
     <div class="field"><label for="test-filter-search">Candidate</label><input id="test-filter-search" name="q" type="search" value="{{ filters.q }}" placeholder="Name, admission, phone or course"></div>
     <div class="field"><label for="test-filter-status">Result</label><select id="test-filter-status" name="status"><option value="">All results</option>{% for status in statuses %}<option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></div>
     {% if current_user.is_super_admin %}<div class="field"><label for="test-filter-branch">Branch</label><select id="test-filter-branch" name="branch"><option value="">All branches</option>{% for branch in branches %}<option value="{{ branch.id }}" {% if filters.branch == branch.id|string %}selected{% endif %}>{{ branch.name }}</option>{% endfor %}</select></div>{% endif %}
-    <div class="field"><label for="test-filter-instructor">Instructor</label><select id="test-filter-instructor" name="instructor"><option value="">All instructors</option>{% for instructor in instructors %}<option value="{{ instructor.id }}" {% if filters.instructor == instructor.id|string %}selected{% endif %}>{{ instructor.name }}{% if current_user.is_super_admin %} · {{ instructor.branch_name }}{% endif %}</option>{% endfor %}</select></div>
+    <div class="field driving-instructor-filter" data-driving-instructor-filter>
+      <label for="test-filter-instructor-search">Instructor</label>
+      <input id="test-filter-instructor-search" type="search" value="{{ filters.instructor_name }}" placeholder="Search instructor" autocomplete="off" data-driving-instructor-filter-search>
+      <input type="hidden" name="instructor" value="{{ filters.instructor }}" data-driving-instructor-filter-id>
+      <div class="driving-client-results driving-instructor-filter-results" role="listbox" data-driving-instructor-filter-results hidden>
+        {% for instructor in instructors %}
+          <button type="button" role="option" data-instructor-id="{{ instructor.id }}" data-instructor-branch="{{ instructor.branch_id }}" data-instructor-label="{{ instructor.name }}{% if current_user.is_super_admin %} · {{ instructor.branch_name }}{% endif %}"><strong>{{ instructor.name }}</strong>{% if current_user.is_super_admin %}<span>{{ instructor.branch_name }}</span>{% endif %}</button>
+        {% endfor %}
+        <p data-driving-instructor-filter-empty hidden>No matching instructor found.</p>
+      </div>
+    </div>
     <div class="field"><label for="test-filter-from">From</label><input id="test-filter-from" name="date_from" type="date" value="{{ filters.date_from }}"></div>
     <div class="field"><label for="test-filter-to">To</label><input id="test-filter-to" name="date_to" type="date" value="{{ filters.date_to }}"></div>
     <div class="filter-actions"><button class="button button-primary button-small" type="submit">Apply</button><a class="button button-secondary button-small" href="{{ url_for('admin_driving_tests') }}">Clear</a></div>
@@ -157,4 +167,4 @@
 </section>
 {% endblock %}
 
-{% block scripts %}<script src="{{ url_for('static', filename='js/driving_tests.js', v='20260925-1') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/driving_tests.js', v='20260928-2') }}" defer></script>{% endblock %}
