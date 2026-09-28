@@ -1909,6 +1909,18 @@
 
 .calendar-schedule-column .calendar-column-header {
   border-top: 3px solid var(--instructor-colour, #667085);
+  justify-items: center;
+  text-align: center;
+}
+
+.calendar-schedule-column .calendar-column-header strong,
+.calendar-schedule-column .calendar-column-header > span {
+  width: 100%;
+  text-align: center;
+}
+
+.calendar-schedule-column .calendar-column-header .calendar-branch-badge {
+  justify-self: center;
 }
 
 .calendar-slot,
