@@ -3682,11 +3682,24 @@ body {
 }
 
 .driving-test-table {
-  min-width: 1040px;
+  min-width: 1180px;
 }
 
 .driving-test-table td {
   vertical-align: middle;
+}
+
+.driving-test-quick-result {
+  display: grid;
+  grid-template-columns: minmax(118px, 1fr) auto;
+  gap: 0.45rem;
+  min-width: 230px;
+}
+
+.driving-test-quick-result select {
+  min-height: 38px;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.82rem;
 }
 
 .driving-import-client-picker {
