@@ -540,18 +540,37 @@
         setTransferMessage(`Checking and transferring ${instructorName}…`);
         try {
           const transferUrl = urlTemplate.replace(/\/0\/transfer$/, `/${userId}/transfer`);
-          const response = await fetch(transferUrl, {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-              "X-CSRF-Token": csrfToken,
-            },
-            body: JSON.stringify({
-              source_branch_id: sourceBranchId,
-              target_branch_id: targetBranchId,
-            }),
-          });
-          const result = await response.json().catch(() => ({}));
+          const submitTransfer = async (mergeDuplicateLogin = false) => {
+            const response = await fetch(transferUrl, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": csrfToken,
+              },
+              body: JSON.stringify({
+                source_branch_id: sourceBranchId,
+                target_branch_id: targetBranchId,
+                merge_duplicate_login: mergeDuplicateLogin,
+              }),
+            });
+            const result = await response.json().catch(() => ({}));
+            return { response, result };
+          };
+          let { response, result } = await submitTransfer();
+          if (!response.ok && result.requires_merge_confirmation) {
+            const duplicateCount = Number(result.duplicate_login_count || 1);
+            const confirmed = window.confirm(
+              `${instructorName} already has ${duplicateCount === 1 ? "a login" : `${duplicateCount} logins`} in ${destinationName}. `
+              + `Keep the login you are moving and archive ${duplicateCount === 1 ? "the duplicate login" : "the duplicate logins"}? `
+              + "No instructor, booking, or history record will be deleted.",
+            );
+            if (!confirmed) {
+              setTransferMessage(`${instructorName}'s transfer was cancelled. No records were changed.`);
+              return;
+            }
+            setTransferMessage(`Safely merging and transferring ${instructorName}…`);
+            ({ response, result } = await submitTransfer(true));
+          }
           if (!response.ok || !result.success) {
             throw new Error(result.error || "The instructor could not be transferred.");
           }
@@ -561,7 +580,11 @@
           const preservedMessage = preservedUpcoming
             ? ` ${preservedUpcoming} upcoming appointment${preservedUpcoming === 1 ? " remains" : "s remain"} visible in the original branch.`
             : "";
-          setTransferMessage(`${instructorName} was transferred to ${result.branch_name || destinationName}.${preservedMessage} Refreshing staff records…`);
+          const archivedDuplicates = Number(result.archived_duplicate_logins || 0);
+          const duplicateMessage = archivedDuplicates
+            ? ` ${archivedDuplicates} duplicate destination login${archivedDuplicates === 1 ? " was" : "s were"} archived; no history was deleted.`
+            : "";
+          setTransferMessage(`${instructorName} was transferred to ${result.branch_name || destinationName}.${preservedMessage}${duplicateMessage} Refreshing staff records…`);
           window.setTimeout(() => window.location.reload(), 650);
         } catch (error) {
           const errorMessage = error.message || "The instructor could not be transferred.";
