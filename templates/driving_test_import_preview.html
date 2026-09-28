@@ -4,7 +4,7 @@
 
 {% block content %}
 <header class="management-panel-header standalone-management-header">
-  <div><p class="eyebrow">Driving test PDF import</p><h1>Review candidates before registration</h1><p>{{ import_data.filename }} · {{ import_data.branch_name }} · {{ import_data.test_date|friendly_date }}</p></div>
+  <div><p class="eyebrow">Driving test PDF import</p><h1>Review candidates before registration</h1><p>{{ import_data.filename }} · {{ import_data.test_date|friendly_date }}</p></div>
   <div class="management-panel-actions"><a class="button button-secondary button-small" href="{{ url_for('admin_driving_tests') }}#upload-test-form">Cancel</a></div>
 </header>
 
@@ -18,7 +18,7 @@
 {% if unmatched %}<div class="alert alert-warning" role="status"><span class="alert-icon" aria-hidden="true"></span><div><strong>{{ unmatched }} candidate{% if unmatched != 1 %}s{% endif %} could not be matched safely by phone number and name.</strong><br>Search and select the correct existing client in each required row. Any row left unselected will be skipped; no new client will be created automatically.</div></div>{% endif %}
 
 <section class="management-panel" data-import-client-search-url="{{ url_for('api_calendar_search_clients', driving_test=1) }}">
-  <header class="management-panel-header"><div><h2>Extracted candidate list</h2><p>A unique PDF phone number is matched automatically, including leading 0 and +91 formats. The selected branch is preferred; the name is used only when multiple clients share a number. Existing attempts for the same test date are skipped.</p></div></header>
+  <header class="management-panel-header"><div><h2>Extracted candidate list</h2><p>A unique PDF phone number is matched automatically across {% if current_user.is_super_admin %}all branches{% else %}your branch{% endif %}, including leading 0 and +91 formats. The name is used only when multiple clients share a number. Each candidate is registered under the matched client's branch, and existing attempts for the same test date are skipped.</p></div></header>
   <form method="post" action="{{ url_for('admin_driving_tests_import_pdf_confirm') }}" data-import-confirm-form data-base-ready="{{ registerable }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="import_token" value="{{ import_token }}">
