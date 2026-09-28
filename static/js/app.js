@@ -564,7 +564,9 @@
           setTransferMessage(`${instructorName} was transferred to ${result.branch_name || destinationName}.${preservedMessage} Refreshing staff records…`);
           window.setTimeout(() => window.location.reload(), 650);
         } catch (error) {
-          setTransferMessage(error.message || "The instructor could not be transferred.", true);
+          const errorMessage = error.message || "The instructor could not be transferred.";
+          setTransferMessage(errorMessage, true);
+          message?.scrollIntoView({ behavior: "smooth", block: "center" });
         } finally {
           savingTransfer = false;
         }
