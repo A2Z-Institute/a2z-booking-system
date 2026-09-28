@@ -9,19 +9,6 @@
 {% endblock %}
 
 {% block content %}
-<header class="calendar-page-title">
-  <div class="calendar-title-copy">
-    <h1>Calendar</h1>
-    <p>Staff scheduling in 15-minute intervals</p>
-  </div>
-  {% if current_user.has_permission('write_access') %}
-    <button class="button button-primary calendar-add-button" type="button" data-add-appointment>
-      <span aria-hidden="true">+</span>
-      Add appointment
-    </button>
-  {% endif %}
-</header>
-
 <section
   class="calendar-shell{% if current_user.is_super_admin %} is-super-admin-calendar{% endif %}"
   data-calendar
