@@ -29,9 +29,9 @@
 
   <form class="directory-search-bar" method="get" action="{{ url_for('clients_directory') }}" role="search">
     <label class="directory-search-field" for="client-search">
-      <span class="sr-only">Search clients by name, email, or mobile</span>
+      <span class="sr-only">Search clients by name, admission number, email, or mobile</span>
       <span aria-hidden="true">⌕</span>
-      <input id="client-search" name="q" type="search" value="{{ search_query }}" placeholder="Search by name, email, or mobile">
+      <input id="client-search" name="q" type="search" value="{{ search_query }}" placeholder="Search by name, admission, email, or mobile">
     </label>
     <button class="button button-secondary button-small" type="submit">Search</button>
     {% if search_query %}<a class="button button-quiet button-small" href="{{ url_for('clients_directory') }}">Clear</a>{% endif %}
@@ -60,6 +60,7 @@
                   <span>
                     <strong>{{ client.full_name }}</strong>
                     <small>{{ 'Active' if client.is_active else 'Archived' }}</small>
+                    {% if client.duplicate_count|default(1) > 1 %}<small>{{ client.duplicate_count }} linked records</small>{% endif %}
                   </span>
                 </a>
               </td>
@@ -88,7 +89,7 @@
             </span>
             <span>{{ client.phone|default('No mobile', true) }}</span>
             <span>{{ client.email|default('No email', true) }}</span>
-            <small>{{ client.branch_name|default('No branch', true) }} · {{ client.upcoming_count }} upcoming</small>
+            <small>{{ client.branch_name|default('No branch', true) }} · {{ client.upcoming_count }} upcoming{% if client.duplicate_count|default(1) > 1 %} · {{ client.duplicate_count }} linked records{% endif %}</small>
           </span>
           <span class="directory-arrow" aria-hidden="true">›</span>
         </a>
