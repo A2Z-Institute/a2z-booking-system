@@ -10,7 +10,6 @@ import os
 import re
 import sqlite3
 from contextlib import contextmanager
-from datetime import date
 from pathlib import Path
 
 from werkzeug.security import generate_password_hash
@@ -70,37 +69,6 @@ def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str
     for name, definition in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
-
-
-def _correct_imported_technical_future_dates(conn) -> None:
-    """Repair the Technical backup's 60-year date offset exactly once."""
-    migration_key = "20260929_correct_technical_208x_dates"
-    if conn.execute(
-        "SELECT 1 FROM schema_migrations WHERE migration_key = ?",
-        (migration_key,),
-    ).fetchone():
-        return
-    for table in ("bookings", "instructor_time_off", "booking_slots"):
-        rows = conn.execute(
-            f"""
-            SELECT id, target_date FROM {table}
-            WHERE source_reference LIKE ?
-              AND target_date >= ? AND target_date < ?
-            """,
-            ("smart:technical:%", "2083-01-01", "2086-01-01"),
-        ).fetchall()
-        for row in rows:
-            imported_date = date.fromisoformat(str(row["target_date"])[:10])
-            corrected_date = imported_date.replace(year=imported_date.year - 60)
-            conn.execute(
-                f"UPDATE {table} SET target_date = ?, "
-                "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (corrected_date.isoformat(), row["id"]),
-            )
-    conn.execute(
-        "INSERT INTO schema_migrations (migration_key) VALUES (?)",
-        (migration_key,),
-    )
 
 
 def _assert_unambiguous_login_identities(conn: sqlite3.Connection) -> None:
@@ -756,7 +724,6 @@ def _init_sqlite_db() -> None:
                 "INSERT INTO schema_migrations (migration_key) VALUES (?)",
                 (imported_padding_migration,),
             )
-        _correct_imported_technical_future_dates(conn)
         _ensure_columns(
             conn,
             "client_profiles",
@@ -1223,7 +1190,6 @@ def init_db() -> None:
             "buffer_after_minutes = 0, updated_at = CURRENT_TIMESTAMP "
             "WHERE buffer_before_minutes != 0 OR buffer_after_minutes != 0"
         )
-        _correct_imported_technical_future_dates(conn)
 
 
 def seed_reference_data() -> None:
