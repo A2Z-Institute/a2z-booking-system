@@ -293,6 +293,16 @@
         </article>
       {% endfor %}
     </div>
+    <nav class="section-header" aria-label="Booking register pages">
+      <p>
+        Showing {{ ((booking_page - 1) * booking_page_size) + 1 }}–{{ [booking_page * booking_page_size, booking_total]|min }}
+        of {{ booking_total }} bookings · Page {{ booking_page }} of {{ booking_page_count }}
+      </p>
+      <div class="page-actions">
+        {% if previous_page_url %}<a class="button button-secondary button-small" href="{{ previous_page_url }}">Previous</a>{% endif %}
+        {% if next_page_url %}<a class="button button-primary button-small" href="{{ next_page_url }}">Next</a>{% endif %}
+      </div>
+    </nav>
   {% else %}
     <div class="empty-state">
       <div class="empty-illustration" aria-hidden="true">0</div>
