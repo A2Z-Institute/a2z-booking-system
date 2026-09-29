@@ -660,7 +660,7 @@
       date: targetDate,
       instructorId: instructor.id,
       title: instructor.name,
-      subtitle: formatDay(start),
+      subtitle: "",
       branchId: instructor.branchId,
       branchName: instructor.branchName,
       nonWorking: false,
@@ -1879,10 +1879,13 @@
       const header = document.createElement("header");
       header.className = "calendar-column-header";
       const title = document.createElement("strong");
-      const subtitle = document.createElement("span");
       title.textContent = column.title;
-      subtitle.textContent = column.subtitle;
-      header.append(title, subtitle);
+      header.append(title);
+      if (column.subtitle) {
+        const subtitle = document.createElement("span");
+        subtitle.textContent = column.subtitle;
+        header.append(subtitle);
+      }
       if (branchFilter instanceof HTMLSelectElement && column.branchName) {
         const branchBadge = document.createElement("small");
         branchBadge.className = "calendar-branch-badge";
