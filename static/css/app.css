@@ -606,6 +606,24 @@ h3 {
   box-shadow: var(--shadow-sm);
 }
 
+.insights-card-link {
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.insights-card-link:hover,
+.insights-card-link:focus-visible {
+  border-color: var(--brand-600);
+  box-shadow: 0 10px 24px rgba(125, 20, 25, 0.12);
+  transform: translateY(-2px);
+}
+
+.insights-filter-bar {
+  align-items: end;
+  max-width: 760px;
+}
+
 .stat-label {
   display: block;
   color: var(--ink-600);
