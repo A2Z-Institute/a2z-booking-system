@@ -47,35 +47,25 @@ def _response_schema():
     }
 
 
-def generate_booking_insights(aggregate_data: dict) -> dict:
-    """Send anonymous aggregate counts to Gemini and return validated JSON."""
+def _gemini_request(prompt: str, response_schema: dict, max_output_tokens: int) -> dict:
     api_key = (os.environ.get("A2Z_GEMINI_API_KEY") or "").strip()
     if not api_key:
         raise GeminiInsightsError(
             "Gemini is not configured. Add A2Z_GEMINI_API_KEY in Coolify."
         )
-    model = (os.environ.get("A2Z_GEMINI_MODEL") or "gemini-2.5-flash").strip()
+    model = (os.environ.get("A2Z_GEMINI_MODEL") or "gemini-3.8-flash").strip()
     endpoint = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{quote(model, safe='')}:generateContent"
-    )
-    prompt = (
-        "You are an operations analyst for an Indian heavy-equipment training "
-        "institute. Analyse only the anonymous aggregate booking statistics below. "
-        "Do not infer identities or invent facts. Identify service demand, timing "
-        "patterns, cancellations/no-shows, and practical capacity improvements. "
-        "Recommendations must cite a supplied number in the reason and remain "
-        "advisory; never recommend automatically changing an appointment.\n\n"
-        + json.dumps(aggregate_data, ensure_ascii=False, separators=(",", ":"))
     )
     body = json.dumps(
         {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
                 "responseMimeType": "application/json",
-                "responseSchema": _response_schema(),
+                "responseSchema": response_schema,
                 "temperature": 0.2,
-                "maxOutputTokens": 2048,
+                "maxOutputTokens": max_output_tokens,
             },
         }
     ).encode("utf-8")
@@ -102,10 +92,36 @@ def generate_booking_insights(aggregate_data: dict) -> dict:
         raise GeminiInsightsError(
             "Gemini could not be reached. The local statistics remain available."
         ) from None
-
     try:
-        text = payload["candidates"][0]["content"]["parts"][0]["text"]
-        result = json.loads(text)
+        return json.loads(payload["candidates"][0]["content"]["parts"][0]["text"])
+    except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
+        raise GeminiInsightsError("Gemini returned an incomplete response. Try again.") from None
+
+
+def _anonymous_aggregate_data(aggregate_data: dict) -> dict:
+    """Remove staff labels as well as all client data before an external request."""
+    safe = json.loads(json.dumps(aggregate_data))
+    safe["instructors"] = [
+        {"name": f"Instructor {index}", "bookings": item.get("bookings", 0)}
+        for index, item in enumerate(safe.get("instructors", []), start=1)
+    ]
+    return safe
+
+
+def generate_booking_insights(aggregate_data: dict) -> dict:
+    """Send anonymous aggregate counts to Gemini and return validated JSON."""
+    aggregate_data = _anonymous_aggregate_data(aggregate_data)
+    prompt = (
+        "You are an operations analyst for an Indian heavy-equipment training "
+        "institute. Analyse only the anonymous aggregate booking statistics below. "
+        "Do not infer identities or invent facts. Identify service demand, timing "
+        "patterns, cancellations/no-shows, and practical capacity improvements. "
+        "Recommendations must cite a supplied number in the reason and remain "
+        "advisory; never recommend automatically changing an appointment.\n\n"
+        + json.dumps(aggregate_data, ensure_ascii=False, separators=(",", ":"))
+    )
+    try:
+        result = _gemini_request(prompt, _response_schema(), 2048)
         summary = str(result["executive_summary"]).strip()
         recommendations = result["recommendations"]
         observations = result["observations"]
