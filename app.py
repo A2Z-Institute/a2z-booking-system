@@ -7801,21 +7801,37 @@ def _booking_insights_data(conn, days, branch_id=None):
             (start.isoformat(), today.isoformat(), *branch_params),
         ).fetchall()
     ]
+    # Keep this query database-neutral. Imported PostgreSQL dates are stored as
+    # ISO text, so PostgreSQL's EXTRACT cannot operate on them without a cast.
+    # Aggregating the small date result in Python also keeps SQLite parity.
     weekday_rows = conn.execute(
         """
-        SELECT CAST(strftime('%w', target_date) AS INTEGER) AS weekday,
-               count(*) AS bookings
+        SELECT target_date, count(*) AS bookings
         FROM bookings WHERE target_date BETWEEN ? AND ?
           AND validation_status NOT IN ('Cancelled', 'Rejected')
           {booking_branch_clause}
-        GROUP BY weekday ORDER BY bookings DESC
+        GROUP BY target_date
         """.format(booking_branch_clause=booking_branch_clause),
         (start.isoformat(), today.isoformat(), *branch_params),
     ).fetchall()
-    sqlite_day_names = ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+    weekday_totals = {index: 0 for index in range(7)}
+    for row in weekday_rows:
+        try:
+            weekday_totals[date.fromisoformat(str(row["target_date"])).weekday()] += int(
+                row["bookings"]
+            )
+        except (TypeError, ValueError):
+            continue
+    weekday_names = (
+        "Monday", "Tuesday", "Wednesday", "Thursday",
+        "Friday", "Saturday", "Sunday",
+    )
     weekdays = [
-        {"name": sqlite_day_names[int(row["weekday"])], "bookings": row["bookings"]}
-        for row in weekday_rows
+        {"name": weekday_names[index], "bookings": bookings}
+        for index, bookings in sorted(
+            weekday_totals.items(), key=lambda item: (-item[1], item[0])
+        )
+        if bookings
     ]
     time_rows = conn.execute(
         """
