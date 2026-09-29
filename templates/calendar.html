@@ -250,19 +250,16 @@
               <label for="new-client-phone">Phone</label>
               <input id="new-client-phone" name="new_client_phone" maxlength="30" autocomplete="tel" data-new-client-phone required>
             </div>
+            {% if current_user.role == 'instructor' %}
             <div class="field">
-              {% if current_user.role == 'instructor' %}
               <label for="editor-status">Status</label>
               <select id="editor-status" name="status" data-editor-status>
                 <option value="No Action">No Action</option>
                 <option value="Pending">Pending</option>
                 <option value="Completed">Completed</option>
               </select>
-              {% else %}
-              <label for="new-client-email">Email <span class="text-muted">(optional)</span></label>
-              <input id="new-client-email" name="new_client_email" type="email" maxlength="160" autocomplete="email" data-new-client-email>
-              {% endif %}
             </div>
+            {% endif %}
             <div class="client-typeahead field-span-all" data-client-typeahead hidden>
               <div class="client-typeahead-heading">Existing clients</div>
               <div data-client-typeahead-results></div>
@@ -308,15 +305,12 @@
           <summary class="sr-only">Additional appointment details</summary>
           <div class="editor-additional-body">
             <div class="form-grid two-column">
-              <div class="field field-span-2" data-editor-client-section>
-                <label for="editor-client">Existing client</label>
-                <select id="editor-client" name="student_id" data-editor-client data-editor-student>
-                  <option value="">Create from the contact details above</option>
-                  {% for student in students %}
-                    <option value="{{ student.id }}" data-branch-id="{{ student.branch_id }}">{{ student.full_name }}</option>
-                  {% endfor %}
-                </select>
-              </div>
+              <select id="editor-client" name="student_id" data-editor-client data-editor-student hidden aria-hidden="true" tabindex="-1">
+                <option value="">Create from the contact details above</option>
+                {% for student in students %}
+                  <option value="{{ student.id }}" data-branch-id="{{ student.branch_id }}">{{ student.full_name }}</option>
+                {% endfor %}
+              </select>
               <div class="field">
                 <label for="editor-machine">Equipment</label>
                 <select id="editor-machine" name="machine_id" data-editor-machine required>
@@ -573,5 +567,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20260929-1') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20260929-2') }}" defer></script>
 {% endblock %}
