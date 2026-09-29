@@ -9,15 +9,29 @@
     <h1>Booking insights</h1>
     <p class="lead">Understand training demand from anonymous booking totals. Gemini can explain these statistics but cannot see client details or change appointments.</p>
   </div>
-  <form class="page-actions" method="get" action="{{ url_for('admin_booking_insights') }}">
+  <form class="filter-bar insights-filter-bar" method="get" action="{{ url_for('admin_booking_insights') }}">
+    {% if current_user.is_super_admin %}
+    <label class="field compact-field" for="insights-branch">
+      <span>Branch</span>
+      <select id="insights-branch" name="branch">
+        <option value="">All branches</option>
+        {% for branch in branches %}<option value="{{ branch.id }}" {% if selected_branch|string == branch.id|string %}selected{% endif %}>{{ branch.name }}</option>{% endfor %}
+      </select>
+    </label>
+    {% else %}
+      <input type="hidden" name="branch" value="{{ selected_branch }}">
+    {% endif %}
     <label class="field compact-field" for="insights-period">
       <span>Analysis period</span>
-      <select id="insights-period" name="days" onchange="this.form.submit()">
+      <select id="insights-period" name="days">
         {% for value, label in [(30, 'Last 30 days'), (90, 'Last 90 days'), (180, 'Last 6 months'), (365, 'Last 12 months')] %}
           <option value="{{ value }}" {% if selected_days == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
     </label>
+    <label class="field compact-field" for="insights-date-from"><span>From date</span><input id="insights-date-from" name="date_from" type="date" value="{{ selected_date_from }}"></label>
+    <label class="field compact-field" for="insights-date-to"><span>To date</span><input id="insights-date-to" name="date_to" type="date" value="{{ selected_date_to }}"></label>
+    <div class="filter-actions"><button class="button button-primary button-small" type="submit">Apply</button><a class="button button-quiet button-small" href="{{ url_for('admin_booking_insights') }}">Clear</a></div>
   </form>
 </header>
 
@@ -44,21 +58,21 @@
     <strong class="stat-value">{{ insights.totals.completed }}</strong>
     <span class="stat-detail">Recorded completed sessions</span>
   </article>
-  <article class="stat-card">
+  <a class="stat-card insights-card-link" href="{{ url_for('admin_dashboard', status='cancelled', branch=selected_branch, date_from=insights.period.start, date_to=insights.period.end) }}">
     <span class="stat-label">Cancellation rate</span>
     <strong class="stat-value stat-value-word">{{ cancellation_rate }}%</strong>
-    <span class="stat-detail">{{ insights.totals.cancelled }} cancelled</span>
-  </article>
-  <article class="stat-card">
+    <span class="stat-detail">{{ insights.totals.cancelled }} cancelled · View records</span>
+  </a>
+  <a class="stat-card insights-card-link" href="{{ url_for('admin_dashboard', status='no-show', branch=selected_branch, date_from=insights.period.start, date_to=insights.period.end) }}">
     <span class="stat-label">No-show rate</span>
     <strong class="stat-value stat-value-word">{{ no_show_rate }}%</strong>
-    <span class="stat-detail">{{ insights.totals.no_show }} no-shows</span>
-  </article>
-  <article class="stat-card">
-    <span class="stat-label">Currently approved</span>
-    <strong class="stat-value">{{ insights.totals.approved }}</strong>
-    <span class="stat-detail">{{ insights.totals.pending }} awaiting action</span>
-  </article>
+    <span class="stat-detail">{{ insights.totals.no_show }} no-shows · View records</span>
+  </a>
+  <a class="stat-card insights-card-link" href="{{ url_for('admin_dashboard', status='pending', branch=selected_branch, date_from=insights.period.start, date_to=insights.period.end) }}">
+    <span class="stat-label">Awaiting action</span>
+    <strong class="stat-value">{{ insights.totals.pending }}</strong>
+    <span class="stat-detail">{{ insights.totals.approved }} currently approved · Review pending</span>
+  </a>
 </section>
 
 <div class="content-grid">
@@ -74,7 +88,7 @@
         <table class="data-table">
           <thead><tr><th scope="col">Service</th><th scope="col">Bookings</th></tr></thead>
           <tbody>
-            {% for item in insights.services %}<tr><td>{{ item.name }}</td><td><strong>{{ item.bookings }}</strong></td></tr>{% endfor %}
+            {% for item in insights.services %}<tr><td>{% if item.name in ['Unspecified service', 'Unspecified training'] %}<a href="{{ url_for('admin_dashboard', service_missing=1, branch=selected_branch, date_from=insights.period.start, date_to=insights.period.end) }}"><strong>{{ item.name }}</strong> · Review records</a>{% else %}{{ item.name }}{% endif %}</td><td><strong>{{ item.bookings }}</strong></td></tr>{% endfor %}
           </tbody>
         </table>
       </div>
@@ -101,7 +115,7 @@
       </ol>
       <h3>Starting times</h3>
       <ol class="activity-list">
-        {% for item in insights.start_hours[:4] %}<li><div><strong>{{ item.name }}</strong><span>{{ item.bookings }} bookings</span></div></li>{% endfor %}
+        {% for item in insights.start_hours[:4] %}<li><div><a href="{{ url_for('admin_dashboard', start_hour=item.hour, branch=selected_branch, date_from=insights.period.start, date_to=insights.period.end) }}"><strong>{{ item.name }}</strong><span>{{ item.bookings }} bookings · View records</span></a></div></li>{% endfor %}
       </ol>
     </div>
   </section>
@@ -117,6 +131,9 @@
     <form method="post" action="{{ url_for('admin_booking_insights') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="days" value="{{ selected_days }}">
+      <input type="hidden" name="branch" value="{{ selected_branch }}">
+      <input type="hidden" name="date_from" value="{{ selected_date_from }}">
+      <input type="hidden" name="date_to" value="{{ selected_date_to }}">
       <button class="button button-primary" type="submit" {% if not gemini_ready or not insights.totals.bookings %}disabled{% endif %}>Generate Gemini analysis</button>
     </form>
   </div>
