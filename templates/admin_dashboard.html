@@ -91,6 +91,8 @@
   </div>
 
   <form class="filter-bar booking-register-filters" action="{{ url_for('admin_dashboard') }}" method="get" aria-label="Filter bookings">
+    {% if active_filters.start_hour|default('') %}<input type="hidden" name="start_hour" value="{{ active_filters.start_hour }}">{% endif %}
+    {% if active_filters.service_missing|default('') %}<input type="hidden" name="service_missing" value="1">{% endif %}
     {% if current_user.is_super_admin %}
     <div class="field">
       <label for="branch-filter">Branch</label>
@@ -131,6 +133,10 @@
       <button class="button button-quiet button-small" type="button" data-reset-filters>Clear</button>
     </div>
   </form>
+
+  {% if active_filters.start_hour|default('') or active_filters.service_missing|default('') %}
+    <div class="alert alert-info" role="status"><div><strong>Insight detail filter:</strong> {% if active_filters.start_hour|default('') %}Bookings starting during {{ ((active_filters.start_hour|int) % 12) or 12 }}:00 {{ 'am' if active_filters.start_hour|int < 12 else 'pm' }}.{% endif %}{% if active_filters.service_missing|default('') %}Bookings without a recorded service.{% endif %} <a href="{{ url_for('admin_dashboard', branch=active_filters.branch, date_from=active_filters.date_from, date_to=active_filters.date_to) }}">Remove detail filter</a>.</div></div>
+  {% endif %}
 
   {% if booking_list %}
     <div class="section-body flush desktop-only">
