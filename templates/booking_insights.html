@@ -164,4 +164,45 @@
     </div>
   {% endif %}
 </section>
+
+<section class="management-panel insights-chat-panel" aria-labelledby="openai-chat-title"
+  data-booking-insights-chat
+  data-chat-url="{{ url_for('admin_booking_insights_chat') }}"
+  data-csrf-token="{{ csrf_token() }}"
+  data-days="{{ selected_days }}"
+  data-branch="{{ selected_branch }}"
+  data-date-from="{{ selected_date_from }}"
+  data-date-to="{{ selected_date_to }}">
+  <div class="section-header">
+    <div>
+      <p class="eyebrow">OpenAI</p>
+      <h2 id="openai-chat-title">Ask Booking Insights</h2>
+      <p>Ask management questions about the selected branch and period. Only anonymous totals are sent—do not enter names, phone numbers, emails, or admission numbers.</p>
+    </div>
+    <button class="button button-quiet button-small" type="button" data-chat-clear>Clear chat</button>
+  </div>
+  {% if openai_chat_ready %}
+    <div class="section-body insights-chat-body">
+      <div class="insights-chat-messages" data-chat-messages role="log" aria-live="polite">
+        <div class="insights-chat-message assistant"><strong>A2Z Assistant</strong><p>Ask me about demand, peak times, services, cancellations, no-shows, or capacity.</p></div>
+      </div>
+      <div class="insights-chat-suggestions" aria-label="Suggested questions">
+        {% for question in ['What is the busiest day and time?', 'How can we reduce no-shows?', 'Which services need attention?'] %}<button type="button" class="button button-secondary button-small" data-chat-suggestion="{{ question }}">{{ question }}</button>{% endfor %}
+      </div>
+      <form class="insights-chat-form" data-chat-form>
+        <label class="sr-only" for="booking-insights-question">Ask a booking insights question</label>
+        <textarea id="booking-insights-question" maxlength="500" rows="2" placeholder="Ask about these booking statistics…" required data-chat-input></textarea>
+        <button class="button button-primary" type="submit" data-chat-submit>Ask OpenAI</button>
+      </form>
+      <p class="form-help" data-chat-status>Read-only assistant. It cannot change appointments.</p>
+    </div>
+  {% else %}
+    <div class="empty-state"><h3>Connect OpenAI to enable chat</h3><p>Add <code>A2Z_OPENAI_API_KEY</code> and optionally <code>A2Z_OPENAI_MODEL</code> in Coolify, then redeploy.</p></div>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ url_for('static', filename='js/booking_insights_chat.js', v='20260929-1') }}" defer></script>
 {% endblock %}
