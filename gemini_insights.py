@@ -74,6 +74,8 @@ def generate_booking_insights(aggregate_data: dict) -> dict:
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": _response_schema(),
+                "temperature": 0.2,
+                "maxOutputTokens": 2048,
             },
         }
     ).encode("utf-8")
@@ -109,8 +111,28 @@ def generate_booking_insights(aggregate_data: dict) -> dict:
         observations = result["observations"]
         if not summary or not isinstance(recommendations, list) or not isinstance(observations, list):
             raise ValueError
-        result["recommendations"] = recommendations[:6]
-        result["observations"] = [str(item).strip() for item in observations[:6]]
+        validated_recommendations = []
+        for item in recommendations[:6]:
+            if not isinstance(item, dict):
+                raise ValueError
+            title = str(item.get("title") or "").strip()
+            reason = str(item.get("reason") or "").strip()
+            action = str(item.get("action") or "").strip()
+            priority = str(item.get("priority") or "").strip()
+            if (
+                not title
+                or not reason
+                or not action
+                or priority not in {"High", "Medium", "Low"}
+            ):
+                raise ValueError
+            validated_recommendations.append(
+                {"title": title, "reason": reason, "action": action, "priority": priority}
+            )
+        result["recommendations"] = validated_recommendations
+        result["observations"] = [
+            str(item).strip() for item in observations[:6] if str(item).strip()
+        ]
         return result
     except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
         raise GeminiInsightsError(
