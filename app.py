@@ -486,12 +486,32 @@ def _safe_next_url(candidate):
     return candidate
 
 
-def _booking_rows(conn, where="", params=(), order_by="b.target_date ASC, b.start_time ASC"):
+def _booking_rows(
+    conn,
+    where="",
+    params=(),
+    order_by="b.target_date ASC, b.start_time ASC",
+    *,
+    limit=None,
+    offset=0,
+):
     query = BOOKING_SELECT
     if where:
         query += f" WHERE {where}"
     query += f" ORDER BY {order_by}"
-    return [dict(row) for row in conn.execute(query, tuple(params)).fetchall()]
+    values = list(params)
+    if limit is not None:
+        query += " LIMIT ? OFFSET ?"
+        values.extend((int(limit), max(0, int(offset))))
+    return [dict(row) for row in conn.execute(query, tuple(values)).fetchall()]
+
+
+def _booking_count(conn, where="", params=()):
+    query = f"SELECT count(*) FROM ({BOOKING_SELECT}"
+    if where:
+        query += f" WHERE {where}"
+    query += ") AS matching_bookings"
+    return int(conn.execute(query, tuple(params)).fetchone()[0])
 
 
 def _audit(conn, event_type, booking_id=None, details=None):
@@ -850,7 +870,105 @@ def _driving_test_duplicate_identity_key(record):
     return (name_key, admission_key) if name_key and admission_key else None
 
 
-def _driving_test_import_client(conn, candidate):
+def _driving_test_import_phone_index(conn):
+    """Load active clients once so one PDF does not scan all clients per row."""
+    values = []
+    scope_clause = ""
+    portal_branch_id = _portal_branch_id()
+    if portal_branch_id is not None:
+        scope_clause = " AND u.branch_id = ?"
+        values.append(portal_branch_id)
+    rows = conn.execute(
+        f"""
+        SELECT u.id, u.full_name, u.phone, u.branch_id, br.name AS branch_name,
+               cp.secondary_phone, cp.admission_number
+        FROM users u
+        JOIN branches br ON br.id = u.branch_id
+        LEFT JOIN client_profiles cp ON cp.user_id = u.id
+        WHERE u.role = 'student' AND u.is_active = 1 {scope_clause}
+        ORDER BY u.id
+        """,
+        values,
+    ).fetchall()
+    phone_index = {}
+    admission_index = {}
+    records_by_id = {}
+    for row in rows:
+        record = dict(row)
+        records_by_id[int(record["id"])] = record
+        variants = set()
+        variants.update(_driving_test_phone_variants(record.get("phone")))
+        variants.update(_driving_test_phone_variants(record.get("secondary_phone")))
+        for variant in variants:
+            phone_index.setdefault(variant, []).append(record)
+        admission_key = " ".join(
+            str(record.get("admission_number") or "").casefold().split()
+        )
+        if admission_key:
+            admission_index.setdefault(admission_key, []).append(record)
+    return {
+        "phones": phone_index,
+        "admissions": admission_index,
+        "records": records_by_id,
+    }
+
+
+def _driving_test_related_client_ids_from_index(client_id, client_index):
+    """Resolve duplicate client records without another full database scan."""
+    current = client_index["records"].get(int(client_id))
+    if not current:
+        return [int(client_id)]
+    clean_name, _ = _booking_client_identity_fields(
+        current.get("full_name"), current.get("admission_number")
+    )
+    name_key = " ".join(clean_name.casefold().split())
+    phone_keys = set()
+    for value in (current.get("phone"), current.get("secondary_phone")):
+        phone_keys.update(_driving_test_phone_variants(value))
+    verified_phone = _driving_test_verified_phone(
+        (current.get("phone"), current.get("secondary_phone"))
+    )
+    admission_key = " ".join(
+        str(current.get("admission_number") or "").casefold().split()
+    )
+    if not name_key or (not phone_keys and not admission_key):
+        return [int(client_id)]
+
+    candidates = {}
+    for phone_key in phone_keys:
+        for record in client_index["phones"].get(phone_key, []):
+            candidates[int(record["id"])] = record
+    if admission_key:
+        for record in client_index["admissions"].get(admission_key, []):
+            candidates[int(record["id"])] = record
+
+    related = []
+    for candidate_id in sorted(candidates):
+        candidate = candidates[candidate_id]
+        candidate_name, _ = _booking_client_identity_fields(
+            candidate.get("full_name"), candidate.get("admission_number")
+        )
+        candidate_phones = set()
+        for value in (candidate.get("phone"), candidate.get("secondary_phone")):
+            candidate_phones.update(_driving_test_phone_variants(value))
+        candidate_admission = " ".join(
+            str(candidate.get("admission_number") or "").casefold().split()
+        )
+        same_phone = bool(phone_keys & candidate_phones)
+        same_admission = bool(admission_key and admission_key == candidate_admission)
+        similar_admission = _driving_test_admissions_compatible(
+            admission_key, candidate_admission
+        )
+        same_strong_identity = bool(same_phone and (same_admission or similar_admission))
+        if (verified_phone and same_phone) or same_strong_identity or (
+            _driving_test_names_compatible(clean_name, candidate_name)
+            and (same_phone or same_admission)
+        ):
+            related.append(candidate_id)
+    return related or [int(client_id)]
+
+
+def _driving_test_import_client(conn, candidate, phone_index=None):
     """Match a PDF candidate by phone, then verify the candidate name.
 
     The PDF application number is a government identifier and is not the A2Z
@@ -863,41 +981,47 @@ def _driving_test_import_client(conn, candidate):
     if not _driving_test_name_key(imported_name) or len(phone) < 8:
         return None
     phone_variants = _driving_test_phone_variants(phone)
-    phone_sql = (
-        "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE({column}, ''), "
-        "' ', ''), '-', ''), '(', ''), ')', ''), '+', '')"
-    )
-    variant_clauses = []
-    values = []
-    for phone_variant in sorted(phone_variants):
-        variant_clauses.append(
-            f"({phone_sql.format(column='u.phone')} = ? OR "
-            f"{phone_sql.format(column='cp.secondary_phone')} = ?)"
+    if phone_index is not None:
+        matches_by_id = {}
+        for variant in phone_variants:
+            for record in phone_index["phones"].get(variant, []):
+                matches_by_id[int(record["id"])] = record
+        phone_matches = [matches_by_id[key] for key in sorted(matches_by_id)]
+    else:
+        phone_sql = (
+            "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE({column}, ''), "
+            "' ', ''), '-', ''), '(', ''), ')', ''), '+', '')"
         )
-        values.extend((phone_variant, phone_variant))
-    scope_clause = ""
-    portal_branch_id = _portal_branch_id()
-    if portal_branch_id is not None:
-        scope_clause = " AND u.branch_id = ?"
-        values.append(portal_branch_id)
-    rows = conn.execute(
-        f"""
-        SELECT u.id, u.full_name, u.branch_id, br.name AS branch_name,
-               cp.admission_number
-        FROM users u
-        JOIN branches br ON br.id = u.branch_id
-        LEFT JOIN client_profiles cp ON cp.user_id = u.id
-        WHERE u.role = 'student' AND u.is_active = 1
-          AND ({' OR '.join(variant_clauses)})
-          {scope_clause}
-        ORDER BY u.id
-        """,
-        values,
-    ).fetchall()
-    phone_matches = []
-    for row in rows:
-        record = dict(row)
-        phone_matches.append(record)
+        variant_clauses = []
+        values = []
+        for phone_variant in sorted(phone_variants):
+            variant_clauses.append(
+                f"({phone_sql.format(column='u.phone')} = ? OR "
+                f"{phone_sql.format(column='cp.secondary_phone')} = ?)"
+            )
+            values.extend((phone_variant, phone_variant))
+        scope_clause = ""
+        portal_branch_id = _portal_branch_id()
+        if portal_branch_id is not None:
+            scope_clause = " AND u.branch_id = ?"
+            values.append(portal_branch_id)
+        phone_matches = [
+            dict(row)
+            for row in conn.execute(
+                f"""
+                SELECT u.id, u.full_name, u.branch_id, br.name AS branch_name,
+                       cp.admission_number
+                FROM users u
+                JOIN branches br ON br.id = u.branch_id
+                LEFT JOIN client_profiles cp ON cp.user_id = u.id
+                WHERE u.role = 'student' AND u.is_active = 1
+                  AND ({' OR '.join(variant_clauses)})
+                  {scope_clause}
+                ORDER BY u.id
+                """,
+                values,
+            ).fetchall()
+        ]
     if not phone_matches:
         return None
     if len(phone_matches) == 1:
@@ -7756,9 +7880,11 @@ def admin_driving_tests_import_pdf():
 
         with get_db() as conn:
             preview_rows = []
+            phone_index = _driving_test_import_phone_index(conn)
+            related_client_cache = {}
             for candidate in parsed["rows"]:
                 item = dict(candidate)
-                match = _driving_test_import_client(conn, item)
+                match = _driving_test_import_client(conn, item, phone_index)
                 item["client_id"] = int(match["id"]) if match else None
                 item["client_name"] = match["full_name"] if match else ""
                 item["client_branch_name"] = match["branch_name"] if match else ""
@@ -7766,7 +7892,14 @@ def admin_driving_tests_import_pdf():
                 item["matched_client_count"] = 0
                 item["duplicate_attempt_id"] = None
                 if match:
-                    related_ids = _driving_test_related_client_ids(conn, int(match["id"]))
+                    matched_id = int(match["id"])
+                    if matched_id not in related_client_cache:
+                        related_client_cache[matched_id] = (
+                            _driving_test_related_client_ids_from_index(
+                                matched_id, phone_index
+                            )
+                        )
+                    related_ids = related_client_cache[matched_id]
                     item["matched_client_count"] = len(related_ids)
                     placeholders = ",".join("?" for _ in related_ids)
                     duplicate = conn.execute(
@@ -10536,6 +10669,11 @@ def admin_dashboard():
         selected_date_from = legacy_date
         selected_date_to = legacy_date
     search_query = " ".join((request.args.get("q") or "").split())[:100]
+    try:
+        page = max(1, int(request.args.get("page") or 1))
+    except (TypeError, ValueError):
+        page = 1
+    page_size = 100
     clauses = []
     params = []
     portal_branch_id = _portal_branch_id()
@@ -10589,11 +10727,16 @@ def admin_dashboard():
         params.extend((search_pattern, search_pattern, search_pattern))
 
     with get_db() as conn:
+        booking_total = _booking_count(conn, " AND ".join(clauses), params)
+        page_count = max(1, (booking_total + page_size - 1) // page_size)
+        page = min(page, page_count)
         bookings = _booking_rows(
             conn,
             " AND ".join(clauses),
             params,
             "b.target_date DESC, b.start_time DESC, b.created_at DESC",
+            limit=page_size,
+            offset=(page - 1) * page_size,
         )
         if portal_branch_id is None:
             branches = [
@@ -10660,6 +10803,16 @@ def admin_dashboard():
                 recent_params,
             ).fetchall()
         ]
+    pagination_args = request.args.to_dict(flat=True)
+    pagination_args.pop("page", None)
+    previous_page_url = (
+        url_for("admin_dashboard", page=page - 1, **pagination_args)
+        if page > 1 else None
+    )
+    next_page_url = (
+        url_for("admin_dashboard", page=page + 1, **pagination_args)
+        if page < page_count else None
+    )
     return render_template(
         "admin_dashboard.html",
         bookings=bookings,
@@ -10673,6 +10826,12 @@ def admin_dashboard():
             "q": search_query,
         },
         recent_events=recent_events,
+        booking_total=booking_total,
+        booking_page=page,
+        booking_page_count=page_count,
+        booking_page_size=page_size,
+        previous_page_url=previous_page_url,
+        next_page_url=next_page_url,
         today=today,
         current_time=current_time,
     )
