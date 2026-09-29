@@ -10727,12 +10727,13 @@ def admin_dashboard():
         params.extend((search_pattern, search_pattern, search_pattern))
 
     # Preserve imported records and their client history, but keep invalid
-    # decades-long Technical recurrences out of the operational register.
+    # decades-long Smart Scheduling recurrences out of the operational register
+    # across every branch.
     clauses.append(
         "(b.source_reference IS NULL OR b.source_reference NOT LIKE ? "
         "OR b.target_date <= ?)"
     )
-    params.extend(("smart:technical:%", "2026-12-31"))
+    params.extend(("smart:%", "2026-12-31"))
 
     with get_db() as conn:
         booking_total = _booking_count(conn, " AND ".join(clauses), params)
@@ -10905,7 +10906,7 @@ def admin_bookings_export():
         "(b.source_reference IS NULL OR b.source_reference NOT LIKE ? "
         "OR b.target_date <= ?)"
     )
-    params.extend(("smart:technical:%", "2026-12-31"))
+    params.extend(("smart:%", "2026-12-31"))
 
     with get_db() as conn:
         bookings = _booking_rows(
