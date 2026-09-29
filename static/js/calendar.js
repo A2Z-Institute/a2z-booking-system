@@ -789,6 +789,14 @@
     if (saveButton) saveButton.textContent = editorType === "busy" ? "Save busy time" : editorType === "slot" ? "Save slot" : "Save appointment";
   };
 
+  const limitEditorTabsTo = (type = "") => {
+    editor.querySelectorAll("[data-editor-tab]").forEach((tab) => {
+      const available = !type || tab.dataset.editorTab === type;
+      tab.hidden = !available;
+      tab.disabled = !available;
+    });
+  };
+
   const syncSlotMachines = () => {
     const branchId = slotInstructor?.selectedOptions[0]?.dataset.branchId || "";
     Array.from(slotMachine?.options || []).forEach((option, index) => {
@@ -1001,6 +1009,7 @@
     editor.reset();
     trailerFinishAuto = false;
     clearError();
+    limitEditorTabsTo();
     bookingIdInput.value = "";
     revisionInput.value = "";
     updateSeriesSummary(null);
@@ -1117,6 +1126,7 @@
   const openEditorForEvent = (event, trigger) => {
     lastFocused = trigger || document.activeElement;
     editingEvent = event;
+    limitEditorTabsTo(event.type === "appointment" ? "appointment" : event.type);
     editor.querySelector("[data-editor-instructor-field]").hidden = !(
       event.type === "appointment" && event.can_edit
       && ["admin", "booking_agent"].includes(currentRole)
