@@ -624,6 +624,54 @@ h3 {
   max-width: 760px;
 }
 
+.insights-chat-panel {
+  margin-top: 1.25rem;
+}
+
+.insights-chat-body {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.insights-chat-messages {
+  display: grid;
+  max-height: 420px;
+  gap: 0.7rem;
+  overflow-y: auto;
+}
+
+.insights-chat-message {
+  width: min(86%, 720px);
+  padding: 0.8rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-alt);
+}
+
+.insights-chat-message.user {
+  justify-self: end;
+  border-color: var(--blue-100);
+  background: var(--blue-100);
+}
+
+.insights-chat-message p {
+  margin: 0.25rem 0 0;
+  white-space: pre-wrap;
+}
+
+.insights-chat-suggestions,
+.insights-chat-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.insights-chat-form textarea {
+  min-width: min(100%, 520px);
+  flex: 1;
+  resize: vertical;
+}
+
 .stat-label {
   display: block;
   color: var(--ink-600);
