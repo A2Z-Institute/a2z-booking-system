@@ -164,32 +164,67 @@
   const resultStatus = document.querySelector("[data-driving-result-status]");
   const failureFields = document.querySelector("[data-driving-failure-fields]");
   const failureReason = document.querySelector("[data-driving-failure-reason]");
-  const failedSection = document.querySelector("[data-driving-failed-section]");
+  const failedSections = document.querySelector("[data-driving-failed-sections]");
+  const failedSectionChecks = failedSections?.querySelectorAll('input[type="checkbox"]') || [];
+  const resultForm = resultStatus?.closest("form");
   const retestToggle = document.querySelector("[data-driving-retest-toggle]");
   const retestDate = document.querySelector("[data-driving-retest-date]");
   const syncResultFields = () => {
     const failed = resultStatus?.value === "Failed";
     if (failureFields) failureFields.hidden = !failed;
     if (failureReason) failureReason.required = failed;
-    if (failedSection) failedSection.required = failed;
+    if (failedSections) failedSections.hidden = !failed;
+    failedSectionChecks.forEach((checkbox) => { checkbox.disabled = !failed; });
     if (retestDate) retestDate.disabled = !failed || !retestToggle?.checked;
   };
   resultStatus?.addEventListener("change", syncResultFields);
   retestToggle?.addEventListener("change", syncResultFields);
+  resultForm?.addEventListener("submit", (event) => {
+    const first = failedSectionChecks[0];
+    if (!first) return;
+    const missing = resultStatus?.value === "Failed" && ![...failedSectionChecks].some((checkbox) => checkbox.checked);
+    first.setCustomValidity(missing ? "Choose at least one failed test section." : "");
+    if (missing) {
+      event.preventDefault();
+      first.reportValidity();
+    }
+  });
+  failedSectionChecks.forEach((checkbox) => checkbox.addEventListener("change", () => {
+    failedSectionChecks[0]?.setCustomValidity("");
+  }));
   syncResultFields();
 
   document.querySelectorAll("[data-driving-quick-result-form]").forEach((form) => {
     const status = form.querySelector("[data-driving-quick-result-status]");
-    const failedSection = form.querySelector("[data-driving-quick-failed-section]");
+    const failedSections = form.querySelector("[data-driving-quick-failed-sections]");
+    const failedSectionChecks = [...form.querySelectorAll('input[name="failed_sections"]')];
+    const summary = form.querySelector("[data-driving-failed-summary]");
+    const updateSummary = () => {
+      const selected = failedSectionChecks.filter((checkbox) => checkbox.checked).map((checkbox) => checkbox.value);
+      if (summary) summary.textContent = selected.length ? selected.join(", ") : "Failed sections";
+    };
     const syncQuickResult = () => {
       const failed = status?.value === "Failed";
-      if (failedSection) {
-        failedSection.hidden = !failed;
-        failedSection.disabled = !failed;
-        failedSection.required = failed;
-      }
+      if (failedSections) failedSections.hidden = !failed;
+      failedSectionChecks.forEach((checkbox) => { checkbox.disabled = !failed; });
+      updateSummary();
     };
     status?.addEventListener("change", syncQuickResult);
+    failedSectionChecks.forEach((checkbox) => checkbox.addEventListener("change", updateSummary));
+    form.addEventListener("submit", (event) => {
+      const first = failedSectionChecks[0];
+      if (!first) return;
+      const missing = status?.value === "Failed" && !failedSectionChecks.some((checkbox) => checkbox.checked);
+      first.setCustomValidity(missing ? "Choose at least one failed test section." : "");
+      if (missing) {
+        event.preventDefault();
+        if (failedSections) failedSections.open = true;
+        first.reportValidity();
+      }
+    });
+    failedSectionChecks.forEach((checkbox) => checkbox.addEventListener("change", () => {
+      failedSectionChecks[0]?.setCustomValidity("");
+    }));
     syncQuickResult();
   });
 })();

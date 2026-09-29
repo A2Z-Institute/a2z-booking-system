@@ -51,7 +51,13 @@
           <div data-driving-failure-fields>
             <div class="form-grid two-column">
               <div class="field"><label for="attempt-failure-reason">Failure reason</label><textarea id="attempt-failure-reason" name="failure_reason" maxlength="500" data-driving-failure-reason>{{ attempt.failure_reason|default('', true) }}</textarea></div>
-              <div class="field"><label for="attempt-failed-section">Failed section</label><select id="attempt-failed-section" name="failed_section" data-driving-failed-section><option value="">Choose section</option>{% for section in failed_sections %}<option value="{{ section }}" {% if attempt.failed_section == section %}selected{% endif %}>{{ section }}</option>{% endfor %}</select></div>
+              {% set selected_failed_sections = (attempt.failed_section or '').replace(' ', '').split(',') %}
+              <fieldset class="field driving-failed-section-field" data-driving-failed-sections>
+                <legend>Failed sections</legend>
+                <div class="driving-failed-section-options">
+                  {% for section in failed_sections %}<label><input type="checkbox" name="failed_sections" value="{{ section }}" {% if section in selected_failed_sections %}checked{% endif %}><span>{{ section }}</span></label>{% endfor %}
+                </div>
+              </fieldset>
               <label class="check-row"><input type="checkbox" name="retest_required" value="1" {% if attempt.retest_required %}checked{% endif %} data-driving-retest-toggle><span><strong>Retest required</strong></span></label>
               <div class="field"><label for="attempt-retest-date">Retest date</label><input id="attempt-retest-date" name="retest_date" type="date" value="{{ attempt.retest_date|default('', true) }}" data-driving-retest-date></div>
               <label class="check-row field-span-2"><input type="checkbox" name="additional_training_required" value="1" {% if attempt.additional_training_required %}checked{% endif %}><span><strong>Additional training required</strong></span></label>

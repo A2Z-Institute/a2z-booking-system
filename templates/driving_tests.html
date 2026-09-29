@@ -126,7 +126,7 @@
               <td><strong>{{ attempt.test_date|friendly_date }}</strong><span class="cell-detail">{{ attempt.test_type }}</span></td>
               <td><span class="cell-title">{{ attempt.client_name }}</span><span class="cell-detail">{{ attempt.admission_number|default('No admission number', true) }} · {{ attempt.client_phone|default('No phone', true) }}{% if attempt.application_number %} · App {{ attempt.application_number }}{% endif %}</span></td>
               <td>{{ attempt.course_name|default('Not recorded', true) }}<span class="cell-detail">{{ attempt.branch_name }}</span></td>
-              <td><span class="status-badge status-{{ status_class }}">{{ attempt.result_status }}</span></td>
+              <td><span class="status-badge status-{{ status_class }}">{{ attempt.result_status }}</span>{% if attempt.result_status == 'Failed' and attempt.failed_section %}<span class="cell-detail">{{ attempt.failed_section }}</span>{% endif %}</td>
               <td>{{ attempt.training_instructor_names }}<span class="cell-detail">{{ attempt.training_instructor_count }} instructor{% if attempt.training_instructor_count != 1 %}s{% endif %} · {{ attempt.training_sessions }} sessions · {{ (attempt.training_minutes / 60)|round(1) }} hours{% if attempt.matched_client_count > 1 %} · {{ attempt.matched_client_count }} matching client records combined{% endif %}</span></td>
               <td>
                 <form class="driving-test-quick-result" method="post" action="{{ url_for('admin_driving_test_quick_result_update', attempt_id=attempt.id) }}" data-driving-quick-result-form>
@@ -136,11 +136,14 @@
                   <select id="quick-result-{{ attempt.id }}" name="result_status" data-driving-quick-result-status>
                     {% for status in statuses %}<option value="{{ status }}" {% if attempt.result_status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}
                   </select>
-                  <label class="sr-only" for="quick-failed-section-{{ attempt.id }}">Failed section for {{ attempt.client_name }}</label>
-                  <select id="quick-failed-section-{{ attempt.id }}" name="failed_section" data-driving-quick-failed-section>
-                    <option value="">Failed section</option>
-                    {% for section in failed_sections %}<option value="{{ section }}" {% if attempt.failed_section == section %}selected{% endif %}>{{ section }}</option>{% endfor %}
-                  </select>
+                  {% set selected_failed_sections = (attempt.failed_section or '').replace(' ', '').split(',') %}
+                  <details class="driving-quick-failed-sections" data-driving-quick-failed-sections>
+                    <summary data-driving-failed-summary>Failed sections</summary>
+                    <fieldset>
+                      <legend class="sr-only">Failed sections for {{ attempt.client_name }}</legend>
+                      {% for section in failed_sections %}<label><input type="checkbox" name="failed_sections" value="{{ section }}" {% if section in selected_failed_sections %}checked{% endif %}><span>{{ section }}</span></label>{% endfor %}
+                    </fieldset>
+                  </details>
                   <button class="button button-primary button-small" type="submit">Update</button>
                 </form>
                 <span class="cell-detail">{{ attempt.responsibility_status }}{% if attempt.responsible_instructor_name %} · {{ attempt.responsible_instructor_name }}{% endif %}</span>

@@ -3776,8 +3776,73 @@ body {
   font-size: 0.82rem;
 }
 
-.driving-test-quick-result [data-driving-quick-failed-section] {
+.driving-test-quick-result [data-driving-quick-failed-sections] {
   grid-column: 1 / -1;
+}
+
+.driving-failed-section-field,
+.driving-quick-failed-sections fieldset {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.driving-failed-section-field > legend {
+  color: var(--ink-700);
+  font-size: 0.86rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.driving-failed-section-options,
+.driving-quick-failed-sections fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.driving-failed-section-options label,
+.driving-quick-failed-sections label {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 0.35rem;
+  padding: 0.4rem 0.55rem;
+}
+
+.driving-failed-section-options input,
+.driving-quick-failed-sections input {
+  accent-color: var(--blue-600);
+  margin: 0;
+}
+
+.driving-quick-failed-sections {
+  position: relative;
+}
+
+.driving-quick-failed-sections > summary {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  min-height: 38px;
+  padding: 0.55rem 0.65rem;
+}
+
+.driving-quick-failed-sections[open] fieldset {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  left: 0;
+  padding: 0.65rem;
+  position: absolute;
+  top: calc(100% + 0.3rem);
+  width: min(310px, 80vw);
+  z-index: 20;
 }
 
 .driving-test-quick-result .button {

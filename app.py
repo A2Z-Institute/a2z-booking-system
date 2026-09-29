@@ -86,7 +86,10 @@ DEFAULT_STAFF_BREAKS = (
 )
 FINAL_BOOKING_STATUSES = ("Rejected", "Cancelled", "Completed", "No-show")
 DRIVING_TEST_STATUSES = ("Pending", "Passed", "Failed", "Absent", "Postponed")
-DRIVING_TEST_FAILED_SECTIONS = ("LMV", "MCY", "TRANS", "TR", "FL", "CRANE", "EXVTR")
+DRIVING_TEST_FAILED_SECTIONS = (
+    "LMV", "MCY", "TRANS", "TRANS T", "TRANS R", "TR", "TR L", "TR R",
+    "FL", "CRANE", "EXVTR",
+)
 DRIVING_TEST_TYPES = ("First attempt", "Retest")
 DRIVING_TEST_RESPONSIBILITY_STATUSES = (
     "Not reviewed",
@@ -538,6 +541,23 @@ def _driving_test_text(value, label, maximum, *, required=False):
     if len(cleaned) > maximum:
         raise ValueError(f"{label.title()} must be {maximum} characters or fewer.")
     return cleaned
+
+
+def _driving_test_failed_sections_from_form(*, required=False):
+    submitted = request.form.getlist("failed_sections")
+    if not submitted:
+        legacy_value = request.form.get("failed_section")
+        if legacy_value:
+            submitted = str(legacy_value).split(",")
+
+    selected = {str(value).strip().upper() for value in submitted if str(value).strip()}
+    invalid = selected.difference(DRIVING_TEST_FAILED_SECTIONS)
+    if invalid:
+        raise ValueError("Choose valid failed test sections.")
+    ordered = [section for section in DRIVING_TEST_FAILED_SECTIONS if section in selected]
+    if required and not ordered:
+        raise ValueError("Choose at least one failed test section.")
+    return ", ".join(ordered)
 
 
 def _driving_test_date(value, label="test date", *, required=True):
@@ -8435,13 +8455,9 @@ def admin_driving_test_result_update(attempt_id):
                 request.form.get("failure_reason"), "failure reason", 500,
                 required=result_status == "Failed",
             )
-            failed_section = _driving_test_text(
-                request.form.get("failed_section"), "failed test section", 200,
-                required=result_status == "Failed",
+            failed_section = _driving_test_failed_sections_from_form(
+                required=result_status == "Failed"
             )
-            failed_section = failed_section.upper()
-            if result_status == "Failed" and failed_section not in DRIVING_TEST_FAILED_SECTIONS:
-                raise ValueError("Choose a valid failed test section.")
             examiner_remarks = _driving_test_text(
                 request.form.get("examiner_remarks"), "examiner remarks", 1000
             )
@@ -8509,12 +8525,9 @@ def admin_driving_test_quick_result_update(attempt_id):
             result_status = (request.form.get("result_status") or "").strip().title()
             if result_status not in DRIVING_TEST_STATUSES:
                 raise ValueError("Choose a valid test result.")
-            failed_section = _driving_test_text(
-                request.form.get("failed_section"), "failed test section", 200,
-                required=result_status == "Failed",
-            ).upper()
-            if result_status == "Failed" and failed_section not in DRIVING_TEST_FAILED_SECTIONS:
-                raise ValueError("Choose a valid failed test section.")
+            failed_section = _driving_test_failed_sections_from_form(
+                required=result_status == "Failed"
+            )
             reset_review = result_status != "Failed"
             conn.execute(
                 """
