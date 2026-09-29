@@ -160,7 +160,7 @@
                 <td>{{ booking.machine_name|default(booking.machine_code|default(booking.machine_category|default('Practical training'))) }}</td>
                 <td>
                   <time class="cell-title" datetime="{{ booking.target_date }}" data-format-date>{{ booking.target_date }}</time>
-                  <span class="cell-detail">{{ booking.start_time }}–{{ booking.end_time }}</span>
+                  <span class="cell-detail">{{ booking.start_time|friendly_time }}–{{ booking.end_time|friendly_time }}</span>
                 </td>
                 <td>{{ booking.instructor_name|default('Unassigned') }}</td>
                 <td>{{ booking.branch_name|default('—') }}</td>
@@ -235,7 +235,7 @@
             </div>
             <div>
               <dt>Time</dt>
-              <dd>{{ booking.start_time }}–{{ booking.end_time }}</dd>
+              <dd>{{ booking.start_time|friendly_time }}–{{ booking.end_time|friendly_time }}</dd>
             </div>
             <div>
               <dt>Training</dt>
