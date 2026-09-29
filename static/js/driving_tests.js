@@ -164,15 +164,32 @@
   const resultStatus = document.querySelector("[data-driving-result-status]");
   const failureFields = document.querySelector("[data-driving-failure-fields]");
   const failureReason = document.querySelector("[data-driving-failure-reason]");
+  const failedSection = document.querySelector("[data-driving-failed-section]");
   const retestToggle = document.querySelector("[data-driving-retest-toggle]");
   const retestDate = document.querySelector("[data-driving-retest-date]");
   const syncResultFields = () => {
     const failed = resultStatus?.value === "Failed";
     if (failureFields) failureFields.hidden = !failed;
     if (failureReason) failureReason.required = failed;
+    if (failedSection) failedSection.required = failed;
     if (retestDate) retestDate.disabled = !failed || !retestToggle?.checked;
   };
   resultStatus?.addEventListener("change", syncResultFields);
   retestToggle?.addEventListener("change", syncResultFields);
   syncResultFields();
+
+  document.querySelectorAll("[data-driving-quick-result-form]").forEach((form) => {
+    const status = form.querySelector("[data-driving-quick-result-status]");
+    const failedSection = form.querySelector("[data-driving-quick-failed-section]");
+    const syncQuickResult = () => {
+      const failed = status?.value === "Failed";
+      if (failedSection) {
+        failedSection.hidden = !failed;
+        failedSection.disabled = !failed;
+        failedSection.required = failed;
+      }
+    };
+    status?.addEventListener("change", syncQuickResult);
+    syncQuickResult();
+  });
 })();
