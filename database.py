@@ -84,10 +84,10 @@ def _correct_imported_technical_future_dates(conn) -> None:
         rows = conn.execute(
             f"""
             SELECT id, target_date FROM {table}
-            WHERE source_reference LIKE 'smart:technical:%'
+            WHERE source_reference LIKE ?
               AND target_date >= ? AND target_date < ?
             """,
-            ("2083-01-01", "2086-01-01"),
+            ("smart:technical:%", "2083-01-01", "2086-01-01"),
         ).fetchall()
         for row in rows:
             imported_date = date.fromisoformat(str(row["target_date"])[:10])
