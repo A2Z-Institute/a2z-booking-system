@@ -56,6 +56,11 @@ from gemini_insights import (
     generate_booking_insights,
 )
 from import_clients_xlsx import import_clients
+from openai_booking_chat import (
+    OpenAIBookingChatError,
+    generate_openai_booking_chat,
+    openai_chat_configured,
+)
 
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -8723,6 +8728,7 @@ def admin_booking_insights():
         insights=insights,
         analysis=analysis,
         gemini_ready=gemini_configured(),
+        openai_chat_ready=openai_chat_configured(),
         selected_days=days,
         selected_branch=selected_branch,
         selected_date_from=selected_start,
@@ -8732,6 +8738,62 @@ def admin_booking_insights():
         cancellation_rate=round(insights["totals"]["cancelled"] * 100 / total, 1),
         no_show_rate=round(insights["totals"]["no_show"] * 100 / total, 1),
     )
+
+
+@app.post("/admin/booking-insights/chat")
+@role_required("admin")
+def admin_booking_insights_chat():
+    payload = request.get_json(silent=True) or {}
+    try:
+        days = int(payload.get("days", 90))
+    except (TypeError, ValueError):
+        days = 90
+    if days not in {30, 90, 180, 365}:
+        days = 90
+    portal_branch_id = _portal_branch_id()
+    branch_id = portal_branch_id
+    if portal_branch_id is None and str(payload.get("branch") or "").strip():
+        try:
+            branch_id = int(payload["branch"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "Choose a valid branch."}), 400
+    start_date = None
+    end_date = None
+    raw_start = str(payload.get("date_from") or "").strip()
+    raw_end = str(payload.get("date_to") or "").strip()
+    if raw_start or raw_end:
+        try:
+            start_date = date.fromisoformat(raw_start)
+            end_date = date.fromisoformat(raw_end)
+            today = datetime.now(IST).date()
+            if start_date > end_date or end_date > today or (end_date - start_date).days > 365:
+                raise ValueError
+        except (TypeError, ValueError):
+            return jsonify({"error": "Choose a valid date range up to 366 days."}), 400
+    with get_db() as conn:
+        if branch_id is not None and not conn.execute(
+            "SELECT 1 FROM branches WHERE id = ?", (branch_id,)
+        ).fetchone():
+            return jsonify({"error": "Choose a valid branch."}), 400
+        insights = _booking_insights_data(conn, days, branch_id, start_date, end_date)
+        try:
+            answer = generate_openai_booking_chat(
+                insights,
+                payload.get("question"),
+                payload.get("history") if isinstance(payload.get("history"), list) else [],
+            )
+        except OpenAIBookingChatError as exc:
+            return jsonify({"error": str(exc)}), 400
+        _audit(
+            conn,
+            "openai_booking_insights_question",
+            details={
+                "days": insights["period"]["days"],
+                "branch_id": branch_id,
+                "aggregate_only": True,
+            },
+        )
+    return jsonify({"answer": answer})
 
 
 @app.get("/exports/appointments.csv")
