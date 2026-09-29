@@ -7721,11 +7721,13 @@ def _csv_response(filename, headers, rows):
     return response
 
 
-def _booking_insights_data(conn, days, branch_id=None):
+def _booking_insights_data(conn, days, branch_id=None, start_date=None, end_date=None):
     """Build anonymous booking statistics; no client fields leave this function."""
     today = datetime.now(IST).date()
-    start = today - timedelta(days=days - 1)
-    previous_start = start - timedelta(days=days)
+    end = end_date or today
+    start = start_date or (end - timedelta(days=days - 1))
+    period_days = (end - start).days + 1
+    previous_start = start - timedelta(days=period_days)
     booking_branch_clause = " AND branch_id = ?" if branch_id is not None else ""
     aliased_branch_clause = " AND b.branch_id = ?" if branch_id is not None else ""
     branch_params = (branch_id,) if branch_id is not None else ()
@@ -7738,7 +7740,7 @@ def _booking_insights_data(conn, days, branch_id=None):
             {booking_branch_clause}
             GROUP BY validation_status
             """.format(booking_branch_clause=booking_branch_clause),
-            (start.isoformat(), today.isoformat(), *branch_params),
+            (start.isoformat(), end.isoformat(), *branch_params),
         ).fetchall()
     }
     total = sum(statuses.values())
@@ -7767,7 +7769,7 @@ def _booking_insights_data(conn, days, branch_id=None):
             ORDER BY bookings DESC, name
             LIMIT 12
             """.format(aliased_branch_clause=aliased_branch_clause),
-            (start.isoformat(), today.isoformat(), *branch_params),
+            (start.isoformat(), end.isoformat(), *branch_params),
         ).fetchall()
     ]
     equipment = [
@@ -7784,7 +7786,7 @@ def _booking_insights_data(conn, days, branch_id=None):
             ORDER BY bookings DESC, name
             LIMIT 10
             """.format(aliased_branch_clause=aliased_branch_clause),
-            (start.isoformat(), today.isoformat(), *branch_params),
+            (start.isoformat(), end.isoformat(), *branch_params),
         ).fetchall()
     ]
     instructors = [
@@ -7798,7 +7800,7 @@ def _booking_insights_data(conn, days, branch_id=None):
               {aliased_branch_clause}
             GROUP BY i.id, i.name ORDER BY bookings DESC, i.name LIMIT 10
             """.format(aliased_branch_clause=aliased_branch_clause),
-            (start.isoformat(), today.isoformat(), *branch_params),
+            (start.isoformat(), end.isoformat(), *branch_params),
         ).fetchall()
     ]
     # Keep this query database-neutral. Imported PostgreSQL dates are stored as
@@ -7812,7 +7814,7 @@ def _booking_insights_data(conn, days, branch_id=None):
           {booking_branch_clause}
         GROUP BY target_date
         """.format(booking_branch_clause=booking_branch_clause),
-        (start.isoformat(), today.isoformat(), *branch_params),
+        (start.isoformat(), end.isoformat(), *branch_params),
     ).fetchall()
     weekday_totals = {index: 0 for index in range(7)}
     for row in weekday_rows:
@@ -7842,10 +7844,10 @@ def _booking_insights_data(conn, days, branch_id=None):
           {booking_branch_clause}
         GROUP BY hour ORDER BY bookings DESC, hour LIMIT 8
         """.format(booking_branch_clause=booking_branch_clause),
-        (start.isoformat(), today.isoformat(), *branch_params),
+        (start.isoformat(), end.isoformat(), *branch_params),
     ).fetchall()
     hours = [
-        {"name": f"{(int(row['hour']) % 12) or 12}:00 {'am' if int(row['hour']) < 12 else 'pm'}", "bookings": row["bookings"]}
+        {"name": f"{(int(row['hour']) % 12) or 12}:00 {'am' if int(row['hour']) < 12 else 'pm'}", "hour": int(row["hour"]), "bookings": row["bookings"]}
         for row in time_rows
     ]
     unique_clients = conn.execute(
@@ -7854,13 +7856,13 @@ def _booking_insights_data(conn, days, branch_id=None):
         WHERE target_date BETWEEN ? AND ?
         {booking_branch_clause}
         """.format(booking_branch_clause=booking_branch_clause),
-        (start.isoformat(), today.isoformat(), *branch_params),
+        (start.isoformat(), end.isoformat(), *branch_params),
     ).fetchone()[0]
     return {
         "period": {
-            "days": days,
+            "days": period_days,
             "start": start.isoformat(),
-            "end": today.isoformat(),
+            "end": end.isoformat(),
         },
         "totals": {
             "bookings": total,
@@ -8638,16 +8640,79 @@ def admin_booking_insights():
         days = 90
     if days not in {30, 90, 180, 365}:
         days = 90
+    today = datetime.now(IST).date()
+    selected_start = (request.values.get("date_from") or "").strip()
+    selected_end = (request.values.get("date_to") or "").strip()
+    custom_start = None
+    custom_end = None
+    if selected_start or selected_end:
+        try:
+            custom_start = date.fromisoformat(selected_start)
+            custom_end = date.fromisoformat(selected_end)
+            if custom_start > custom_end:
+                raise ValueError
+            if custom_end > today:
+                custom_end = today
+                selected_end = today.isoformat()
+            if (custom_end - custom_start).days > 365:
+                flash("Insight date ranges can cover up to 366 days.", "error")
+                custom_start = custom_end = None
+                selected_start = selected_end = ""
+        except (TypeError, ValueError):
+            flash("Choose a valid insight date range.", "error")
+            custom_start = custom_end = None
+            selected_start = selected_end = ""
+    portal_branch_id = _portal_branch_id()
+    selected_branch = str(portal_branch_id or "")
+    if portal_branch_id is None:
+        selected_branch = (request.values.get("branch") or "").strip()
+        if selected_branch:
+            try:
+                selected_branch_id = int(selected_branch)
+            except (TypeError, ValueError):
+                selected_branch = ""
+                selected_branch_id = None
+        else:
+            selected_branch_id = None
+    else:
+        selected_branch_id = portal_branch_id
     analysis = None
     with get_db() as conn:
-        insights = _booking_insights_data(conn, days, _portal_branch_id())
+        if selected_branch_id is not None:
+            branch_exists = conn.execute(
+                "SELECT 1 FROM branches WHERE id = ?", (selected_branch_id,)
+            ).fetchone()
+            if not branch_exists:
+                selected_branch = ""
+                selected_branch_id = None if portal_branch_id is None else portal_branch_id
+        insights = _booking_insights_data(
+            conn, days, selected_branch_id, custom_start, custom_end
+        )
+        if portal_branch_id is None:
+            branches = [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT id, name FROM branches WHERE is_active = 1 ORDER BY name"
+                ).fetchall()
+            ]
+        else:
+            branches = [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT id, name FROM branches WHERE id = ?", (portal_branch_id,)
+                ).fetchall()
+            ]
         if request.method == "POST":
             try:
                 analysis = generate_booking_insights(insights)
                 _audit(
                     conn,
                     "gemini_booking_insights_generated",
-                    details={"days": days, "aggregate_only": True},
+                    details={
+                        "days": insights["period"]["days"],
+                        "branch_id": selected_branch_id,
+                        "aggregate_only": True,
+                    },
                 )
             except GeminiInsightsError as exc:
                 flash(str(exc), "error")
@@ -8659,6 +8724,10 @@ def admin_booking_insights():
         analysis=analysis,
         gemini_ready=gemini_configured(),
         selected_days=days,
+        selected_branch=selected_branch,
+        selected_date_from=selected_start,
+        selected_date_to=selected_end,
+        branches=branches,
         booking_change=change,
         cancellation_rate=round(insights["totals"]["cancelled"] * 100 / total, 1),
         no_show_rate=round(insights["totals"]["no_show"] * 100 / total, 1),
@@ -10698,6 +10767,8 @@ def admin_dashboard():
         selected_date_from = legacy_date
         selected_date_to = legacy_date
     search_query = " ".join((request.args.get("q") or "").split())[:100]
+    selected_start_hour = (request.args.get("start_hour") or "").strip()
+    selected_service_missing = request.args.get("service_missing") == "1"
     try:
         page = max(1, int(request.args.get("page") or 1))
     except (TypeError, ValueError):
@@ -10754,6 +10825,21 @@ def admin_dashboard():
         )
         search_pattern = f"%{search_query}%"
         params.extend((search_pattern, search_pattern, search_pattern))
+    if selected_start_hour:
+        try:
+            start_hour = int(selected_start_hour)
+            if start_hour < 0 or start_hour > 23:
+                raise ValueError
+            clauses.append("substr(b.start_time, 1, 2) = ?")
+            params.append(f"{start_hour:02d}")
+        except (TypeError, ValueError):
+            selected_start_hour = ""
+    if selected_service_missing:
+        clauses.append(
+            "COALESCE(NULLIF(trim(b.service_name), ''), '') = '' "
+            "AND NOT EXISTS (SELECT 1 FROM booking_services ibs "
+            "WHERE ibs.booking_id = b.id AND NULLIF(trim(ibs.service_name), '') IS NOT NULL)"
+        )
 
     # Preserve imported records and their client history, but keep invalid
     # decades-long Smart Scheduling recurrences out of the operational register
@@ -10862,6 +10948,8 @@ def admin_dashboard():
             "date_from": selected_date_from,
             "date_to": selected_date_to,
             "q": search_query,
+            "start_hour": selected_start_hour,
+            "service_missing": "1" if selected_service_missing else "",
         },
         recent_events=recent_events,
         booking_total=booking_total,
