@@ -136,6 +136,11 @@
                   <select id="quick-result-{{ attempt.id }}" name="result_status" data-driving-quick-result-status>
                     {% for status in statuses %}<option value="{{ status }}" {% if attempt.result_status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}
                   </select>
+                  <label class="sr-only" for="quick-failed-section-{{ attempt.id }}">Failed section for {{ attempt.client_name }}</label>
+                  <select id="quick-failed-section-{{ attempt.id }}" name="failed_section" data-driving-quick-failed-section>
+                    <option value="">Failed section</option>
+                    {% for section in failed_sections %}<option value="{{ section }}" {% if attempt.failed_section == section %}selected{% endif %}>{{ section }}</option>{% endfor %}
+                  </select>
                   <button class="button button-primary button-small" type="submit">Update</button>
                 </form>
                 <span class="cell-detail">{{ attempt.responsibility_status }}{% if attempt.responsible_instructor_name %} · {{ attempt.responsible_instructor_name }}{% endif %}</span>
@@ -161,4 +166,4 @@
 </section>
 {% endblock %}
 
-{% block scripts %}<script src="{{ url_for('static', filename='js/driving_tests.js', v='20260928-2') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/driving_tests.js', v='20260929-1') }}" defer></script>{% endblock %}
