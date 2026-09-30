@@ -118,11 +118,12 @@
   {% if attempts %}
     <div class="table-scroll">
       <table class="data-table driving-test-table">
-        <thead><tr><th>Test date</th><th>Candidate</th><th>Course</th><th>Result</th><th>Training instructors</th><th>Review</th><th></th></tr></thead>
+        <thead><tr><th class="driving-test-row-number">No.</th><th>Test date</th><th>Candidate</th><th>Course</th><th>Result</th><th>Training instructors</th><th>Review</th><th></th></tr></thead>
         <tbody>
           {% for attempt in attempts %}
             {% set status_class = 'approved' if attempt.result_status == 'Passed' else 'rejected' if attempt.result_status == 'Failed' else 'unknown' if attempt.result_status == 'Absent' else 'pending' %}
             <tr id="driving-test-{{ attempt.id }}">
+              <td class="driving-test-row-number"><strong>{{ loop.index }}</strong></td>
               <td><strong>{{ attempt.test_date|friendly_date }}</strong><span class="cell-detail">{{ attempt.test_type }}</span></td>
               <td><span class="cell-title">{{ attempt.client_name }}</span><span class="cell-detail">{{ attempt.admission_number|default('No admission number', true) }} · {{ attempt.client_phone|default('No phone', true) }}{% if attempt.application_number %} · App {{ attempt.application_number }}{% endif %}</span></td>
               <td>{{ attempt.course_name|default('Not recorded', true) }}<span class="cell-detail">{{ attempt.branch_name }}</span></td>

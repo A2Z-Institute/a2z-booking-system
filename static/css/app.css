@@ -3755,6 +3755,12 @@ body {
   vertical-align: middle;
 }
 
+.driving-test-table .driving-test-row-number {
+  min-width: 52px;
+  text-align: center;
+  width: 52px;
+}
+
 .driving-instructor-filter {
   position: relative;
 }
