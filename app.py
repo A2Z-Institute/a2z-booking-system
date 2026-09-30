@@ -2190,8 +2190,9 @@ def _booking_client_identity_fields(full_name, admission_number):
         return suffix.sub("", name).strip(" -*"), admission
 
     legacy = re.search(
-        # Both AME/168/TC2 and DHE/308/25/TC2 occur in historic imports.
-        r"(?:\s+|^)([A-Za-z]{1,8}\s*/\s*\d{1,8}\s*/\s*(?:\d{2,4}\s*/\s*)?[A-Za-z0-9-]{1,12})$",
+        # Historic imports may separate the admission number with spaces,
+        # underscores or import markers such as ``_x0009_``.
+        r"(?:[\s_,;:-]+|^)([A-Za-z]{1,8}\s*/\s*\d{1,8}\s*/\s*(?:\d{2,4}\s*/\s*)?[A-Za-z0-9-]{1,12})$",
         name,
     )
     if not legacy:
