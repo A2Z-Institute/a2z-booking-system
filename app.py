@@ -2234,6 +2234,71 @@ def _booking_client_identity_fields(full_name, admission_number):
     return clean_name or name, clean_admission
 
 
+def _overwrite_client_from_booking_form(conn, client_id, payload):
+    """Persist the authoritative client details entered in the booking form.
+
+    Imported records may contain a placeholder name, a missing phone, or an
+    admission number appended to the full name.  Staff correct those values in
+    the appointment editor, so saving the appointment must also repair the
+    canonical client record instead of restoring stale imported values.
+    """
+    if not any(
+        key in payload
+        for key in ("client_full_name", "client_admission_number", "client_phone")
+    ):
+        return
+
+    row = conn.execute(
+        """
+        SELECT u.full_name, u.phone, cp.admission_number
+        FROM users u
+        LEFT JOIN client_profiles cp ON cp.user_id = u.id
+        WHERE u.id = ? AND u.role = 'student'
+        """,
+        (client_id,),
+    ).fetchone()
+    if not row:
+        raise ValueError("Choose a valid client.")
+
+    entered_name = str(payload.get("client_full_name") or "").strip()
+    entered_admission = str(payload.get("client_admission_number") or "").strip()
+    clean_name, embedded_admission = _booking_client_identity_fields(
+        entered_name or row["full_name"], entered_admission
+    )
+    full_name = _validate_full_name(clean_name)
+    admission_number = _bounded_client_text(
+        entered_admission or embedded_admission or row["admission_number"],
+        "admission number",
+        100,
+    )
+    phone = (
+        _optional_phone(payload.get("client_phone"))
+        if str(payload.get("client_phone") or "").strip()
+        else row["phone"]
+    )
+
+    conn.execute(
+        """
+        UPDATE users
+        SET full_name = ?, phone = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND role = 'student'
+        """,
+        (full_name, phone, client_id),
+    )
+    conn.execute(
+        """
+        INSERT INTO client_profiles
+            (user_id, admission_number, updated_by, updated_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id) DO UPDATE SET
+            admission_number = excluded.admission_number,
+            updated_by = excluded.updated_by,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (client_id, admission_number, current_user.id),
+    )
+
+
 def _related_client_ids(conn, client_id):
     """Return client ids that are unquestionably the same person.
 
@@ -5879,21 +5944,12 @@ def api_calendar_create_appointment():
             # canonical record.  This also repairs the case where an older
             # formatted-phone import left duplicate client rows behind.
             student_id = _canonical_client_id(conn, student_id)
+            _overwrite_client_from_booking_form(conn, student_id, payload)
             resource = _staff_booking_resources(
                 conn, student_id, instructor_id, machine_id
             )
             if not str(resource["full_name"] or "").strip():
                 raise ValueError("Client name is required.")
-            entered_phone = _optional_phone(payload.get("client_phone"))
-            if entered_phone and not str(resource["phone"] or "").strip():
-                conn.execute(
-                    """
-                    UPDATE users
-                    SET phone = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ? AND role = 'student'
-                    """,
-                    (entered_phone, student_id),
-                )
             services = _selected_services(
                 conn,
                 resource["branch_id"],
@@ -6195,6 +6251,8 @@ def api_calendar_reschedule_appointment(booking_id):
             )
             machine_id = int(payload.get("machine_id") or booking["machine_id"])
             student_id = int(payload.get("student_id") or booking["student_user_id"])
+            student_id = _canonical_client_id(conn, student_id)
+            _overwrite_client_from_booking_form(conn, student_id, payload)
             resource = _staff_booking_resources(
                 conn,
                 student_id,

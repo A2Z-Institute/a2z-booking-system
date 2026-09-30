@@ -2102,6 +2102,8 @@
       allow_double_booking: false,
       double_booking_confirmed: false,
       notes: editorNotes?.value || "",
+      client_full_name: clientFirstName?.value.trim() || "",
+      client_admission_number: clientLastName?.value.trim() || "",
       client_phone: clientPhone?.value.trim() || "",
       revision: Number(revisionInput.value || 0),
     };
