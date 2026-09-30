@@ -2102,6 +2102,7 @@
       allow_double_booking: false,
       double_booking_confirmed: false,
       notes: editorNotes?.value || "",
+      client_phone: clientPhone?.value.trim() || "",
       revision: Number(revisionInput.value || 0),
     };
   };

@@ -2168,6 +2168,13 @@ def _client_record_identity(record):
     }
 
 
+_VERIFIED_CLIENT_NAME_PHONES = {
+    # Staff-confirmed legacy duplicate: one ATHUL PS record contains the
+    # mobile number while the older appointment record has no number.
+    ("athul ps", "8139832567"),
+}
+
+
 def _client_records_same_person(first, second):
     """Match clients by exact normalized admission number or phone number.
 
@@ -2182,7 +2189,15 @@ def _client_records_same_person(first, second):
         and first_identity["admission"] == second_identity["admission"]
     ):
         return True
-    return bool(first_identity["phones"] & second_identity["phones"])
+    if first_identity["phones"] & second_identity["phones"]:
+        return True
+    if first_identity["name"] != second_identity["name"]:
+        return False
+    combined_phones = first_identity["phones"] | second_identity["phones"]
+    return any(
+        name == first_identity["name"] and phone in combined_phones
+        for name, phone in _VERIFIED_CLIENT_NAME_PHONES
+    )
 
 
 def _client_identity_key(full_name, phone):
@@ -2240,7 +2255,16 @@ def _related_client_ids(conn, client_id):
         return []
     current = dict(current)
     identity = _client_record_identity(current)
-    if not identity["phones"] and not identity["admission"]:
+    verified_name_phone = next(
+        (
+            phone
+            for name, phone in _VERIFIED_CLIENT_NAME_PHONES
+            if name == identity["name"]
+            and (not identity["phones"] or phone in identity["phones"])
+        ),
+        "",
+    )
+    if not identity["phones"] and not identity["admission"] and not verified_name_phone:
         return [client_id]
 
     phone_sql = (
@@ -2270,6 +2294,9 @@ def _related_client_ids(conn, client_id):
             f"({admission_sql} = ? OR {legacy_name_sql} LIKE ?)"
         )
         params.extend((identity["admission"], f"%{identity['admission']}%"))
+    if verified_name_phone:
+        match_clauses.append("lower(trim(COALESCE(u.full_name, ''))) LIKE ?")
+        params.append(f"{identity['name']}%")
     if not match_clauses:
         return [client_id]
 
@@ -5857,9 +5884,15 @@ def api_calendar_create_appointment():
             )
             if not str(resource["full_name"] or "").strip():
                 raise ValueError("Client name is required.")
-            if not str(resource["phone"] or "").strip():
-                raise ValueError(
-                    "Client phone number is required. Update Client Details before booking."
+            entered_phone = _optional_phone(payload.get("client_phone"))
+            if entered_phone and not str(resource["phone"] or "").strip():
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET phone = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND role = 'student'
+                    """,
+                    (entered_phone, student_id),
                 )
             services = _selected_services(
                 conn,
@@ -6171,10 +6204,6 @@ def api_calendar_reschedule_appointment(booking_id):
             if "notes" in payload:
                 if not str(resource["full_name"] or "").strip():
                     raise ValueError("Client name is required.")
-                if not str(resource["phone"] or "").strip():
-                    raise ValueError(
-                        "Client phone number is required. Update Client Details before saving."
-                    )
                 if not str(payload.get("notes") or "").strip():
                     raise ValueError("Appointment notes are required.")
             existing_service_ids = [
