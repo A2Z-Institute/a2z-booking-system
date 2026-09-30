@@ -7441,7 +7441,12 @@ def client_profile_update(client_id):
                 exclude_user_id=client_id,
                 branch_id=existing["branch_id"],
             )
-            if duplicate:
+            # A legacy duplicate may legitimately hold the same phone/email.
+            # Allow renaming/editing one record when that duplicate is already
+            # part of this client's merged identity group.  A newly entered
+            # contact belonging to an unrelated client remains blocked.
+            related_client_ids = set(_related_client_ids(conn, client_id))
+            if duplicate and int(duplicate["id"]) not in related_client_ids:
                 raise DuplicateClientError(duplicate)
 
             profile_payload = {
