@@ -2144,7 +2144,7 @@ def _indian_phone_key(value):
 
 def _client_record_identity(record):
     """Build conservative keys used to present duplicate client rows as one."""
-    clean_name, _ = _booking_client_identity_fields(
+    clean_name, embedded_admission = _booking_client_identity_fields(
         record.get("full_name"), record.get("admission_number")
     )
     phone_keys = {
@@ -2158,7 +2158,13 @@ def _client_record_identity(record):
     return {
         "name": _driving_test_name_key(clean_name),
         "phones": phone_keys,
-        "admission": _driving_test_admission_key(record.get("admission_number")),
+        # Older booking imports kept the admission number at the end of the
+        # client name instead of in client_profiles.  Treat that extracted
+        # value exactly like a stored admission number so every booking and
+        # instructor history row is presented under one client.
+        "admission": _driving_test_admission_key(
+            record.get("admission_number") or embedded_admission
+        ),
     }
 
 
@@ -2256,8 +2262,14 @@ def _related_client_ids(conn, client_id):
             "lower(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(cp.admission_number, ''), "
             "' ', ''), '/', ''), '-', ''), '.', ''))"
         )
-        match_clauses.append(f"{admission_sql} = ?")
-        params.append(identity["admission"])
+        legacy_name_sql = (
+            "lower(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(u.full_name, ''), "
+            "' ', ''), '/', ''), '-', ''), '.', ''), '_', ''))"
+        )
+        match_clauses.append(
+            f"({admission_sql} = ? OR {legacy_name_sql} LIKE ?)"
+        )
+        params.extend((identity["admission"], f"%{identity['admission']}%"))
     if not match_clauses:
         return [client_id]
 
@@ -7268,12 +7280,14 @@ def client_detail(client_id):
             assigned_instructor_ids = [
                 row["instructor_id"]
                 for row in conn.execute(
-                    """
-                    SELECT instructor_id FROM student_instructor_assignments
-                    WHERE student_user_id = ? AND is_active = 1
+                    f"""
+                    SELECT DISTINCT instructor_id
+                    FROM student_instructor_assignments
+                    WHERE student_user_id IN ({related_placeholders})
+                      AND is_active = 1
                     ORDER BY instructor_id
                     """,
-                    (client_id,),
+                    tuple(related_client_ids),
                 ).fetchall()
             ]
     client_record = dict(client)
