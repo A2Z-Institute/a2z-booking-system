@@ -604,14 +604,21 @@ def _driving_test_training_histories(conn, attempts):
     if not attempts:
         return {}
     client_ids = sorted({int(item["client_id"]) for item in attempts})
+    # Build the client identity indexes once. Previously each candidate ran a
+    # separate normalized-phone query across the whole client table, which
+    # made the register increasingly slow as more candidates were imported.
+    client_index = _driving_test_import_phone_index(conn, active_only=False)
     related_by_client = {
-        client_id: _driving_test_related_client_ids(conn, client_id)
+        client_id: _driving_test_related_client_ids_from_index(
+            client_id, client_index
+        )
         for client_id in client_ids
     }
     booking_client_ids = sorted(
         {related_id for related in related_by_client.values() for related_id in related}
     )
     placeholders = ",".join("?" for _ in booking_client_ids)
+    latest_test_date = max(str(item["test_date"]) for item in attempts)
     rows = [
         dict(row)
         for row in conn.execute(
@@ -628,9 +635,10 @@ def _driving_test_training_histories(conn, attempts):
             LEFT JOIN machines m ON m.id = b.machine_id
             WHERE b.student_user_id IN ({placeholders})
               AND b.validation_status IN ('Approved', 'Completed', 'Arrived', 'No Action')
+              AND b.target_date <= ?
             ORDER BY b.target_date, b.start_time, b.id
             """,
-            booking_client_ids,
+            (*booking_client_ids, latest_test_date),
         ).fetchall()
     ]
     by_client = {}
@@ -897,14 +905,15 @@ def _driving_test_duplicate_identity_key(record):
     return (name_key, admission_key) if name_key and admission_key else None
 
 
-def _driving_test_import_phone_index(conn):
-    """Load active clients once so one PDF does not scan all clients per row."""
+def _driving_test_import_phone_index(conn, *, active_only=True):
+    """Load clients once so imports and histories avoid per-client scans."""
     values = []
     scope_clause = ""
     portal_branch_id = _portal_branch_id()
     if portal_branch_id is not None:
         scope_clause = " AND u.branch_id = ?"
         values.append(portal_branch_id)
+    active_clause = " AND u.is_active = 1" if active_only else ""
     rows = conn.execute(
         f"""
         SELECT u.id, u.full_name, u.phone, u.branch_id, br.name AS branch_name,
@@ -912,7 +921,7 @@ def _driving_test_import_phone_index(conn):
         FROM users u
         JOIN branches br ON br.id = u.branch_id
         LEFT JOIN client_profiles cp ON cp.user_id = u.id
-        WHERE u.role = 'student' AND u.is_active = 1 {scope_clause}
+        WHERE u.role = 'student' {active_clause} {scope_clause}
         ORDER BY u.id
         """,
         values,
@@ -8073,7 +8082,6 @@ def admin_driving_tests_import_pdf_confirm():
 def admin_driving_tests():
     if request.method == "POST":
         try:
-            client_id = int(request.form.get("client_id") or 0)
             test_date = _driving_test_date(request.form.get("test_date"))
             test_type = (request.form.get("test_type") or "").strip()
             if test_type not in DRIVING_TEST_TYPES:
@@ -8090,6 +8098,22 @@ def admin_driving_tests():
             assigned_instructor_id = int(request.form.get("assigned_instructor_id") or 0) or None
             with get_db() as conn:
                 conn.execute("BEGIN IMMEDIATE")
+                if request.form.get("create_client") == "1":
+                    client_record = _create_client_record(
+                        conn,
+                        {
+                            "full_name": request.form.get("client_name"),
+                            "phone": request.form.get("new_client_phone"),
+                            "admission_number": request.form.get(
+                                "new_client_admission_number"
+                            ),
+                            "branch_id": request.form.get("new_client_branch_id"),
+                            "preferred_channel": "sms",
+                        },
+                    )
+                    client_id = int(client_record["id"])
+                else:
+                    client_id = int(request.form.get("client_id") or 0)
                 client = _client_access_row(conn, client_id)
                 if not client:
                     raise ValueError("Choose a valid client from your branch.")

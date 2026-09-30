@@ -48,11 +48,33 @@
       <div class="form-grid two-column">
         <div class="field field-span-2 driving-client-picker" data-driving-client-picker data-search-url="{{ url_for('api_calendar_search_clients', driving_test=1) }}">
           <label for="driving-client-search">Candidate</label>
-          <input id="driving-client-search" type="search" autocomplete="off" placeholder="Search name, admission number or phone" data-driving-client-search>
+          <input id="driving-client-search" name="client_name" type="search" autocomplete="off" value="{{ request.form.get('client_name', '') }}" placeholder="Search name, admission number or phone" data-driving-client-search>
           <input type="hidden" name="client_id" required data-driving-client-id>
+          <input type="hidden" name="create_client" value="{{ request.form.get('create_client', '0') }}" data-driving-create-client-mode>
           <div class="driving-client-selection" data-driving-client-selection hidden></div>
           <div class="driving-client-results" data-driving-client-results hidden></div>
-          <small class="field-hint">Select an existing client so training history can be matched accurately.</small>
+          <small class="field-hint">Select an existing client. If no match exists, create the client here.</small>
+        </div>
+        <div class="field-span-2 form-grid two-column driving-new-client-fields" data-driving-new-client-fields {% if request.form.get('create_client') != '1' %}hidden{% endif %}>
+          <div class="field">
+            <label for="driving-new-client-phone">Phone number</label>
+            <input id="driving-new-client-phone" name="new_client_phone" type="tel" maxlength="30" autocomplete="tel" value="{{ request.form.get('new_client_phone', '') }}" {% if request.form.get('create_client') == '1' %}required{% endif %} data-driving-new-client-phone>
+          </div>
+          <div class="field">
+            <label for="driving-new-client-admission">Admission number <span class="text-muted">(optional)</span></label>
+            <input id="driving-new-client-admission" name="new_client_admission_number" maxlength="100" value="{{ request.form.get('new_client_admission_number', '') }}">
+          </div>
+          {% if current_user.is_super_admin %}
+            <div class="field">
+              <label for="driving-new-client-branch">Branch</label>
+              <select id="driving-new-client-branch" name="new_client_branch_id" data-driving-new-client-branch>
+                <option value="">Choose branch</option>
+                {% for branch in branches %}<option value="{{ branch.id }}" {% if request.form.get('new_client_branch_id') == branch.id|string %}selected{% endif %}>{{ branch.name }}</option>{% endfor %}
+              </select>
+            </div>
+          {% else %}
+            <input type="hidden" name="new_client_branch_id" value="{{ current_user.branch_id }}" data-driving-new-client-branch>
+          {% endif %}
         </div>
         <div class="field">
           <label for="driving-test-date">Test date</label>

@@ -5,8 +5,12 @@
   if (picker) {
     const search = picker.querySelector("[data-driving-client-search]");
     const clientId = picker.querySelector("[data-driving-client-id]");
+    const createClientMode = picker.querySelector("[data-driving-create-client-mode]");
     const selection = picker.querySelector("[data-driving-client-selection]");
     const results = picker.querySelector("[data-driving-client-results]");
+    const newClientFields = document.querySelector("[data-driving-new-client-fields]");
+    const newClientPhone = document.querySelector("[data-driving-new-client-phone]");
+    const newClientBranch = document.querySelector("[data-driving-new-client-branch]");
     const instructorSelect = document.querySelector("[data-driving-instructor-select]");
     let searchTimer = null;
     let searchRequest = null;
@@ -22,6 +26,7 @@
 
     const chooseClient = (client) => {
       clientId.value = client.id;
+      createClientMode.value = "0";
       search.value = client.full_name || "";
       search.setCustomValidity("");
       selection.textContent = `${client.full_name}${client.admission_number ? ` · ${client.admission_number}` : ""}${client.phone ? ` · ${client.phone}` : ""}`;
@@ -31,12 +36,34 @@
       filterInstructors(client.branch_id);
     };
 
+    const chooseNewClient = () => {
+      const name = search.value.trim();
+      clientId.value = "";
+      createClientMode.value = "1";
+      search.setCustomValidity("");
+      selection.textContent = `New client · ${name}`;
+      selection.hidden = false;
+      results.hidden = true;
+      results.replaceChildren();
+      if (newClientFields) newClientFields.hidden = false;
+      if (newClientPhone) newClientPhone.required = true;
+      if (newClientBranch instanceof HTMLSelectElement) newClientBranch.required = true;
+      filterInstructors(newClientBranch?.value || "");
+      newClientPhone?.focus();
+    };
+
     const renderResults = (clients) => {
       results.replaceChildren();
       if (!clients.length) {
         const empty = document.createElement("p");
         empty.textContent = "No matching client found.";
         results.append(empty);
+        const createButton = document.createElement("button");
+        createButton.type = "button";
+        createButton.innerHTML = "<strong></strong><span>Create and add to the driving test list</span>";
+        createButton.querySelector("strong").textContent = `+ Create “${search.value.trim()}”`;
+        createButton.addEventListener("click", chooseNewClient);
+        results.append(createButton);
       } else {
         clients.forEach((client) => {
           const button = document.createElement("button");
@@ -53,7 +80,11 @@
 
     search?.addEventListener("input", () => {
       clientId.value = "";
+      createClientMode.value = "0";
       selection.hidden = true;
+      if (newClientFields) newClientFields.hidden = true;
+      if (newClientPhone) newClientPhone.required = false;
+      if (newClientBranch instanceof HTMLSelectElement) newClientBranch.required = false;
       filterInstructors("");
       window.clearTimeout(searchTimer);
       searchRequest?.abort();
@@ -79,8 +110,20 @@
       }, 220);
     });
 
+    newClientBranch?.addEventListener("change", () => {
+      if (createClientMode.value === "1") filterInstructors(newClientBranch.value);
+    });
+
+    if (createClientMode.value === "1") {
+      selection.textContent = `New client · ${search.value.trim()}`;
+      selection.hidden = false;
+      if (newClientPhone) newClientPhone.required = true;
+      if (newClientBranch instanceof HTMLSelectElement) newClientBranch.required = true;
+      filterInstructors(newClientBranch?.value || "");
+    }
+
     picker.closest("form")?.addEventListener("submit", (event) => {
-      if (clientId.value) return;
+      if (clientId.value || createClientMode.value === "1") return;
       event.preventDefault();
       search.setCustomValidity("Select a candidate from the search results.");
       search.reportValidity();
