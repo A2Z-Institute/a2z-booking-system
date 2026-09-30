@@ -803,6 +803,7 @@ _DRIVING_TEST_VERIFIED_NAME_PHONES = {
     ("fredy antony aby", "7907996473"),
     ("abishek n m", "9895133635"),
     ("snajin rs", "8086469733"),
+    ("iqramul haqe n k", "8891506106"),
 }
 
 
