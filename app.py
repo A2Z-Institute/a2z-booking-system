@@ -2169,7 +2169,12 @@ def _client_record_identity(record):
 
 
 def _client_records_same_person(first, second):
-    """Match exact admissions, or normalized phones with compatible names."""
+    """Match clients by exact normalized admission number or phone number.
+
+    Staff use the phone/admission fields as the authoritative client identity.
+    Phone formatting differences (+91, 91, a leading zero, spaces and symbols)
+    are already removed by ``_indian_phone_key``.
+    """
     first_identity = _client_record_identity(first)
     second_identity = _client_record_identity(second)
     if (
@@ -2177,11 +2182,7 @@ def _client_records_same_person(first, second):
         and first_identity["admission"] == second_identity["admission"]
     ):
         return True
-    if not (first_identity["phones"] & second_identity["phones"]):
-        return False
-    return _driving_test_names_compatible(
-        first_identity["name"], second_identity["name"]
-    )
+    return bool(first_identity["phones"] & second_identity["phones"])
 
 
 def _client_identity_key(full_name, phone):
@@ -2222,9 +2223,8 @@ def _related_client_ids(conn, client_id):
     """Return client ids that are unquestionably the same person.
 
     Exact normalized admission numbers match across branches. Phone numbers
-    also ignore +91/91/0 prefixes and formatting, but require compatible names
-    so relatives sharing one contact number are kept separate. Branch logins
-    remain scoped to their own records; Super Admin can see combined history.
+    also ignore +91/91/0 prefixes, spaces and formatting. Branch logins remain
+    scoped to their own records; Super Admin can see combined history.
     """
     current = conn.execute(
         """
@@ -7157,17 +7157,36 @@ def clients_directory():
         for record in client_rows:
             if record["id"] in consumed_ids:
                 continue
-            duplicates = [
-                candidate
-                for candidate in client_rows
-                if candidate["id"] not in consumed_ids
-                and _client_records_same_person(record, candidate)
-            ]
-            if not duplicates:
-                duplicates = [record]
+            # Grow a connected group, rather than comparing only with the
+            # first row.  This safely combines cases where A shares a phone
+            # with B and B shares an admission number with C.
+            duplicates = [record]
+            duplicate_ids = {record["id"]}
+            changed = True
+            while changed:
+                changed = False
+                for candidate in client_rows:
+                    if (
+                        candidate["id"] in consumed_ids
+                        or candidate["id"] in duplicate_ids
+                    ):
+                        continue
+                    if any(
+                        _client_records_same_person(member, candidate)
+                        for member in duplicates
+                    ):
+                        duplicates.append(candidate)
+                        duplicate_ids.add(candidate["id"])
+                        changed = True
             consumed_ids.update(candidate["id"] for candidate in duplicates)
             representative = min(duplicates, key=lambda item: int(item["id"]))
             merged = dict(representative)
+            for field in ("phone", "email", "secondary_phone", "admission_number"):
+                if not merged.get(field):
+                    merged[field] = next(
+                        (item.get(field) for item in duplicates if item.get(field)),
+                        merged.get(field),
+                    )
             merged["appointment_count"] = sum(
                 int(item.get("appointment_count") or 0) for item in duplicates
             )
