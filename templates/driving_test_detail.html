@@ -10,7 +10,16 @@
     <h1>{{ attempt.client_name }}</h1>
     <p>{{ attempt.admission_number|default('No admission number', true) }} · {{ attempt.test_date|friendly_date }} · {{ attempt.test_type }}{% if attempt.application_number %} · Application {{ attempt.application_number }}{% endif %}</p>
   </div>
-  <div class="management-panel-actions"><span class="status-badge status-{{ status_class }}">{{ attempt.result_status }}</span><a class="button button-secondary button-small" href="{{ return_url }}">Back to tests</a><a class="button button-secondary button-small" href="{{ url_for('client_detail', client_id=attempt.client_id) }}">Client record</a></div>
+  <div class="management-panel-actions">
+    <span class="status-badge status-{{ status_class }}">{{ attempt.result_status }}</span>
+    <a class="button button-secondary button-small" href="{{ return_url }}">Back to tests</a>
+    <a class="button button-secondary button-small" href="{{ url_for('client_detail', client_id=attempt.client_id) }}">Client record</a>
+    <form class="inline-form" method="post" action="{{ url_for('admin_driving_test_delete', attempt_id=attempt.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ return_url }}">
+      <button class="button button-danger button-small" type="submit" data-confirm="Delete this incorrect driving test entry for {{ attempt.client_name }}? The client record and all bookings will remain unchanged.">Delete entry</button>
+    </form>
+  </div>
 </header>
 
 <section class="stats-grid driving-test-detail-stats" aria-label="Candidate summary">

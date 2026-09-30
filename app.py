@@ -8411,6 +8411,36 @@ def _driving_test_for_update(conn, attempt_id):
     return rows[0]
 
 
+@app.post("/admin/driving-tests/<int:attempt_id>/delete")
+@role_required("admin")
+def admin_driving_test_delete(attempt_id):
+    return_url = _safe_next_url(request.form.get("next")) or url_for(
+        "admin_driving_tests", _anchor="driving-test-register"
+    )
+    try:
+        with get_db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            attempt = _driving_test_for_update(conn, attempt_id)
+            conn.execute(
+                "DELETE FROM driving_test_candidates WHERE id = ?", (attempt_id,)
+            )
+            _audit(
+                conn,
+                "driving_test_candidate_deleted",
+                details={
+                    "driving_test_id": attempt_id,
+                    "client_id": attempt["client_id"],
+                    "client_name": attempt["client_name"],
+                    "test_date": attempt["test_date"],
+                    "application_number": attempt.get("application_number"),
+                },
+            )
+        flash("Incorrect driving test entry deleted. The client and bookings were not changed.", "success")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc), "error")
+    return redirect(return_url)
+
+
 def _driving_test_detail_return_url(attempt_id):
     return_url = _safe_next_url(request.form.get("next"))
     if return_url:
