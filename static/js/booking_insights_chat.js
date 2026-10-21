@@ -8,12 +8,28 @@
       option.value && (!branchSelect?.value || option.dataset.branchId === branchSelect.value)
     ));
 
-    const rebuildSuggestions = () => {
-      instructorOptions.replaceChildren(...availableOptions().map((option) => {
-        const suggestion = document.createElement("option");
-        suggestion.value = option.textContent.trim();
+    const closeSuggestions = () => {
+      instructorOptions.hidden = true;
+      instructorSearch.setAttribute("aria-expanded", "false");
+    };
+
+    const showSuggestions = (matches) => {
+      instructorOptions.replaceChildren(...matches.slice(0, 12).map((option) => {
+        const suggestion = document.createElement("button");
+        suggestion.type = "button";
+        suggestion.className = "instructor-suggestion";
+        suggestion.setAttribute("role", "option");
+        suggestion.textContent = option.textContent.trim();
+        suggestion.addEventListener("click", () => {
+          instructorSearch.value = option.textContent.trim();
+          instructorSelect.value = option.value;
+          closeSuggestions();
+          instructorSearch.focus();
+        });
         return suggestion;
       }));
+      instructorOptions.hidden = matches.length === 0;
+      instructorSearch.setAttribute("aria-expanded", matches.length ? "true" : "false");
     };
 
     const filterInstructors = () => {
@@ -27,17 +43,24 @@
         || option.textContent.trim().toLocaleLowerCase() === searchText
       ));
       instructorSelect.value = exactMatch?.value || (matches.length === 1 ? matches[0].value : "");
+      if (searchText) showSuggestions(matches);
+      else closeSuggestions();
     };
 
     const initiallySelected = instructorSelect.selectedOptions[0];
     if (initiallySelected?.value) instructorSearch.value = initiallySelected.textContent.trim();
-    rebuildSuggestions();
     branchSelect?.addEventListener("change", () => {
       instructorSearch.value = "";
       instructorSelect.value = "";
-      rebuildSuggestions();
+      closeSuggestions();
     });
-    instructorSearch?.addEventListener("input", filterInstructors);
+    instructorSearch.addEventListener("input", filterInstructors);
+    instructorSearch.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeSuggestions();
+    });
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest(".instructor-search-field")) closeSuggestions();
+    });
   }
 
   const panel = document.querySelector("[data-booking-insights-chat]");

@@ -21,10 +21,10 @@
     {% else %}
       <input type="hidden" name="branch" value="{{ selected_branch }}">
     {% endif %}
-    <label class="field compact-field" for="insights-instructor-search">
+    <label class="field compact-field instructor-search-field" for="insights-instructor-search">
       <span>Instructor</span>
-      <input id="insights-instructor-search" type="search" list="insights-instructor-options" placeholder="All instructors — type to search…" autocomplete="off" aria-label="Search and select instructor">
-      <datalist id="insights-instructor-options"></datalist>
+      <input id="insights-instructor-search" type="search" placeholder="All instructors — type to search…" autocomplete="off" aria-label="Search and select instructor" aria-autocomplete="list" aria-controls="insights-instructor-options" aria-expanded="false">
+      <div id="insights-instructor-options" class="instructor-suggestions" role="listbox" hidden></div>
       <select id="insights-instructor" name="instructor" hidden aria-hidden="true" tabindex="-1">
         <option value="">All instructors</option>
         {% for instructor in instructors %}
@@ -217,5 +217,5 @@
 
 {% block scripts %}
   {{ super() }}
-  <script src="{{ url_for('static', filename='js/booking_insights_chat.js', v='20261021-3') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/booking_insights_chat.js', v='20261021-4') }}" defer></script>
 {% endblock %}

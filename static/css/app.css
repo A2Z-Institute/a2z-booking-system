@@ -624,6 +624,45 @@ h3 {
   max-width: 980px;
 }
 
+.instructor-search-field {
+  position: relative;
+}
+
+.instructor-suggestions {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  width: max(100%, 260px);
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.instructor-suggestion {
+  display: block;
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--ink-900);
+  text-align: left;
+  cursor: pointer;
+}
+
+.instructor-suggestion:last-child {
+  border-bottom: 0;
+}
+
+.instructor-suggestion:hover,
+.instructor-suggestion:focus-visible {
+  background: var(--surface-alt);
+}
+
 .insights-chat-panel {
   margin-top: 1.25rem;
 }
