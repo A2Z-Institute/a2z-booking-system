@@ -23,6 +23,7 @@
     {% endif %}
     <label class="field compact-field" for="insights-instructor">
       <span>Instructor</span>
+      <input id="insights-instructor-search" type="search" placeholder="Search instructor…" autocomplete="off" aria-label="Search instructors">
       <select id="insights-instructor" name="instructor">
         <option value="">All instructors</option>
         {% for instructor in instructors %}
@@ -215,5 +216,5 @@
 
 {% block scripts %}
   {{ super() }}
-  <script src="{{ url_for('static', filename='js/booking_insights_chat.js', v='20261021-1') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/booking_insights_chat.js', v='20261021-2') }}" defer></script>
 {% endblock %}

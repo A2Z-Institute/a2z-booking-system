@@ -1,17 +1,24 @@
 (() => {
   const branchSelect = document.querySelector("#insights-branch");
   const instructorSelect = document.querySelector("#insights-instructor");
-  if (branchSelect && instructorSelect) {
+  const instructorSearch = document.querySelector("#insights-instructor-search");
+  if (instructorSelect) {
     const filterInstructors = () => {
-      const branchId = branchSelect.value;
+      const branchId = branchSelect?.value || "";
+      const searchText = (instructorSearch?.value || "").trim().toLocaleLowerCase();
       Array.from(instructorSelect.options).forEach((option) => {
         if (!option.value) return;
-        option.hidden = Boolean(branchId && option.dataset.branchId !== branchId);
+        const wrongBranch = Boolean(branchId && option.dataset.branchId !== branchId);
+        const wrongName = Boolean(
+          searchText && !option.textContent.toLocaleLowerCase().includes(searchText)
+        );
+        option.hidden = wrongBranch || wrongName;
       });
       const selected = instructorSelect.selectedOptions[0];
       if (selected?.hidden) instructorSelect.value = "";
     };
-    branchSelect.addEventListener("change", filterInstructors);
+    branchSelect?.addEventListener("change", filterInstructors);
+    instructorSearch?.addEventListener("input", filterInstructors);
     filterInstructors();
   }
 
