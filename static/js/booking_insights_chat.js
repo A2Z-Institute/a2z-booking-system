@@ -2,24 +2,42 @@
   const branchSelect = document.querySelector("#insights-branch");
   const instructorSelect = document.querySelector("#insights-instructor");
   const instructorSearch = document.querySelector("#insights-instructor-search");
-  if (instructorSelect) {
+  const instructorOptions = document.querySelector("#insights-instructor-options");
+  if (instructorSelect && instructorSearch && instructorOptions) {
+    const availableOptions = () => Array.from(instructorSelect.options).filter((option) => (
+      option.value && (!branchSelect?.value || option.dataset.branchId === branchSelect.value)
+    ));
+
+    const rebuildSuggestions = () => {
+      instructorOptions.replaceChildren(...availableOptions().map((option) => {
+        const suggestion = document.createElement("option");
+        suggestion.value = option.textContent.trim();
+        return suggestion;
+      }));
+    };
+
     const filterInstructors = () => {
       const branchId = branchSelect?.value || "";
       const searchText = (instructorSearch?.value || "").trim().toLocaleLowerCase();
-      Array.from(instructorSelect.options).forEach((option) => {
-        if (!option.value) return;
-        const wrongBranch = Boolean(branchId && option.dataset.branchId !== branchId);
-        const wrongName = Boolean(
-          searchText && !option.textContent.toLocaleLowerCase().includes(searchText)
-        );
-        option.hidden = wrongBranch || wrongName;
-      });
-      const selected = instructorSelect.selectedOptions[0];
-      if (selected?.hidden) instructorSelect.value = "";
+      const matches = availableOptions().filter((option) => (
+        (option.dataset.name || option.textContent).trim().toLocaleLowerCase().includes(searchText)
+      ));
+      const exactMatch = matches.find((option) => (
+        (option.dataset.name || "").trim().toLocaleLowerCase() === searchText
+        || option.textContent.trim().toLocaleLowerCase() === searchText
+      ));
+      instructorSelect.value = exactMatch?.value || (matches.length === 1 ? matches[0].value : "");
     };
-    branchSelect?.addEventListener("change", filterInstructors);
+
+    const initiallySelected = instructorSelect.selectedOptions[0];
+    if (initiallySelected?.value) instructorSearch.value = initiallySelected.textContent.trim();
+    rebuildSuggestions();
+    branchSelect?.addEventListener("change", () => {
+      instructorSearch.value = "";
+      instructorSelect.value = "";
+      rebuildSuggestions();
+    });
     instructorSearch?.addEventListener("input", filterInstructors);
-    filterInstructors();
   }
 
   const panel = document.querySelector("[data-booking-insights-chat]");

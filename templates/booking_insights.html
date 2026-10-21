@@ -21,13 +21,14 @@
     {% else %}
       <input type="hidden" name="branch" value="{{ selected_branch }}">
     {% endif %}
-    <label class="field compact-field" for="insights-instructor">
+    <label class="field compact-field" for="insights-instructor-search">
       <span>Instructor</span>
-      <input id="insights-instructor-search" type="search" placeholder="Search instructor…" autocomplete="off" aria-label="Search instructors">
-      <select id="insights-instructor" name="instructor">
+      <input id="insights-instructor-search" type="search" list="insights-instructor-options" placeholder="All instructors — type to search…" autocomplete="off" aria-label="Search and select instructor">
+      <datalist id="insights-instructor-options"></datalist>
+      <select id="insights-instructor" name="instructor" hidden aria-hidden="true" tabindex="-1">
         <option value="">All instructors</option>
         {% for instructor in instructors %}
-          <option value="{{ instructor.id }}" data-branch-id="{{ instructor.branch_id }}" {% if selected_instructor|string == instructor.id|string %}selected{% endif %}>{{ instructor.name }}{% if current_user.is_super_admin %} · {{ instructor.branch_name }}{% endif %}</option>
+          <option value="{{ instructor.id }}" data-branch-id="{{ instructor.branch_id }}" data-name="{{ instructor.name }}" {% if selected_instructor|string == instructor.id|string %}selected{% endif %}>{{ instructor.name }}{% if current_user.is_super_admin %} · {{ instructor.branch_name }}{% endif %}</option>
         {% endfor %}
       </select>
     </label>
@@ -216,5 +217,5 @@
 
 {% block scripts %}
   {{ super() }}
-  <script src="{{ url_for('static', filename='js/booking_insights_chat.js', v='20261021-2') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/booking_insights_chat.js', v='20261021-3') }}" defer></script>
 {% endblock %}
