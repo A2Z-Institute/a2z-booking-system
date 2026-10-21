@@ -21,6 +21,15 @@
     {% else %}
       <input type="hidden" name="branch" value="{{ selected_branch }}">
     {% endif %}
+    <label class="field compact-field" for="insights-instructor">
+      <span>Instructor</span>
+      <select id="insights-instructor" name="instructor">
+        <option value="">All instructors</option>
+        {% for instructor in instructors %}
+          <option value="{{ instructor.id }}" data-branch-id="{{ instructor.branch_id }}" {% if selected_instructor|string == instructor.id|string %}selected{% endif %}>{{ instructor.name }}{% if current_user.is_super_admin %} · {{ instructor.branch_name }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label class="field compact-field" for="insights-period">
       <span>Analysis period</span>
       <select id="insights-period" name="days">
@@ -132,6 +141,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="days" value="{{ selected_days }}">
       <input type="hidden" name="branch" value="{{ selected_branch }}">
+      <input type="hidden" name="instructor" value="{{ selected_instructor }}">
       <input type="hidden" name="date_from" value="{{ selected_date_from }}">
       <input type="hidden" name="date_to" value="{{ selected_date_to }}">
       <button class="button button-primary" type="submit" {% if not gemini_ready or not insights.totals.bookings %}disabled{% endif %}>Generate Gemini analysis</button>
@@ -171,6 +181,7 @@
   data-csrf-token="{{ csrf_token() }}"
   data-days="{{ selected_days }}"
   data-branch="{{ selected_branch }}"
+  data-instructor="{{ selected_instructor }}"
   data-date-from="{{ selected_date_from }}"
   data-date-to="{{ selected_date_to }}">
   <div class="section-header">
@@ -204,5 +215,5 @@
 
 {% block scripts %}
   {{ super() }}
-  <script src="{{ url_for('static', filename='js/booking_insights_chat.js', v='20260929-1') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/booking_insights_chat.js', v='20261021-1') }}" defer></script>
 {% endblock %}

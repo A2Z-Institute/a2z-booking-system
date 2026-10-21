@@ -7882,26 +7882,36 @@ def _csv_response(filename, headers, rows):
     return response
 
 
-def _booking_insights_data(conn, days, branch_id=None, start_date=None, end_date=None):
+def _booking_insights_data(
+    conn, days, branch_id=None, start_date=None, end_date=None, instructor_id=None
+):
     """Build anonymous booking statistics; no client fields leave this function."""
     today = datetime.now(IST).date()
     end = end_date or today
     start = start_date or (end - timedelta(days=days - 1))
     period_days = (end - start).days + 1
     previous_start = start - timedelta(days=period_days)
-    booking_branch_clause = " AND branch_id = ?" if branch_id is not None else ""
-    aliased_branch_clause = " AND b.branch_id = ?" if branch_id is not None else ""
-    branch_params = (branch_id,) if branch_id is not None else ()
+    booking_scope_clause = ""
+    aliased_scope_clause = ""
+    scope_params = []
+    if branch_id is not None:
+        booking_scope_clause += " AND branch_id = ?"
+        aliased_scope_clause += " AND b.branch_id = ?"
+        scope_params.append(branch_id)
+    if instructor_id is not None:
+        booking_scope_clause += " AND instructor_id = ?"
+        aliased_scope_clause += " AND b.instructor_id = ?"
+        scope_params.append(instructor_id)
     statuses = {
         row["validation_status"]: row["total"]
         for row in conn.execute(
             """
             SELECT validation_status, count(*) AS total
             FROM bookings WHERE target_date BETWEEN ? AND ?
-            {booking_branch_clause}
+            {booking_scope_clause}
             GROUP BY validation_status
-            """.format(booking_branch_clause=booking_branch_clause),
-            (start.isoformat(), end.isoformat(), *branch_params),
+            """.format(booking_scope_clause=booking_scope_clause),
+            (start.isoformat(), end.isoformat(), *scope_params),
         ).fetchall()
     }
     total = sum(statuses.values())
@@ -7909,9 +7919,9 @@ def _booking_insights_data(conn, days, branch_id=None, start_date=None, end_date
         """
         SELECT count(*) FROM bookings
         WHERE target_date BETWEEN ? AND ?
-        {booking_branch_clause}
-        """.format(booking_branch_clause=booking_branch_clause),
-        (previous_start.isoformat(), (start - timedelta(days=1)).isoformat(), *branch_params),
+        {booking_scope_clause}
+        """.format(booking_scope_clause=booking_scope_clause),
+        (previous_start.isoformat(), (start - timedelta(days=1)).isoformat(), *scope_params),
     ).fetchone()[0]
     services = [
         dict(row)
@@ -7924,13 +7934,13 @@ def _booking_insights_data(conn, days, branch_id=None, start_date=None, end_date
             LEFT JOIN booking_services bs ON bs.booking_id = b.id
             WHERE b.target_date BETWEEN ? AND ?
               AND b.validation_status NOT IN ('Cancelled', 'Rejected')
-              {aliased_branch_clause}
+              {aliased_scope_clause}
             GROUP BY COALESCE(NULLIF(bs.service_name, ''), NULLIF(b.service_name, ''),
                               'Unspecified service')
             ORDER BY bookings DESC, name
             LIMIT 12
-            """.format(aliased_branch_clause=aliased_branch_clause),
-            (start.isoformat(), end.isoformat(), *branch_params),
+            """.format(aliased_scope_clause=aliased_scope_clause),
+            (start.isoformat(), end.isoformat(), *scope_params),
         ).fetchall()
     ]
     equipment = [
@@ -7942,12 +7952,12 @@ def _booking_insights_data(conn, days, branch_id=None, start_date=None, end_date
             FROM bookings b JOIN machines m ON m.id = b.machine_id
             WHERE b.target_date BETWEEN ? AND ?
               AND b.validation_status NOT IN ('Cancelled', 'Rejected')
-              {aliased_branch_clause}
+              {aliased_scope_clause}
             GROUP BY COALESCE(NULLIF(m.category, ''), m.machine_code)
             ORDER BY bookings DESC, name
             LIMIT 10
-            """.format(aliased_branch_clause=aliased_branch_clause),
-            (start.isoformat(), end.isoformat(), *branch_params),
+            """.format(aliased_scope_clause=aliased_scope_clause),
+            (start.isoformat(), end.isoformat(), *scope_params),
         ).fetchall()
     ]
     instructors = [
@@ -7958,10 +7968,10 @@ def _booking_insights_data(conn, days, branch_id=None, start_date=None, end_date
             FROM bookings b JOIN instructors i ON i.id = b.instructor_id
             WHERE b.target_date BETWEEN ? AND ?
               AND b.validation_status NOT IN ('Cancelled', 'Rejected')
-              {aliased_branch_clause}
+              {aliased_scope_clause}
             GROUP BY i.id, i.name ORDER BY bookings DESC, i.name LIMIT 10
-            """.format(aliased_branch_clause=aliased_branch_clause),
-            (start.isoformat(), end.isoformat(), *branch_params),
+            """.format(aliased_scope_clause=aliased_scope_clause),
+            (start.isoformat(), end.isoformat(), *scope_params),
         ).fetchall()
     ]
     # Keep this query database-neutral. Imported PostgreSQL dates are stored as
@@ -7972,10 +7982,10 @@ def _booking_insights_data(conn, days, branch_id=None, start_date=None, end_date
         SELECT target_date, count(*) AS bookings
         FROM bookings WHERE target_date BETWEEN ? AND ?
           AND validation_status NOT IN ('Cancelled', 'Rejected')
-          {booking_branch_clause}
+          {booking_scope_clause}
         GROUP BY target_date
-        """.format(booking_branch_clause=booking_branch_clause),
-        (start.isoformat(), end.isoformat(), *branch_params),
+        """.format(booking_scope_clause=booking_scope_clause),
+        (start.isoformat(), end.isoformat(), *scope_params),
     ).fetchall()
     weekday_totals = {index: 0 for index in range(7)}
     for row in weekday_rows:
@@ -8002,10 +8012,10 @@ def _booking_insights_data(conn, days, branch_id=None, start_date=None, end_date
                count(*) AS bookings
         FROM bookings WHERE target_date BETWEEN ? AND ?
           AND validation_status NOT IN ('Cancelled', 'Rejected')
-          {booking_branch_clause}
+          {booking_scope_clause}
         GROUP BY hour ORDER BY bookings DESC, hour LIMIT 8
-        """.format(booking_branch_clause=booking_branch_clause),
-        (start.isoformat(), end.isoformat(), *branch_params),
+        """.format(booking_scope_clause=booking_scope_clause),
+        (start.isoformat(), end.isoformat(), *scope_params),
     ).fetchall()
     hours = [
         {"name": f"{(int(row['hour']) % 12) or 12}:00 {'am' if int(row['hour']) < 12 else 'pm'}", "hour": int(row["hour"]), "bookings": row["bookings"]}
@@ -8015,9 +8025,9 @@ def _booking_insights_data(conn, days, branch_id=None, start_date=None, end_date
         """
         SELECT count(DISTINCT student_user_id) FROM bookings
         WHERE target_date BETWEEN ? AND ?
-        {booking_branch_clause}
-        """.format(booking_branch_clause=booking_branch_clause),
-        (start.isoformat(), end.isoformat(), *branch_params),
+        {booking_scope_clause}
+        """.format(booking_scope_clause=booking_scope_clause),
+        (start.isoformat(), end.isoformat(), *scope_params),
     ).fetchone()[0]
     return {
         "period": {
@@ -8875,6 +8885,12 @@ def admin_booking_insights():
             selected_branch_id = None
     else:
         selected_branch_id = portal_branch_id
+    selected_instructor = (request.values.get("instructor") or "").strip()
+    try:
+        selected_instructor_id = int(selected_instructor) if selected_instructor else None
+    except (TypeError, ValueError):
+        selected_instructor = ""
+        selected_instructor_id = None
     analysis = None
     with get_db() as conn:
         if selected_branch_id is not None:
@@ -8884,8 +8900,48 @@ def admin_booking_insights():
             if not branch_exists:
                 selected_branch = ""
                 selected_branch_id = None if portal_branch_id is None else portal_branch_id
+        instructor_params = []
+        instructor_where = ""
+        if portal_branch_id is not None:
+            instructor_where = "WHERE i.branch_id = ?"
+            instructor_params.append(portal_branch_id)
+        instructors = [
+            dict(row)
+            for row in conn.execute(
+                f"""
+                SELECT i.id, i.name, i.branch_id, br.name AS branch_name
+                FROM instructors i
+                JOIN branches br ON br.id = i.branch_id
+                {instructor_where}
+                ORDER BY i.is_active DESC, i.name, br.name
+                """,
+                instructor_params,
+            ).fetchall()
+        ]
+        allowed_instructor_ids = {int(item["id"]) for item in instructors}
+        if (
+            selected_instructor_id is not None
+            and (
+                selected_instructor_id not in allowed_instructor_ids
+                or (
+                    selected_branch_id is not None
+                    and next(
+                        int(item["branch_id"])
+                        for item in instructors
+                        if int(item["id"]) == selected_instructor_id
+                    ) != int(selected_branch_id)
+                )
+            )
+        ):
+            selected_instructor = ""
+            selected_instructor_id = None
         insights = _booking_insights_data(
-            conn, days, selected_branch_id, custom_start, custom_end
+            conn,
+            days,
+            selected_branch_id,
+            custom_start,
+            custom_end,
+            selected_instructor_id,
         )
         if portal_branch_id is None:
             branches = [
@@ -8910,6 +8966,7 @@ def admin_booking_insights():
                     details={
                         "days": insights["period"]["days"],
                         "branch_id": selected_branch_id,
+                        "instructor_id": selected_instructor_id,
                         "aggregate_only": True,
                     },
                 )
@@ -8925,9 +8982,11 @@ def admin_booking_insights():
         openai_chat_ready=openai_chat_configured(),
         selected_days=days,
         selected_branch=selected_branch,
+        selected_instructor=selected_instructor,
         selected_date_from=selected_start,
         selected_date_to=selected_end,
         branches=branches,
+        instructors=instructors,
         booking_change=change,
         cancellation_rate=round(insights["totals"]["cancelled"] * 100 / total, 1),
         no_show_rate=round(insights["totals"]["no_show"] * 100 / total, 1),
@@ -8951,6 +9010,12 @@ def admin_booking_insights_chat():
             branch_id = int(payload["branch"])
         except (TypeError, ValueError):
             return jsonify({"error": "Choose a valid branch."}), 400
+    instructor_id = None
+    if str(payload.get("instructor") or "").strip():
+        try:
+            instructor_id = int(payload["instructor"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "Choose a valid instructor."}), 400
     start_date = None
     end_date = None
     raw_start = str(payload.get("date_from") or "").strip()
@@ -8969,7 +9034,17 @@ def admin_booking_insights_chat():
             "SELECT 1 FROM branches WHERE id = ?", (branch_id,)
         ).fetchone():
             return jsonify({"error": "Choose a valid branch."}), 400
-        insights = _booking_insights_data(conn, days, branch_id, start_date, end_date)
+        if instructor_id is not None:
+            instructor = conn.execute(
+                "SELECT branch_id FROM instructors WHERE id = ?", (instructor_id,)
+            ).fetchone()
+            if not instructor or (
+                branch_id is not None and int(instructor["branch_id"]) != int(branch_id)
+            ):
+                return jsonify({"error": "Choose a valid instructor."}), 400
+        insights = _booking_insights_data(
+            conn, days, branch_id, start_date, end_date, instructor_id
+        )
         try:
             answer = generate_openai_booking_chat(
                 insights,
@@ -8984,6 +9059,7 @@ def admin_booking_insights_chat():
             details={
                 "days": insights["period"]["days"],
                 "branch_id": branch_id,
+                "instructor_id": instructor_id,
                 "aggregate_only": True,
             },
         )

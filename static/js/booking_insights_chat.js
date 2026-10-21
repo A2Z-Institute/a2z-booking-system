@@ -1,4 +1,20 @@
 (() => {
+  const branchSelect = document.querySelector("#insights-branch");
+  const instructorSelect = document.querySelector("#insights-instructor");
+  if (branchSelect && instructorSelect) {
+    const filterInstructors = () => {
+      const branchId = branchSelect.value;
+      Array.from(instructorSelect.options).forEach((option) => {
+        if (!option.value) return;
+        option.hidden = Boolean(branchId && option.dataset.branchId !== branchId);
+      });
+      const selected = instructorSelect.selectedOptions[0];
+      if (selected?.hidden) instructorSelect.value = "";
+    };
+    branchSelect.addEventListener("change", filterInstructors);
+    filterInstructors();
+  }
+
   const panel = document.querySelector("[data-booking-insights-chat]");
   if (!panel) return;
   const form = panel.querySelector("[data-chat-form]");
@@ -7,7 +23,7 @@
   const messages = panel.querySelector("[data-chat-messages]");
   const submit = panel.querySelector("[data-chat-submit]");
   const status = panel.querySelector("[data-chat-status]");
-  const storageKey = `a2z-booking-chat:${panel.dataset.branch}:${panel.dataset.dateFrom}:${panel.dataset.dateTo}:${panel.dataset.days}`;
+  const storageKey = `a2z-booking-chat:${panel.dataset.branch}:${panel.dataset.instructor}:${panel.dataset.dateFrom}:${panel.dataset.dateTo}:${panel.dataset.days}`;
   let history = [];
 
   const appendMessage = (role, content) => {
@@ -68,6 +84,7 @@
           history: history.slice(-6),
           days: panel.dataset.days,
           branch: panel.dataset.branch,
+          instructor: panel.dataset.instructor,
           date_from: panel.dataset.dateFrom,
           date_to: panel.dataset.dateTo,
         }),
