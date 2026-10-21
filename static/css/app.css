@@ -116,6 +116,10 @@ a:hover {
   margin-inline: auto;
 }
 
+.container.container-full-width {
+  width: calc(100% - 2rem);
+}
+
 .sr-only {
   position: absolute !important;
   width: 1px !important;
@@ -2972,6 +2976,10 @@ textarea:focus {
 @media (min-width: 560px) {
   .container {
     width: min(100% - 3rem, var(--container));
+  }
+
+  .container.container-full-width {
+    width: calc(100% - 3rem);
   }
 
   .site-nav {
