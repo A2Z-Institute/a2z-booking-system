@@ -1,8 +1,6 @@
 {% extends "base.html" %}
 
 {% block title %}Branches &amp; equipment{% endblock %}
-{% block main_container_class %}container-full-width{% endblock %}
-
 {% block content %}
 {% set branch_list = branches|default([], true) %}
 {% set equipment_list = machines|default([], true) %}

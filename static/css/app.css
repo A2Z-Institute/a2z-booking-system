@@ -3925,6 +3925,12 @@ body {
   grid-row: 1;
 }
 
+.driving-test-mobile-result {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
 .driving-import-client-picker {
   min-width: 260px;
 }
@@ -3969,6 +3975,52 @@ body {
 
   .driving-test-edit-grid .section-body {
     padding: 0.8rem;
+  }
+}
+
+@media (max-width: 559px) {
+  .page-heading .page-actions,
+  .standalone-management-header .management-panel-actions,
+  .record-card .action-row {
+    width: 100%;
+  }
+
+  .page-heading .page-actions > *,
+  .standalone-management-header .management-panel-actions > *,
+  .record-card .action-row > *,
+  .record-card .action-row .button {
+    width: 100%;
+  }
+
+  .record-card-header {
+    flex-direction: column;
+  }
+
+  .record-card-header .status-badge {
+    align-self: flex-start;
+  }
+
+  .meta-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .meta-grid .field-span-2 {
+    grid-column: auto;
+  }
+
+  .driving-test-stats,
+  .driving-test-detail-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .driving-test-mobile-result {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .driving-quick-failed-sections[open] fieldset {
+    width: min(310px, calc(100vw - 4rem));
   }
 }
 

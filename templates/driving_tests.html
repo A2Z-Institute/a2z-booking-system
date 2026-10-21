@@ -138,7 +138,7 @@
     <div class="filter-actions"><button class="button button-primary button-small" type="submit">Apply</button><a class="button button-secondary button-small" href="{{ url_for('admin_driving_tests') }}">Clear</a></div>
   </form>
   {% if attempts %}
-    <div class="table-scroll">
+    <div class="table-scroll desktop-only">
       <table class="data-table driving-test-table">
         <thead><tr><th class="driving-test-row-number">No.</th><th>Test date</th><th>Candidate</th><th>Course</th><th>Result</th><th>Training instructors</th><th>Review</th><th></th></tr></thead>
         <tbody>
@@ -176,6 +176,50 @@
           {% endfor %}
         </tbody>
       </table>
+    </div>
+    <div class="mobile-record-list driving-test-mobile-list">
+      {% for attempt in attempts %}
+        {% set status_class = 'approved' if attempt.result_status == 'Passed' else 'rejected' if attempt.result_status == 'Failed' else 'unknown' if attempt.result_status == 'Absent' else 'pending' %}
+        <article class="record-card driving-test-mobile-card" id="driving-test-mobile-{{ attempt.id }}">
+          <div class="record-card-header">
+            <div>
+              <div class="record-card-title">{{ loop.index }}. {{ attempt.client_name }}</div>
+              <p class="record-card-subtitle">{{ attempt.admission_number|default('No admission number', true) }} · {{ attempt.client_phone|default('No phone', true) }}</p>
+            </div>
+            <span class="status-badge status-{{ status_class }}">{{ attempt.result_status }}</span>
+          </div>
+          <dl class="meta-grid">
+            <div><dt>Test date</dt><dd>{{ attempt.test_date|friendly_date }} · {{ attempt.test_type }}</dd></div>
+            <div><dt>Course</dt><dd>{{ attempt.course_name|default('Not recorded', true) }}</dd></div>
+            <div><dt>Branch</dt><dd>{{ attempt.branch_name }}</dd></div>
+            <div><dt>Training instructors</dt><dd>{{ attempt.training_instructor_names }}</dd></div>
+            <div class="field-span-2"><dt>Training history</dt><dd>{{ attempt.training_sessions }} sessions · {{ (attempt.training_minutes / 60)|round(1) }} hours{% if attempt.matched_client_count > 1 %} · {{ attempt.matched_client_count }} matching client records combined{% endif %}</dd></div>
+            {% if attempt.application_number %}<div><dt>Application</dt><dd>{{ attempt.application_number }}</dd></div>{% endif %}
+            {% if attempt.result_status == 'Failed' and attempt.failed_section %}<div><dt>Failed sections</dt><dd>{{ attempt.failed_section }}</dd></div>{% endif %}
+          </dl>
+          <form class="driving-test-quick-result driving-test-mobile-result" method="post" action="{{ url_for('admin_driving_test_quick_result_update', attempt_id=attempt.id) }}" data-driving-quick-result-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="next" value="{{ request.full_path }}#driving-test-mobile-{{ attempt.id }}">
+            <label class="sr-only" for="mobile-quick-result-{{ attempt.id }}">Result status for {{ attempt.client_name }}</label>
+            <select id="mobile-quick-result-{{ attempt.id }}" name="result_status" data-driving-quick-result-status>
+              {% for status in statuses %}<option value="{{ status }}" {% if attempt.result_status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}
+            </select>
+            {% set selected_failed_sections = (attempt.failed_section or '').replace(' ', '').split(',') %}
+            <details class="driving-quick-failed-sections" data-driving-quick-failed-sections>
+              <summary data-driving-failed-summary>Failed sections</summary>
+              <fieldset>
+                <legend class="sr-only">Failed sections for {{ attempt.client_name }}</legend>
+                {% for section in failed_sections %}<label><input type="checkbox" name="failed_sections" value="{{ section }}" {% if section in selected_failed_sections %}checked{% endif %}><span>{{ section }}</span></label>{% endfor %}
+              </fieldset>
+            </details>
+            <button class="button button-primary button-small" type="submit">Update</button>
+          </form>
+          <p class="cell-detail">{{ attempt.responsibility_status }}{% if attempt.responsible_instructor_name %} · {{ attempt.responsible_instructor_name }}{% endif %}</p>
+          <div class="action-row">
+            <a class="button button-secondary button-small" href="{{ url_for('admin_driving_test_detail', attempt_id=attempt.id, next=request.full_path ~ '#driving-test-mobile-' ~ attempt.id) }}">Open full review</a>
+          </div>
+        </article>
+      {% endfor %}
     </div>
   {% else %}
     <div class="empty-state"><div class="empty-illustration" aria-hidden="true">✓</div><h3>No test candidates found</h3><p>Register a candidate or clear the filters to view earlier results.</p></div>
