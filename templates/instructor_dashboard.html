@@ -141,7 +141,7 @@
                     <form action="{{ url_for('booking_attendance', booking_id=booking.id) }}" method="post">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                       <input type="hidden" name="status" value="no-show">
-                      <button class="button button-danger button-small" type="submit" data-confirm="Record this student as a no-show?">No-show</button>
+                      <button class="button button-danger button-small" type="submit" data-confirm="Record this customer as absent?">Absent</button>
                     </form>
                   </div>
                 {% endif %}

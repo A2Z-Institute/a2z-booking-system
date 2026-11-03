@@ -110,7 +110,7 @@
       <label for="status-filter">Status</label>
       <select id="status-filter" name="status">
         <option value="">All statuses</option>
-        {% for value, label in [('pending', 'Pending'), ('approved', 'Approved'), ('rejected', 'Declined'), ('cancelled', 'Cancelled'), ('completed', 'Completed'), ('no-show', 'No-show')] %}
+        {% for value, label in [('approved', 'Confirmed'), ('completed', 'Completed'), ('no-show', 'Absent'), ('running-late', 'Running Late')] %}
           <option value="{{ value }}" {% if active_filters.status|default('') == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
@@ -158,6 +158,7 @@
             {% for booking in booking_list %}
               {% set status = booking.status|default(booking.validation_status|default('pending')) %}
               {% set status_key = status|lower|replace(' ', '-') %}
+              {% set display_status = 'Confirmed' if status == 'Approved' else ('Absent' if status == 'No-show' else status) %}
               <tr>
                 <td>
                   <span class="cell-title">{{ booking.student_name|default('Student') }}</span>
@@ -170,7 +171,7 @@
                 </td>
                 <td>{{ booking.instructor_name|default('Unassigned') }}</td>
                 <td>{{ booking.branch_name|default('—') }}</td>
-                <td><span class="status-badge status-{{ status_key }}">{{ status }}</span></td>
+                <td><span class="status-badge status-{{ status_key }}">{{ display_status }}</span></td>
                 <td>
                   {% if status_key == 'pending' %}
                     <div class="table-actions">
@@ -192,7 +193,7 @@
                         </form>
                       </details>
                     </div>
-                  {% elif status_key in ['approved', 'confirmed'] %}
+                  {% elif status_key in ['approved', 'confirmed', 'running-late'] %}
                     <div class="table-actions">
                       {% if booking.target_date < today or (booking.target_date == today and booking.end_time <= current_time) %}
                         <form class="inline-form" action="{{ url_for('booking_attendance', booking_id=booking.id) }}" method="post">
@@ -203,7 +204,7 @@
                         <form class="inline-form" action="{{ url_for('booking_attendance', booking_id=booking.id) }}" method="post">
                           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                           <input type="hidden" name="status" value="no-show">
-                          <button class="button button-danger button-small" type="submit" data-confirm="Record a no-show for booking #{{ booking.id }}?">No-show</button>
+                          <button class="button button-danger button-small" type="submit" data-confirm="Record this customer as absent for booking #{{ booking.id }}?">Absent</button>
                         </form>
                       {% endif %}
                       <form class="inline-form" action="{{ url_for('cancel_booking', booking_id=booking.id) }}" method="post">
@@ -226,13 +227,14 @@
       {% for booking in booking_list %}
         {% set status = booking.status|default(booking.validation_status|default('pending')) %}
         {% set status_key = status|lower|replace(' ', '-') %}
+        {% set display_status = 'Confirmed' if status == 'Approved' else ('Absent' if status == 'No-show' else status) %}
         <article class="record-card">
           <div class="record-card-header">
             <div>
               <div class="record-card-title">{{ booking.student_name|default('Student') }}</div>
               <p class="record-card-subtitle">Booking #{{ booking.id }}</p>
             </div>
-            <span class="status-badge status-{{ status_key }}">{{ status }}</span>
+            <span class="status-badge status-{{ status_key }}">{{ display_status }}</span>
           </div>
           <dl class="meta-grid">
             <div>
@@ -276,7 +278,7 @@
                 </form>
               </details>
             </div>
-          {% elif status_key in ['approved', 'confirmed'] %}
+          {% elif status_key in ['approved', 'confirmed', 'running-late'] %}
             <div class="action-row">
               {% if booking.target_date < today or (booking.target_date == today and booking.end_time <= current_time) %}
                 <form action="{{ url_for('booking_attendance', booking_id=booking.id) }}" method="post">
@@ -287,7 +289,7 @@
                 <form action="{{ url_for('booking_attendance', booking_id=booking.id) }}" method="post">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="status" value="no-show">
-                  <button class="button button-danger button-small" type="submit" data-confirm="Record a no-show for booking #{{ booking.id }}?">No-show</button>
+                  <button class="button button-danger button-small" type="submit" data-confirm="Record this customer as absent for booking #{{ booking.id }}?">Absent</button>
                 </form>
               {% endif %}
               <form action="{{ url_for('cancel_booking', booking_id=booking.id) }}" method="post">

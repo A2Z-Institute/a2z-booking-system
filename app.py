@@ -85,6 +85,7 @@ DEFAULT_STAFF_BREAKS = (
     ("tea", "Tea Break", "16:30", "17:00"),
 )
 FINAL_BOOKING_STATUSES = ("Rejected", "Cancelled", "Completed", "No-show")
+VISIBLE_BOOKING_STATUSES = {"Approved", "Completed", "No-show", "Running Late"}
 DRIVING_TEST_STATUSES = ("Pending", "Passed", "Failed", "Absent", "Postponed")
 DRIVING_TEST_FAILED_SECTIONS = (
     "LMV", "MCY", "TRANS", "TRANS T", "TRANS R", "TR", "TR L", "TR R",
@@ -2409,6 +2410,34 @@ def _canonical_client_id(conn, client_id):
         (*related, current["branch_id"]),
     ).fetchone()
     return same_branch["id"] if same_branch else client_id
+
+
+def _client_absence_summary(conn, client_id):
+    """Return retained absence history for one logical client.
+
+    Duplicate records matched by the existing phone/admission-number rules are
+    counted together. Historical bookings remain untouched; the booking UI
+    presents the stored ``No-show`` status as ``Absent``.
+    """
+    related_ids = _related_client_ids(conn, client_id) or [client_id]
+    placeholders = ",".join("?" for _ in related_ids)
+    rows = conn.execute(
+        f"""
+        SELECT target_date
+        FROM bookings
+        WHERE student_user_id IN ({placeholders})
+          AND validation_status = 'No-show'
+        ORDER BY target_date DESC, start_time DESC, id DESC
+        """,
+        tuple(related_ids),
+    ).fetchall()
+    count = len(rows)
+    return {
+        "absence_count": count,
+        "absence_limit": 3,
+        "absence_action_required": count >= 3,
+        "latest_absence_dates": [str(row["target_date"]) for row in rows[:3]],
+    }
 
 
 def _client_contact_values(payload):
@@ -4803,10 +4832,13 @@ def api_calendar_events():
     status_lookup = {
         "pending": "Pending",
         "approved": "Approved",
+        "confirmed": "Approved",
         "rejected": "Rejected",
         "cancelled": "Cancelled",
         "completed": "Completed",
         "no-show": "No-show",
+        "running-late": "Running Late",
+        "absent": "No-show",
         "no-action": "No Action",
     }
     requested_status = (
@@ -5912,28 +5944,12 @@ def api_calendar_create_appointment():
         start_minutes = _time_to_minutes(start_time)
         service_ids = _parse_service_ids(payload.get("service_ids"))
         requested_status = str(payload.get("status") or "Approved").strip()
-        allowed_statuses = {
-            "Pending",
-            "Approved",
-            "Not Confirmed",
-            "Rejected",
-            "Completed",
-            "No-show",
-            "Running Late",
-            "Arrived",
-            "Rescheduled",
-            "Cancelled",
-            "No Action",
-        }
+        allowed_statuses = VISIBLE_BOOKING_STATUSES
         if requested_status not in allowed_statuses:
             raise ValueError("Choose a valid appointment status.")
-        if current_user.role == "instructor" and requested_status not in {
-            "Approved",
-            "Pending",
-            "Completed",
-        }:
+        if current_user.role == "instructor" and requested_status not in VISIBLE_BOOKING_STATUSES:
             raise ValueError(
-                "Instructors may create appointments only as Confirmed, Pending, or Completed."
+                "Choose Confirmed, Completed, Absent, or Running Late."
             )
         dates, repeat_rule = _repeat_dates(
             target, payload.get("repeat"), payload.get("repeat_count")
@@ -6310,28 +6326,12 @@ def api_calendar_reschedule_appointment(booking_id):
             next_status = str(
                 payload.get("status") or booking["validation_status"]
             ).strip()
-            allowed_statuses = {
-                "Pending",
-                "Approved",
-                "Not Confirmed",
-                "Rejected",
-                "Completed",
-                "No-show",
-                "Running Late",
-                "Arrived",
-                "Rescheduled",
-                "Cancelled",
-                "No Action",
-            }
+            allowed_statuses = VISIBLE_BOOKING_STATUSES
             if next_status not in allowed_statuses:
                 raise ValueError("Choose a valid appointment status.")
-            if current_user.role == "instructor" and next_status not in {
-                booking["validation_status"],
-                "Pending",
-                "Completed",
-            }:
+            if current_user.role == "instructor" and next_status not in VISIBLE_BOOKING_STATUSES:
                 raise ValueError(
-                    "Instructors may update appointment status only to Pending or Completed."
+                    "Choose Confirmed, Completed, Absent, or Running Late."
                 )
             _assert_active_appointment_not_past(
                 target,
@@ -6721,9 +6721,9 @@ def api_calendar_instructor_status(booking_id):
     """Allow an instructor to update only the appointment status dropdown."""
     payload = request.get_json(silent=True) or {}
     next_status = str(payload.get("status") or "").strip()
-    if next_status not in {"No Action", "Pending", "Completed"}:
+    if next_status not in VISIBLE_BOOKING_STATUSES:
         return jsonify(
-            {"error": "Instructors may select No Action, Pending, or Completed."}
+            {"error": "Choose Confirmed, Completed, Absent, or Running Late."}
         ), 400
     try:
         revision = int(payload.get("revision"))
@@ -7067,6 +7067,7 @@ def api_calendar_search_clients():
             record["full_name"], record["admission_number"] = _booking_client_identity_fields(
                 record.get("full_name"), record.get("admission_number")
             )
+            record.update(_client_absence_summary(conn, canonical_id))
             if not current_user.has_permission("contact_details"):
                 phone = record.get("phone") or ""
                 email = record.get("email") or ""
@@ -11041,13 +11042,13 @@ def booking_decision(booking_id):
 
 
 @app.post("/bookings/<int:booking_id>/attendance")
-@role_required("admin")
+@role_required("admin", "instructor")
 def booking_attendance(booking_id):
     status = (request.form.get("status") or "").strip().lower()
-    status_map = {"completed": "Completed", "no-show": "No-show"}
+    status_map = {"completed": "Completed", "absent": "No-show", "no-show": "No-show"}
     next_status = status_map.get(status)
     if not next_status:
-        abort(400, description="Choose completed or no-show.")
+        abort(400, description="Choose completed or absent.")
     now = datetime.now(IST)
     today = now.date().isoformat()
     with get_db() as conn:
@@ -11058,8 +11059,8 @@ def booking_attendance(booking_id):
         _require_branch_access(booking["branch_id"])
         if current_user.role == "instructor" and booking["instructor_id"] != current_user.instructor_id:
             abort(403)
-        if booking["validation_status"] != "Approved" or booking["target_date"] > today:
-            flash("Attendance can only be recorded for an approved session on or before today.", "warning")
+        if booking["validation_status"] not in {"Approved", "Running Late"} or booking["target_date"] > today:
+            flash("Attendance can only be recorded for a confirmed session on or before today.", "warning")
             return redirect(_role_home())
         if booking["target_date"] == today:
             session_end = datetime.combine(
@@ -11080,7 +11081,12 @@ def booking_attendance(booking_id):
         )
         _cancel_queued_booking_notifications(conn, booking_id)
         _audit(conn, "attendance_recorded", booking_id, {"status": next_status})
-    flash(f"Attendance recorded as {next_status.lower()}.", "success")
+    flash(
+        "Attendance recorded as absent."
+        if next_status == "No-show"
+        else "Attendance recorded as completed.",
+        "success",
+    )
     return redirect(_role_home())
 
 
@@ -11116,6 +11122,7 @@ def admin_dashboard():
         "cancelled": "Cancelled",
         "completed": "Completed",
         "no-show": "No-show",
+        "running-late": "Running Late",
     }
     if selected_status in status_values:
         clauses.append("b.validation_status = ?")
@@ -11313,6 +11320,7 @@ def admin_bookings_export():
         "cancelled": "Cancelled",
         "completed": "Completed",
         "no-show": "No-show",
+        "running-late": "Running Late",
     }
     if selected_status in status_values:
         clauses.append("b.validation_status = ?")

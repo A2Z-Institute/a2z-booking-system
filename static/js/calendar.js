@@ -54,6 +54,7 @@
   const clientEmail = editor.querySelector("[data-new-client-email]");
   const clientTypeahead = editor.querySelector("[data-client-typeahead]");
   const clientTypeaheadResults = editor.querySelector("[data-client-typeahead-results]");
+  const clientAbsenceAlert = editor.querySelector("[data-client-absence-alert]");
   const clientContactInputs = [clientFirstName, clientLastName, clientPhone, clientEmail]
     .filter((input) => input instanceof HTMLInputElement);
 
@@ -133,6 +134,7 @@
   let clientSearchTimer;
   let clientSearchRequest;
   let fillingClient = false;
+  let selectedClientAbsenceCount = 0;
   let servicePickerSnapshot = [];
   let resetHorizontalScroll = false;
   let restoreHorizontalScroll = true;
@@ -338,6 +340,46 @@
     if (clientTypeaheadResults) clientTypeaheadResults.replaceChildren();
   };
 
+  const clearClientAbsenceAlert = () => {
+    selectedClientAbsenceCount = 0;
+    if (!clientAbsenceAlert) return;
+    clientAbsenceAlert.hidden = true;
+    clientAbsenceAlert.className = "client-absence-alert field-span-all";
+    clientAbsenceAlert.replaceChildren();
+  };
+
+  const showClientAbsenceAlert = (client) => {
+    selectedClientAbsenceCount = Math.max(0, Number(client?.absence_count || 0));
+    if (!clientAbsenceAlert) return;
+    const limit = Math.max(1, Number(client?.absence_limit || 3));
+    const dates = Array.isArray(client?.latest_absence_dates)
+      ? client.latest_absence_dates.filter(Boolean)
+      : [];
+    clientAbsenceAlert.replaceChildren();
+    const strong = document.createElement("strong");
+    const detail = document.createElement("span");
+    if (selectedClientAbsenceCount >= limit) {
+      clientAbsenceAlert.classList.add("is-action-required");
+      strong.textContent = `Action required · ${selectedClientAbsenceCount} absences recorded`;
+      detail.textContent = "The customer has reached the company limit of 3 absences. Check the fine/action before confirming another class.";
+    } else if (selectedClientAbsenceCount > 0) {
+      clientAbsenceAlert.classList.add("is-warning");
+      strong.textContent = `${selectedClientAbsenceCount} of ${limit} absences recorded`;
+      detail.textContent = `${limit - selectedClientAbsenceCount} more absence${limit - selectedClientAbsenceCount === 1 ? "" : "s"} before action is required.`;
+    } else {
+      clientAbsenceAlert.classList.add("is-clear");
+      strong.textContent = "No previous absences";
+      detail.textContent = "This customer has no recorded absent classes.";
+    }
+    clientAbsenceAlert.append(strong, detail);
+    if (dates.length) {
+      const history = document.createElement("small");
+      history.textContent = `Latest absent class${dates.length === 1 ? "" : "es"}: ${dates.join(", ")}`;
+      clientAbsenceAlert.append(history);
+    }
+    clientAbsenceAlert.hidden = false;
+  };
+
   const selectClientMatch = (client) => {
     fillingClient = true;
     if (clientFirstName) clientFirstName.value = client.full_name || "";
@@ -357,6 +399,7 @@
     clientInput.value = String(client.id);
     fillingClient = false;
     hideClientMatches();
+    showClientAbsenceAlert(client);
     syncEditorOptions();
     const clientUrl = replaceId(calendar.dataset.clientUrlTemplate || "", client.id);
     if (clientDetailsLink) clientDetailsLink.href = `${clientUrl}#upcoming-title`;
@@ -390,6 +433,15 @@
           span.title = value;
           button.append(span);
         });
+        const absenceCount = Math.max(0, Number(client.absence_count || 0));
+        if (absenceCount) {
+          const absence = document.createElement("span");
+          absence.className = `client-typeahead-absence${absenceCount >= 3 ? " is-action-required" : ""}`;
+          absence.textContent = absenceCount >= 3
+            ? `Action required · ${absenceCount} absences`
+            : `Absent ${absenceCount}/3`;
+          button.append(absence);
+        }
         button.addEventListener("click", () => selectClientMatch(client));
         clientTypeaheadResults.append(button);
       });
@@ -419,6 +471,7 @@
   const queueClientSearch = (input) => {
     if (fillingClient || editingEvent) return;
     clientInput.value = "";
+    clearClientAbsenceAlert();
     if (bookingMenu) bookingMenu.hidden = true;
     if (cancelAppointmentButton) cancelAppointmentButton.hidden = true;
     clearTimeout(clientSearchTimer);
@@ -542,6 +595,7 @@
   const replaceId = (template, id) => template.replace(/\/0(?=\/|$)/, `/${id}`);
   const displayStatus = (status) => {
     if (status === "Approved") return "Confirmed";
+    if (status === "No-show") return "Absent";
     if (status === "Rejected") return "Declined";
     return status || "";
   };
@@ -928,14 +982,10 @@
     editorStart.value = event.start_time;
     if (editorEnd) editorEnd.value = event.end_time;
     if (editorStatus) {
-      // Instructors use their own three-state workflow.  An existing
-      // Confirmed/Approved booking appears as No Action until the instructor
-      // chooses a follow-up status.
-      const instructorStatus = event.status === "Approved" ? "No Action" : event.status;
-      editorStatus.value = currentRole === "instructor"
-        ? (["No Action", "Pending", "Completed"].includes(instructorStatus) ? instructorStatus : "No Action")
-        : (event.status || "Approved");
+      const visibleStatuses = ["Approved", "Completed", "No-show", "Running Late"];
+      editorStatus.value = visibleStatuses.includes(event.status) ? event.status : "Approved";
     }
+    clearClientAbsenceAlert();
     if (editorNotes) editorNotes.value = event.notes || "";
     const firstNameInput = editor.querySelector("[data-new-client-first-name]");
     const lastNameInput = editor.querySelector("[data-new-client-last-name]");
@@ -1009,6 +1059,7 @@
     editor.reset();
     trailerFinishAuto = false;
     clearError();
+    clearClientAbsenceAlert();
     limitEditorTabsTo();
     bookingIdInput.value = "";
     revisionInput.value = "";
@@ -1200,9 +1251,8 @@
       if (titleText) titleText.textContent = "Edit appointment";
       if (descriptionText) descriptionText.textContent = "Update the client, services, staff, time, status, or private notes.";
       if (cancelAppointmentButton) {
-        cancelAppointmentButton.hidden = !event.can_edit || ![
-          "Approved", "Pending", "Not Confirmed", "Running Late", "Arrived", "Rescheduled",
-        ].includes(event.status);
+        cancelAppointmentButton.hidden = !event.can_edit
+          || !["Approved", "Running Late"].includes(event.status);
       }
       if (bookingMenu) bookingMenu.hidden = !event.can_edit;
       if (deleteBusyButton) deleteBusyButton.hidden = true;
@@ -2129,6 +2179,12 @@
     if (!payload.instructor_id || !payload.machine_id) throw new Error("Choose the instructor and compatible equipment.");
     if (!payload.target_date || !payload.start_time || !payload.end_time) throw new Error("Choose the date, start, and finish time.");
     if (minutes(payload.end_time) <= minutes(payload.start_time)) throw new Error("Finish must be later than start.");
+    if (!bookingIdInput.value && selectedClientAbsenceCount >= 3) {
+      const approved = window.confirm(
+        `ACTION REQUIRED: This customer has ${selectedClientAbsenceCount} recorded absences and has reached the company limit of 3.\n\nConfirm that the required fine/action has been checked before creating this booking.`
+      );
+      if (!approved) throw new Error("Booking stopped until the absence action is checked.");
+    }
     if (minutes(payload.start_time) < STAFF_DAY_START || minutes(payload.end_time) > STAFF_DAY_END) {
       throw new Error("Appointments must be between 6:00 am and 6:30 pm.");
     }
@@ -2212,7 +2268,7 @@
         },
         credentials: "same-origin",
         body: JSON.stringify({
-          status: editorStatus?.value || "No Action",
+          status: editorStatus?.value || "Approved",
           revision: editingEvent.revision,
         }),
       },

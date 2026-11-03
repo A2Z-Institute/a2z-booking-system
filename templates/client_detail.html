@@ -187,7 +187,7 @@
             <div class="timeline-heading">
               <strong>{{ booking.service_name|default(booking.machine_category, true) }}</strong>
               <div class="timeline-actions">
-                <span class="status-badge status-{{ status_key }}">{{ booking.validation_status }}</span>
+                <span class="status-badge status-{{ status_key }}">{{ 'Confirmed' if booking.validation_status == 'Approved' else ('Absent' if booking.validation_status == 'No-show' else booking.validation_status) }}</span>
                 {% if current_user.role in ['admin', 'booking_agent'] and current_user.has_permission('contact_details') and client.phone %}
                   <button class="button button-secondary button-small" type="button" data-whatsapp-confirmation
                     data-whatsapp-phone="{{ client.phone }}"
@@ -229,7 +229,7 @@
           <div class="timeline-copy">
             <div class="timeline-heading">
               <strong>{{ booking.service_name|default(booking.machine_category, true) }}</strong>
-              <span class="status-badge status-{{ status_key }}">{{ booking.validation_status }}</span>
+              <span class="status-badge status-{{ status_key }}">{{ 'Confirmed' if booking.validation_status == 'Approved' else ('Absent' if booking.validation_status == 'No-show' else booking.validation_status) }}</span>
             </div>
             <p>{{ booking.instructor_name }} · {{ booking.machine_code|replace('-', ' ') }}</p>
             {% if booking.review_notes %}<p><strong>Staff note:</strong> {{ booking.review_notes }}</p>{% endif %}

@@ -1136,6 +1136,55 @@
 }
 .client-typeahead-empty { padding: 0.75rem; color: var(--ink-600); }
 
+.client-typeahead-absence {
+  grid-column: 1 / -1;
+  width: fit-content;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  background: #fff4cc;
+  color: #765200;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.client-typeahead-absence.is-action-required {
+  background: #fee4e2;
+  color: #b42318;
+}
+
+.client-absence-alert {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid;
+  border-radius: 5px;
+  font-size: 0.82rem;
+}
+
+.client-absence-alert strong,
+.client-absence-alert span,
+.client-absence-alert small {
+  display: block;
+}
+
+.client-absence-alert.is-clear {
+  border-color: #9bcdb6;
+  background: #ecf8f1;
+  color: #176b2c;
+}
+
+.client-absence-alert.is-warning {
+  border-color: #e7ce73;
+  background: #fff8db;
+  color: #765200;
+}
+
+.client-absence-alert.is-action-required {
+  border-color: #e0a2a8;
+  background: #feeceb;
+  color: #b42318;
+}
+
 @media (max-width: 620px) {
   .client-typeahead-option {
     grid-template-columns: minmax(0, 1fr) minmax(6rem, 0.85fr);

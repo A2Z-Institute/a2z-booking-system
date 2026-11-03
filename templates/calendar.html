@@ -5,7 +5,7 @@
 {% block body_class %}calendar-page{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20260928-2') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20261103-1') }}">
 {% endblock %}
 
 {% block content %}
@@ -63,13 +63,10 @@
               <label for="calendar-status">Appointment status</label>
               <select id="calendar-status" data-calendar-status>
                 <option value="">All statuses</option>
-                <option value="Pending">Pending</option>
                 <option value="Approved">Confirmed</option>
-                <option value="No Action">No Action</option>
                 <option value="Completed">Completed</option>
-                <option value="No-show">No-show</option>
-                <option value="Cancelled">Cancelled</option>
-                <option value="Rejected">Declined</option>
+                <option value="No-show">Absent</option>
+                <option value="Running Late">Running Late</option>
               </select>
             </div>
             {% else %}
@@ -125,7 +122,9 @@
     <strong data-calendar-range>Loading calendar…</strong>
     <div class="calendar-legend" aria-label="Calendar legend">
       <span><i class="legend-dot status-approved"></i>Confirmed</span>
-      <span><i class="legend-dot status-pending"></i>Pending</span>
+      <span><i class="legend-dot status-completed"></i>Completed</span>
+      <span><i class="legend-dot status-no-show"></i>Absent</span>
+      <span><i class="legend-dot status-running-late"></i>Running Late</span>
       <span><i class="legend-dot non-working-dot"></i>Unavailable</span>
       <span><i class="legend-slot" aria-hidden="true"></i>Slots managed by admin</span>
     </div>
@@ -254,9 +253,10 @@
             <div class="field">
               <label for="editor-status">Status</label>
               <select id="editor-status" name="status" data-editor-status>
-                <option value="No Action">No Action</option>
-                <option value="Pending">Pending</option>
+                <option value="Approved">Confirmed</option>
                 <option value="Completed">Completed</option>
+                <option value="No-show">Absent</option>
+                <option value="Running Late">Running Late</option>
               </select>
             </div>
             {% endif %}
@@ -264,6 +264,7 @@
               <div class="client-typeahead-heading">Existing clients</div>
               <div data-client-typeahead-results></div>
             </div>
+            <div class="client-absence-alert field-span-all" data-client-absence-alert hidden></div>
             <div class="field">
               <label for="editor-date">Date</label>
               <input id="editor-date" name="target_date" type="date" value="{{ calendar_date }}" data-editor-date required>
@@ -325,16 +326,9 @@
                 <label for="editor-status">Status</label>
                 <select id="editor-status" name="status" data-editor-status>
                   <option value="Approved">Confirmed</option>
-                  <option value="Pending">Pending</option>
-                  <option value="Not Confirmed">Not Confirmed</option>
-                  <option value="Rejected">Declined</option>
                   <option value="Completed">Completed</option>
-                  <option value="No-show">No-show</option>
+                  <option value="No-show">Absent</option>
                   <option value="Running Late">Running Late</option>
-                  <option value="Arrived">Arrived</option>
-                  <option value="Rescheduled">Rescheduled</option>
-                  <option value="Cancelled">Cancelled</option>
-                  <option value="No Action">No Action</option>
                 </select>
               </div>
               {% endif %}
@@ -567,5 +561,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20260929-2') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20261103-1') }}" defer></script>
 {% endblock %}

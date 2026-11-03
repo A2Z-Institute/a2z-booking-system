@@ -10,7 +10,9 @@ import os
 import re
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from werkzeug.security import generate_password_hash
 
@@ -22,6 +24,30 @@ def postgres_url() -> str | None:
 
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = BASE_DIR / "a2z_booking.db"
+
+
+def _migrate_historical_pending_to_absent(conn) -> None:
+    """Convert only already-ended legacy Pending classes to Absent once."""
+    migration_key = "20261103_historical_pending_classes_are_absent"
+    if conn.execute(
+        "SELECT 1 FROM schema_migrations WHERE migration_key = ?",
+        (migration_key,),
+    ).fetchone():
+        return
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    conn.execute(
+        """
+        UPDATE bookings
+        SET validation_status = 'No-show', updated_at = CURRENT_TIMESTAMP
+        WHERE validation_status = 'Pending'
+          AND (target_date < ? OR (target_date = ? AND end_time <= ?))
+        """,
+        (now.date().isoformat(), now.date().isoformat(), now.strftime("%H:%M")),
+    )
+    conn.execute(
+        "INSERT INTO schema_migrations (migration_key) VALUES (?)",
+        (migration_key,),
+    )
 
 
 def database_path() -> Path:
@@ -724,6 +750,7 @@ def _init_sqlite_db() -> None:
                 "INSERT INTO schema_migrations (migration_key) VALUES (?)",
                 (imported_padding_migration,),
             )
+        _migrate_historical_pending_to_absent(conn)
         _ensure_columns(
             conn,
             "client_profiles",
@@ -1190,6 +1217,7 @@ def init_db() -> None:
             "buffer_after_minutes = 0, updated_at = CURRENT_TIMESTAMP "
             "WHERE buffer_before_minutes != 0 OR buffer_after_minutes != 0"
         )
+        _migrate_historical_pending_to_absent(conn)
 
 
 def seed_reference_data() -> None:

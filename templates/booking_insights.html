@@ -74,9 +74,9 @@
     <span class="stat-detail">{{ insights.totals.cancelled }} cancelled · View records</span>
   </a>
   <a class="stat-card insights-card-link" href="{{ url_for('admin_dashboard', status='no-show', branch=selected_branch, date_from=insights.period.start, date_to=insights.period.end) }}">
-    <span class="stat-label">No-show rate</span>
+    <span class="stat-label">Absence rate</span>
     <strong class="stat-value stat-value-word">{{ no_show_rate }}%</strong>
-    <span class="stat-detail">{{ insights.totals.no_show }} no-shows · View records</span>
+    <span class="stat-detail">{{ insights.totals.no_show }} absences · View records</span>
   </a>
   <a class="stat-card insights-card-link" href="{{ url_for('admin_dashboard', status='pending', branch=selected_branch, date_from=insights.period.start, date_to=insights.period.end) }}">
     <span class="stat-label">Awaiting action</span>
@@ -196,10 +196,10 @@
   {% if openai_chat_ready %}
     <div class="section-body insights-chat-body">
       <div class="insights-chat-messages" data-chat-messages role="log" aria-live="polite">
-        <div class="insights-chat-message assistant"><strong>A2Z Assistant</strong><p>Ask me about demand, peak times, services, cancellations, no-shows, or capacity.</p></div>
+        <div class="insights-chat-message assistant"><strong>A2Z Assistant</strong><p>Ask me about demand, peak times, services, cancellations, absences, or capacity.</p></div>
       </div>
       <div class="insights-chat-suggestions" aria-label="Suggested questions">
-        {% for question in ['What is the busiest day and time?', 'How can we reduce no-shows?', 'Which services need attention?'] %}<button type="button" class="button button-secondary button-small" data-chat-suggestion="{{ question }}">{{ question }}</button>{% endfor %}
+        {% for question in ['What is the busiest day and time?', 'How can we reduce absences?', 'Which services need attention?'] %}<button type="button" class="button button-secondary button-small" data-chat-suggestion="{{ question }}">{{ question }}</button>{% endfor %}
       </div>
       <form class="insights-chat-form" data-chat-form>
         <label class="sr-only" for="booking-insights-question">Ask a booking insights question</label>

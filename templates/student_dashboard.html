@@ -75,6 +75,7 @@
               {% for booking in booking_list %}
                 {% set status = booking.status|default(booking.validation_status|default('Scheduled')) %}
                 {% set status_key = status|lower|replace(' ', '-') %}
+                {% set display_status = 'Confirmed' if status == 'Approved' else ('Absent' if status == 'No-show' else status) %}
                 <tr>
                   <td>
                     <span class="cell-title">{{ booking.service_name|default(booking.machine_name|default(booking.machine_code|default(booking.machine_category|default('Practical training'))), true) }}</span>
@@ -87,7 +88,7 @@
                     <span class="cell-detail">{{ booking.start_time }}–{{ booking.end_time }}</span>
                   </td>
                   <td>{{ booking.instructor_name|default('To be confirmed') }}</td>
-                  <td><span class="status-badge status-{{ status_key }}">{{ status }}</span></td>
+                  <td><span class="status-badge status-{{ status_key }}">{{ display_status }}</span></td>
                 </tr>
               {% endfor %}
             </tbody>
@@ -99,13 +100,14 @@
         {% for booking in booking_list %}
           {% set status = booking.status|default(booking.validation_status|default('Scheduled')) %}
           {% set status_key = status|lower|replace(' ', '-') %}
+          {% set display_status = 'Confirmed' if status == 'Approved' else ('Absent' if status == 'No-show' else status) %}
           <article class="record-card">
             <div class="record-card-header">
               <div>
                 <div class="record-card-title">{{ booking.service_name|default(booking.machine_name|default(booking.machine_code|default(booking.machine_category|default('Practical training'))), true) }}</div>
                 <p class="record-card-subtitle">Appointment #{{ booking.id }}</p>
               </div>
-              <span class="status-badge status-{{ status_key }}">{{ status }}</span>
+              <span class="status-badge status-{{ status_key }}">{{ display_status }}</span>
             </div>
             <dl class="meta-grid">
               <div>
