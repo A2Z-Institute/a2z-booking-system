@@ -2440,6 +2440,88 @@ def _client_absence_summary(conn, client_id):
     }
 
 
+def _client_ids_for_admission(conn, admission_number):
+    """Return every client record carrying the same normalized admission number."""
+    admission_key = _driving_test_admission_key(admission_number)
+    if not admission_key:
+        return []
+    return [
+        int(row["user_id"])
+        for row in conn.execute(
+            """
+            SELECT user_id, admission_number
+            FROM client_profiles
+            WHERE COALESCE(admission_number, '') != ''
+            ORDER BY user_id
+            """
+        ).fetchall()
+        if _driving_test_admission_key(row["admission_number"]) == admission_key
+    ]
+
+
+def _client_booking_block_status(conn, client_id):
+    """Return the admission-number booking block shared by duplicate records."""
+    client = conn.execute(
+        """
+        SELECT cp.admission_number, COALESCE(cp.booking_blocked, 0) AS booking_blocked,
+               cp.booking_blocked_at,
+               COALESCE(actor.full_name, actor.username, '') AS booking_blocked_by_name
+        FROM users u
+        LEFT JOIN client_profiles cp ON cp.user_id = u.id
+        LEFT JOIN users actor ON actor.id = cp.booking_blocked_by
+        WHERE u.id = ? AND u.role = 'student'
+        """,
+        (client_id,),
+    ).fetchone()
+    if not client:
+        return {
+            "booking_blocked": False,
+            "booking_blocked_admission_number": "",
+            "booking_blocked_at": "",
+            "booking_blocked_by_name": "",
+        }
+    admission_key = _driving_test_admission_key(client["admission_number"])
+    blocked = None
+    if admission_key:
+        candidates = conn.execute(
+            """
+            SELECT cp.admission_number, cp.booking_blocked_at,
+                   COALESCE(actor.full_name, actor.username, '') AS booking_blocked_by_name
+            FROM client_profiles cp
+            LEFT JOIN users actor ON actor.id = cp.booking_blocked_by
+            WHERE cp.booking_blocked = 1
+            ORDER BY cp.booking_blocked_at DESC, cp.user_id
+            """
+        ).fetchall()
+        blocked = next(
+            (
+                row
+                for row in candidates
+                if _driving_test_admission_key(row["admission_number"])
+                == admission_key
+            ),
+            None,
+        )
+    elif client["booking_blocked"]:
+        blocked = client
+    return {
+        "booking_blocked": bool(blocked),
+        "booking_blocked_admission_number": str(blocked["admission_number"] or "") if blocked else "",
+        "booking_blocked_at": str(blocked["booking_blocked_at"] or "") if blocked else "",
+        "booking_blocked_by_name": str(blocked["booking_blocked_by_name"] or "") if blocked else "",
+    }
+
+
+def _assert_client_booking_allowed(conn, client_id):
+    booking_block = _client_booking_block_status(conn, client_id)
+    if booking_block["booking_blocked"]:
+        admission_number = booking_block["booking_blocked_admission_number"] or "not recorded"
+        raise ValueError(
+            "Booking blocked by admin for admission number "
+            f"{admission_number}. Ask an admin to unblock this student."
+        )
+
+
 def _client_contact_values(payload):
     email = _optional_email(payload.get("email"))
     secondary_email = _optional_email(payload.get("secondary_email"))
@@ -5960,7 +6042,9 @@ def api_calendar_create_appointment():
             # canonical record.  This also repairs the case where an older
             # formatted-phone import left duplicate client rows behind.
             student_id = _canonical_client_id(conn, student_id)
+            _assert_client_booking_allowed(conn, student_id)
             _overwrite_client_from_booking_form(conn, student_id, payload)
+            _assert_client_booking_allowed(conn, student_id)
             resource = _staff_booking_resources(
                 conn, student_id, instructor_id, machine_id
             )
@@ -7068,6 +7152,7 @@ def api_calendar_search_clients():
                 record.get("full_name"), record.get("admission_number")
             )
             record.update(_client_absence_summary(conn, canonical_id))
+            record.update(_client_booking_block_status(conn, canonical_id))
             if not current_user.has_permission("contact_details"):
                 phone = record.get("phone") or ""
                 email = record.get("email") or ""
@@ -7127,6 +7212,7 @@ def _client_access_row(conn, client_id):
         row = conn.execute(
             f"""
             SELECT u.*, br.name AS branch_name,
+                   cp.admission_number,
                    cp.secondary_phone, cp.secondary_email, cp.birthday,
                    cp.gender, cp.zip_code, cp.city, cp.street,
                    cp.internal_notes, cp.tags,
@@ -7144,6 +7230,7 @@ def _client_access_row(conn, client_id):
         row = conn.execute(
             """
             SELECT u.*, br.name AS branch_name,
+                   cp.admission_number,
                    cp.secondary_phone, cp.secondary_email, cp.birthday,
                    cp.gender, cp.zip_code, cp.city, cp.street,
                    cp.internal_notes, cp.tags,
@@ -7220,6 +7307,7 @@ def clients_directory():
                 SELECT u.id, u.full_name, u.email, u.phone, u.is_active,
                        u.branch_id, br.name AS branch_name,
                        cp.secondary_phone, cp.admission_number,
+                       COALESCE(cp.booking_blocked, 0) AS booking_blocked,
                        count(b.id) AS appointment_count,
                        sum(CASE WHEN b.validation_status = 'Approved'
                                   AND b.target_date >= date('now')
@@ -7233,7 +7321,7 @@ def clients_directory():
                 WHERE {" AND ".join(clauses)}
                 GROUP BY u.id, u.full_name, u.email, u.phone, u.is_active,
                          u.branch_id, br.name, cp.secondary_phone,
-                         cp.admission_number
+                         cp.admission_number, cp.booking_blocked
                 ORDER BY u.is_active DESC, lower(u.full_name)
                 LIMIT 300
                 """,
@@ -7285,6 +7373,9 @@ def clients_directory():
                 (item.get("last_visit") or "" for item in duplicates), default=""
             )
             merged["is_active"] = int(any(item.get("is_active") for item in duplicates))
+            merged["booking_blocked"] = int(
+                any(item.get("booking_blocked") for item in duplicates)
+            )
             merged["duplicate_count"] = len(duplicates)
             merged["branch_name"] = ", ".join(
                 sorted(
@@ -7348,6 +7439,7 @@ def client_detail(client_id):
             "SELECT count(*) FROM bookings WHERE student_user_id = ?",
             (client_id,),
         ).fetchone()[0]
+        booking_block = _client_booking_block_status(conn, client_id)
         if current_user.role == "admin":
             branch_clause = ""
             branch_params = []
@@ -7398,6 +7490,7 @@ def client_detail(client_id):
                 ).fetchall()
             ]
     client_record = dict(client)
+    client_record.update(booking_block)
     if not current_user.has_permission("contact_details"):
         for field in ("phone", "secondary_phone"):
             value = client_record.get(field) or ""
@@ -7714,6 +7807,71 @@ def client_profile_update(client_id):
         flash(str(exc), "warning")
     except (TypeError, ValueError) as exc:
         flash(str(exc), "error")
+    return redirect(url_for("client_detail", client_id=client_id))
+
+
+@app.post("/clients/<int:client_id>/booking-block")
+@role_required("admin")
+def client_booking_block(client_id):
+    """Block or unblock new bookings for one admission number."""
+    action = str(request.form.get("action") or "").strip().lower()
+    if action not in {"block", "unblock"}:
+        abort(400, description="Choose block or unblock.")
+    with get_db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        client = _client_access_row(conn, client_id)
+        if not client:
+            abort(404)
+        admission_number = " ".join(str(client["admission_number"] or "").split())
+        if not admission_number:
+            flash(
+                "Add an admission number before blocking this student from bookings.",
+                "warning",
+            )
+            return redirect(url_for("client_detail", client_id=client_id))
+        affected_client_ids = _client_ids_for_admission(conn, admission_number)
+        if not affected_client_ids:
+            affected_client_ids = [client_id]
+        placeholders = ",".join("?" for _ in affected_client_ids)
+        if action == "block":
+            conn.execute(
+                f"""
+                UPDATE client_profiles
+                SET booking_blocked = 1,
+                    booking_blocked_at = CURRENT_TIMESTAMP,
+                    booking_blocked_by = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE user_id IN ({placeholders})
+                """,
+                (current_user.id, *affected_client_ids),
+            )
+        else:
+            conn.execute(
+                f"""
+                UPDATE client_profiles
+                SET booking_blocked = 0,
+                    booking_blocked_at = NULL,
+                    booking_blocked_by = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE user_id IN ({placeholders})
+                """,
+                tuple(affected_client_ids),
+            )
+        _audit(
+            conn,
+            "client_booking_blocked" if action == "block" else "client_booking_unblocked",
+            details={
+                "client_id": client_id,
+                "admission_number": admission_number,
+                "affected_client_ids": affected_client_ids,
+            },
+        )
+    flash(
+        f"Bookings blocked for admission number {admission_number}."
+        if action == "block"
+        else f"Bookings unblocked for admission number {admission_number}.",
+        "success",
+    )
     return redirect(url_for("client_detail", client_id=client_id))
 
 

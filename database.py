@@ -479,6 +479,9 @@ def _init_sqlite_db() -> None:
             CREATE TABLE IF NOT EXISTS client_profiles (
                 user_id INTEGER PRIMARY KEY,
                 admission_number TEXT,
+                booking_blocked INTEGER NOT NULL DEFAULT 0,
+                booking_blocked_at TEXT,
+                booking_blocked_by INTEGER,
                 secondary_phone TEXT,
                 secondary_email TEXT,
                 birthday TEXT,
@@ -493,7 +496,8 @@ def _init_sqlite_db() -> None:
                 updated_by INTEGER,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (updated_by) REFERENCES users(id)
+                FOREIGN KEY (updated_by) REFERENCES users(id),
+                FOREIGN KEY (booking_blocked_by) REFERENCES users(id)
             );
 
             CREATE TABLE IF NOT EXISTS driving_test_candidates (
@@ -756,6 +760,9 @@ def _init_sqlite_db() -> None:
             "client_profiles",
             {
                 "admission_number": "TEXT",
+                "booking_blocked": "INTEGER NOT NULL DEFAULT 0",
+                "booking_blocked_at": "TEXT",
+                "booking_blocked_by": "INTEGER",
                 "secondary_phone": "TEXT",
                 "secondary_email": "TEXT",
                 "birthday": "TEXT",

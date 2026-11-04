@@ -135,6 +135,7 @@
   let clientSearchRequest;
   let fillingClient = false;
   let selectedClientAbsenceCount = 0;
+  let selectedClientBookingBlocked = false;
   let servicePickerSnapshot = [];
   let resetHorizontalScroll = false;
   let restoreHorizontalScroll = true;
@@ -342,6 +343,7 @@
 
   const clearClientAbsenceAlert = () => {
     selectedClientAbsenceCount = 0;
+    selectedClientBookingBlocked = false;
     if (!clientAbsenceAlert) return;
     clientAbsenceAlert.hidden = true;
     clientAbsenceAlert.className = "client-absence-alert field-span-all";
@@ -350,6 +352,8 @@
 
   const showClientAbsenceAlert = (client) => {
     selectedClientAbsenceCount = Math.max(0, Number(client?.absence_count || 0));
+    selectedClientBookingBlocked = client?.booking_blocked === true
+      || Number(client?.booking_blocked || 0) === 1;
     if (!clientAbsenceAlert) return;
     const limit = Math.max(1, Number(client?.absence_limit || 3));
     const dates = Array.isArray(client?.latest_absence_dates)
@@ -358,7 +362,14 @@
     clientAbsenceAlert.replaceChildren();
     const strong = document.createElement("strong");
     const detail = document.createElement("span");
-    if (selectedClientAbsenceCount >= limit) {
+    if (selectedClientBookingBlocked) {
+      clientAbsenceAlert.classList.add("is-action-required");
+      strong.textContent = "Booking blocked by admin";
+      detail.textContent = "This admission number cannot receive a new appointment. Ask an administrator to unblock the student.";
+      clientAbsenceAlert.append(strong, detail);
+      clientAbsenceAlert.hidden = false;
+      return;
+    } else if (selectedClientAbsenceCount >= limit) {
       clientAbsenceAlert.classList.add("is-action-required");
       strong.textContent = `Action required · ${selectedClientAbsenceCount} absences recorded`;
       detail.textContent = "The customer has reached the company limit of 3 absences. Check the fine/action before confirming another class.";
@@ -433,8 +444,15 @@
           span.title = value;
           button.append(span);
         });
+        const bookingBlocked = client.booking_blocked === true
+          || Number(client.booking_blocked || 0) === 1;
         const absenceCount = Math.max(0, Number(client.absence_count || 0));
-        if (absenceCount) {
+        if (bookingBlocked) {
+          const blocked = document.createElement("span");
+          blocked.className = "client-typeahead-absence is-action-required";
+          blocked.textContent = "Booking blocked by admin";
+          button.append(blocked);
+        } else if (absenceCount) {
           const absence = document.createElement("span");
           absence.className = `client-typeahead-absence${absenceCount >= 3 ? " is-action-required" : ""}`;
           absence.textContent = absenceCount >= 3
@@ -2179,6 +2197,9 @@
     if (!payload.instructor_id || !payload.machine_id) throw new Error("Choose the instructor and compatible equipment.");
     if (!payload.target_date || !payload.start_time || !payload.end_time) throw new Error("Choose the date, start, and finish time.");
     if (minutes(payload.end_time) <= minutes(payload.start_time)) throw new Error("Finish must be later than start.");
+    if (!bookingIdInput.value && selectedClientBookingBlocked) {
+      throw new Error("Booking blocked by admin for this admission number. Ask an administrator to unblock the student.");
+    }
     if (!bookingIdInput.value && selectedClientAbsenceCount >= 3) {
       const approved = window.confirm(
         `ACTION REQUIRED: This customer has ${selectedClientAbsenceCount} recorded absences and has reached the company limit of 3.\n\nConfirm that the required fine/action has been checked before creating this booking.`

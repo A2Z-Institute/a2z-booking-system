@@ -59,7 +59,7 @@
                   <span class="avatar avatar-small" aria-hidden="true">{{ client.full_name[:1]|upper }}</span>
                   <span>
                     <strong>{{ client.full_name }}</strong>
-                    <small>{{ 'Active' if client.is_active else 'Archived' }}</small>
+                    <small>{{ 'Blocked by admin' if client.booking_blocked else ('Active' if client.is_active else 'Archived') }}</small>
                     {% if client.duplicate_count|default(1) > 1 %}<small>{{ client.duplicate_count }} linked records</small>{% endif %}
                   </span>
                 </a>
@@ -85,7 +85,7 @@
           <span class="client-directory-copy">
             <span class="client-directory-heading">
               <strong>{{ client.full_name }}</strong>
-              <span class="status-badge {{ 'status-approved' if client.is_active else 'status-cancelled' }}">{{ 'Active' if client.is_active else 'Archived' }}</span>
+              <span class="status-badge {{ 'status-cancelled' if client.booking_blocked or not client.is_active else 'status-approved' }}">{{ 'Blocked' if client.booking_blocked else ('Active' if client.is_active else 'Archived') }}</span>
             </span>
             <span>{{ client.phone|default('No mobile', true) }}</span>
             <span>{{ client.email|default('No email', true) }}</span>
