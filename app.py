@@ -2440,6 +2440,14 @@ def _client_absence_summary(conn, client_id):
     }
 
 
+def _client_admission_number(full_name, admission_number):
+    """Return a stored or legacy name-embedded admission number."""
+    _clean_name, inferred_admission = _booking_client_identity_fields(
+        full_name, admission_number
+    )
+    return " ".join(str(admission_number or inferred_admission or "").split())
+
+
 def _client_ids_for_admission(conn, admission_number):
     """Return every client record carrying the same normalized admission number."""
     admission_key = _driving_test_admission_key(admission_number)
@@ -2449,13 +2457,16 @@ def _client_ids_for_admission(conn, admission_number):
         int(row["user_id"])
         for row in conn.execute(
             """
-            SELECT user_id, admission_number
-            FROM client_profiles
-            WHERE COALESCE(admission_number, '') != ''
-            ORDER BY user_id
+            SELECT u.id AS user_id, u.full_name, cp.admission_number
+            FROM users u
+            LEFT JOIN client_profiles cp ON cp.user_id = u.id
+            WHERE u.role = 'student'
+            ORDER BY u.id
             """
         ).fetchall()
-        if _driving_test_admission_key(row["admission_number"]) == admission_key
+        if _driving_test_admission_key(
+            _client_admission_number(row["full_name"], row["admission_number"])
+        ) == admission_key
     ]
 
 
@@ -2463,7 +2474,8 @@ def _client_booking_block_status(conn, client_id):
     """Return the admission-number booking block shared by duplicate records."""
     client = conn.execute(
         """
-        SELECT cp.admission_number, COALESCE(cp.booking_blocked, 0) AS booking_blocked,
+        SELECT u.full_name, cp.admission_number,
+               COALESCE(cp.booking_blocked, 0) AS booking_blocked,
                cp.booking_blocked_at,
                COALESCE(actor.full_name, actor.username, '') AS booking_blocked_by_name
         FROM users u
@@ -2480,29 +2492,35 @@ def _client_booking_block_status(conn, client_id):
             "booking_blocked_at": "",
             "booking_blocked_by_name": "",
         }
-    admission_key = _driving_test_admission_key(client["admission_number"])
+    client = dict(client)
+    client_admission = _client_admission_number(
+        client["full_name"], client["admission_number"]
+    )
+    admission_key = _driving_test_admission_key(client_admission)
     blocked = None
     if admission_key:
         candidates = conn.execute(
             """
-            SELECT cp.admission_number, cp.booking_blocked_at,
+            SELECT u.full_name, cp.admission_number, cp.booking_blocked_at,
                    COALESCE(actor.full_name, actor.username, '') AS booking_blocked_by_name
             FROM client_profiles cp
+            JOIN users u ON u.id = cp.user_id
             LEFT JOIN users actor ON actor.id = cp.booking_blocked_by
             WHERE cp.booking_blocked = 1
             ORDER BY cp.booking_blocked_at DESC, cp.user_id
             """
         ).fetchall()
-        blocked = next(
-            (
-                row
-                for row in candidates
-                if _driving_test_admission_key(row["admission_number"])
-                == admission_key
-            ),
-            None,
-        )
+        for row in candidates:
+            candidate = dict(row)
+            candidate_admission = _client_admission_number(
+                candidate["full_name"], candidate["admission_number"]
+            )
+            if _driving_test_admission_key(candidate_admission) == admission_key:
+                candidate["admission_number"] = candidate_admission
+                blocked = candidate
+                break
     elif client["booking_blocked"]:
+        client["admission_number"] = client_admission
         blocked = client
     return {
         "booking_blocked": bool(blocked),
@@ -7490,6 +7508,13 @@ def client_detail(client_id):
                 ).fetchall()
             ]
     client_record = dict(client)
+    clean_client_name, inferred_admission = _booking_client_identity_fields(
+        client_record.get("full_name"), client_record.get("admission_number")
+    )
+    client_record["full_name"] = clean_client_name
+    client_record["admission_number"] = (
+        client_record.get("admission_number") or inferred_admission
+    )
     client_record.update(booking_block)
     if not current_user.has_permission("contact_details"):
         for field in ("phone", "secondary_phone"):
@@ -7608,6 +7633,7 @@ def client_profile_update(client_id):
                     else existing[field]
                 )
                 for field in (
+                    "admission_number",
                     "birthday",
                     "gender",
                     "zip_code",
@@ -7686,13 +7712,14 @@ def client_profile_update(client_id):
             conn.execute(
                 """
                 INSERT INTO client_profiles
-                    (user_id, secondary_phone, secondary_email, birthday,
+                    (user_id, admission_number, secondary_phone, secondary_email, birthday,
                      gender, zip_code, city, street, internal_notes, tags,
                      reminders_enabled, preferred_channel, updated_by,
                      updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                         CURRENT_TIMESTAMP)
                 ON CONFLICT(user_id) DO UPDATE SET
+                    admission_number = excluded.admission_number,
                     secondary_phone = excluded.secondary_phone,
                     secondary_email = excluded.secondary_email,
                     birthday = excluded.birthday,
@@ -7709,6 +7736,7 @@ def client_profile_update(client_id):
                 """,
                 (
                     client_id,
+                    profile["admission_number"],
                     contacts["secondary_phone"],
                     contacts["secondary_email"],
                     profile["birthday"],
@@ -7822,7 +7850,9 @@ def client_booking_block(client_id):
         client = _client_access_row(conn, client_id)
         if not client:
             abort(404)
-        admission_number = " ".join(str(client["admission_number"] or "").split())
+        admission_number = _client_admission_number(
+            client["full_name"], client["admission_number"]
+        )
         if not admission_number:
             flash(
                 "Add an admission number before blocking this student from bookings.",
@@ -7832,6 +7862,23 @@ def client_booking_block(client_id):
         affected_client_ids = _client_ids_for_admission(conn, admission_number)
         if not affected_client_ids:
             affected_client_ids = [client_id]
+        for affected_client_id in affected_client_ids:
+            conn.execute(
+                """
+                INSERT INTO client_profiles
+                    (user_id, admission_number, updated_by, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    admission_number = CASE
+                        WHEN COALESCE(client_profiles.admission_number, '') = ''
+                        THEN excluded.admission_number
+                        ELSE client_profiles.admission_number
+                    END,
+                    updated_by = excluded.updated_by,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (affected_client_id, admission_number, current_user.id),
+            )
         placeholders = ",".join("?" for _ in affected_client_ids)
         if action == "block":
             conn.execute(

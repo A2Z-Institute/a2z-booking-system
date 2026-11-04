@@ -82,9 +82,14 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <fieldset class="plain-fieldset" {% if not current_user.has_permission('write_access') %}disabled{% endif %}>
     <div class="form-grid client-details-grid">
-      <div class="field field-span-2">
+      <div class="field">
         <label for="client-full-name">Full name</label>
         <input id="client-full-name" name="full_name" maxlength="160" value="{{ client.full_name }}" required autocomplete="name">
+      </div>
+      <div class="field">
+        <label for="client-admission-number">Admission number</label>
+        <input id="client-admission-number" name="admission_number" maxlength="100" value="{{ client.admission_number|default('', true) }}" required autocomplete="off">
+        <span class="field-hint">Used for duplicate matching and admin booking blocks.</span>
       </div>
       {% if current_user.role == 'admin' %}
         <div class="field">
