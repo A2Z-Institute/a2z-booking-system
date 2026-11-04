@@ -29,4 +29,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)" || exit 1
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["waitress-serve", "--listen=0.0.0.0:8000", "--threads=4", "wsgi:app"]
+CMD ["waitress-serve", "--listen=0.0.0.0:8000", "--threads=12", "wsgi:app"]

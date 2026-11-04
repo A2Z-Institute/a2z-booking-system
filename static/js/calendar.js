@@ -2921,8 +2921,9 @@
   loadEvents();
 
   // Keep all open calendar screens aligned without requiring a page refresh.
-  // Local saves are still merged immediately; this short poll covers changes
-  // made by other users or browser tabs.
+  // Local saves are merged immediately and same-browser tabs receive the
+  // BroadcastChannel signal below. Poll other agents at a moderate interval
+  // so many open calendars cannot starve appointment-save requests.
   window.setInterval(() => {
     if (
       document.visibilityState === "visible"
@@ -2933,7 +2934,7 @@
       && !draggedEvent
       && resizingEventId === null
     ) void loadEvents({ silent: true });
-  }, 2000);
+  }, 8000);
   window.addEventListener("focus", () => {
     if (!dialog.open && !moveInFlight && !saveInFlight && !activePointerDragCleanup && resizingEventId === null) {
       void loadEvents({ silent: true });
