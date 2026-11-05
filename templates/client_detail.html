@@ -27,18 +27,18 @@
     {% if client.is_active and not client.booking_blocked and current_user.has_permission('write_access') %}
       <a class="button button-primary button-small" href="{{ url_for('calendar_view') }}?client={{ client.id }}">+ Add appointment</a>
     {% endif %}
+    {% if client.admission_number and current_user.has_permission('client_database') and current_user.has_permission('write_access') %}
+      <form class="inline-form" method="post" action="{{ url_for('client_booking_block', client_id=client.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="{{ 'unblock' if client.booking_blocked else 'block' }}">
+        <button
+          class="button {{ 'button-secondary' if client.booking_blocked else 'button-danger' }} button-small"
+          type="submit"
+          data-confirm="{{ 'Allow new bookings again for admission number ' ~ client.admission_number ~ '?' if client.booking_blocked else 'Block all new bookings for admission number ' ~ client.admission_number ~ '?' }}"
+        >{{ 'Unblock bookings' if client.booking_blocked else 'Block bookings' }}</button>
+      </form>
+    {% endif %}
     {% if current_user.role == 'admin' %}
-      {% if client.admission_number %}
-        <form class="inline-form" method="post" action="{{ url_for('client_booking_block', client_id=client.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="action" value="{{ 'unblock' if client.booking_blocked else 'block' }}">
-          <button
-            class="button {{ 'button-secondary' if client.booking_blocked else 'button-danger' }} button-small"
-            type="submit"
-            data-confirm="{{ 'Allow new bookings again for admission number ' ~ client.admission_number ~ '?' if client.booking_blocked else 'Block all new bookings for admission number ' ~ client.admission_number ~ '?' }}"
-          >{{ 'Unblock bookings' if client.booking_blocked else 'Block bookings' }}</button>
-        </form>
-      {% endif %}
       <form class="inline-form" method="post" action="{{ url_for('client_toggle', client_id=client.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button
@@ -64,8 +64,8 @@
 {% if client.booking_blocked %}
   <section class="alert alert-error" role="alert" aria-labelledby="booking-blocked-title">
     <div>
-      <h2 id="booking-blocked-title">Booking blocked by admin</h2>
-      <p>Admission number <strong>{{ client.admission_number }}</strong> cannot receive a new appointment until an administrator unblocks it.{% if client.booking_blocked_by_name %} Blocked by {{ client.booking_blocked_by_name }}.{% endif %}</p>
+      <h2 id="booking-blocked-title">Booking blocked</h2>
+      <p>Admission number <strong>{{ client.admission_number }}</strong> cannot receive a new appointment until authorised staff unblock it.{% if client.booking_blocked_by_name %} Blocked by {{ client.booking_blocked_by_name }}.{% endif %}</p>
     </div>
   </section>
 {% endif %}
