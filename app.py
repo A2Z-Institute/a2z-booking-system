@@ -3425,31 +3425,51 @@ def _transfer_instructor_profile(
         (source["name"], target_branch_id),
     ).fetchall()
     destination = destination_candidates[0] if destination_candidates else None
-    duplicate_destination_users = []
-    if destination_candidates:
-        candidate_ids = [candidate["id"] for candidate in destination_candidates]
-        placeholders = ",".join("?" for _ in candidate_ids)
-        duplicate_destination_users = conn.execute(
-            f"""
-            SELECT id, username, full_name FROM users
-            WHERE instructor_id IN ({placeholders})
-              AND id != ? AND is_active = 1
-            ORDER BY id
-            """,
-            (*candidate_ids, user["id"]),
+    # A transferred employee keeps the account that the administrator dragged,
+    # including its username and password.  Other active instructor logins with
+    # the same normalized name are duplicate identities even when they belong
+    # to another branch.  Archive only those logins; their instructor profiles
+    # and every past/future booking remain untouched for calendar history.
+    source_identity_key = re.sub(
+        r"[^a-z0-9]+", "", str(source["name"] or "").casefold()
+    )
+    matching_profile_ids = [
+        profile["id"]
+        for profile in conn.execute(
+            "SELECT id, name FROM instructors ORDER BY id"
         ).fetchall()
-        if duplicate_destination_users and not merge_duplicate_login:
+        if re.sub(r"[^a-z0-9]+", "", str(profile["name"] or "").casefold())
+        == source_identity_key
+    ]
+    duplicate_identity_users = []
+    if matching_profile_ids:
+        placeholders = ",".join("?" for _ in matching_profile_ids)
+        duplicate_identity_users = conn.execute(
+            f"""
+            SELECT u.id, u.username, u.full_name, br.name AS branch_name
+            FROM users u
+            LEFT JOIN branches br ON br.id = u.branch_id
+            WHERE u.instructor_id IN ({placeholders})
+              AND u.id != ? AND u.is_active = 1
+              AND u.role = 'instructor'
+            ORDER BY lower(COALESCE(br.name, '')), u.id
+            """,
+            (*matching_profile_ids, user["id"]),
+        ).fetchall()
+        if duplicate_identity_users and not merge_duplicate_login:
             duplicate_names = ", ".join(
-                duplicate["username"] for duplicate in duplicate_destination_users
+                f"{duplicate['username']} ({duplicate['branch_name'] or 'No branch'})"
+                for duplicate in duplicate_identity_users
             )
             raise InstructorTransferMergeRequired(
-                f"{source['name']} already has an active destination login "
-                f"({duplicate_names}). Confirm the safe merge to keep this login and "
-                "archive the duplicate login without deleting history.",
-                [duplicate["id"] for duplicate in duplicate_destination_users],
+                f"{source['name']} has repeated active instructor logins: "
+                f"{duplicate_names}. Confirm the safe merge to keep username "
+                f"{user['username']} and archive only the repeated logins. "
+                "No profile, booking, or history record will be deleted.",
+                [duplicate["id"] for duplicate in duplicate_identity_users],
             )
-        if duplicate_destination_users:
-            duplicate_ids = [duplicate["id"] for duplicate in duplicate_destination_users]
+        if duplicate_identity_users:
+            duplicate_ids = [duplicate["id"] for duplicate in duplicate_identity_users]
             duplicate_placeholders = ",".join("?" for _ in duplicate_ids)
             conn.execute(
                 f"""
@@ -3580,7 +3600,7 @@ def _transfer_instructor_profile(
             "target_branch_id": target_branch_id,
             "preserved_upcoming_appointments": upcoming_count,
             "archived_duplicate_user_ids": [
-                duplicate["id"] for duplicate in duplicate_destination_users
+                duplicate["id"] for duplicate in duplicate_identity_users
             ],
         },
     )
@@ -3588,7 +3608,7 @@ def _transfer_instructor_profile(
         destination_id,
         destination_branch["name"],
         upcoming_count,
-        len(duplicate_destination_users),
+        len(duplicate_identity_users),
     )
 
 
@@ -7839,7 +7859,7 @@ def client_profile_update(client_id):
 
 
 @app.post("/clients/<int:client_id>/booking-block")
-@role_required("admin")
+@permission_required("client_database", "write_access")
 def client_booking_block(client_id):
     """Block or unblock new bookings for one admission number."""
     action = str(request.form.get("action") or "").strip().lower()
