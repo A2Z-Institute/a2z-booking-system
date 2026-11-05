@@ -560,15 +560,15 @@
           if (!response.ok && result.requires_merge_confirmation) {
             const duplicateCount = Number(result.duplicate_login_count || 1);
             const confirmed = window.confirm(
-              `${instructorName} already has ${duplicateCount === 1 ? "a login" : `${duplicateCount} logins`} in ${destinationName}. `
-              + `Keep the login you are moving and archive ${duplicateCount === 1 ? "the duplicate login" : "the duplicate logins"}? `
-              + "No instructor, booking, or history record will be deleted.",
+              `${instructorName} has ${duplicateCount === 1 ? "one repeated instructor login" : `${duplicateCount} repeated instructor logins`} across the branches. `
+              + `Keep the username and password of the profile you are moving, and archive only ${duplicateCount === 1 ? "the repeated login" : "the repeated logins"}? `
+              + "All instructor profiles and all old and future bookings will remain unchanged.",
             );
             if (!confirmed) {
               setTransferMessage(`${instructorName}'s transfer was cancelled. No records were changed.`);
               return;
             }
-            setTransferMessage(`Safely merging and transferring ${instructorName}…`);
+            setTransferMessage(`Keeping one login and transferring ${instructorName}…`);
             ({ response, result } = await submitTransfer(true));
           }
           if (!response.ok || !result.success) {
