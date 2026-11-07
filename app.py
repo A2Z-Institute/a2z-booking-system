@@ -295,6 +295,8 @@ def _require_branch_access(branch_id):
 def _require_managed_user_access(user):
     if not user:
         abort(404)
+    if "deleted_at" in user.keys() and user["deleted_at"]:
+        abort(404)
     _require_branch_access(user["branch_id"])
     if not current_user.is_super_admin and bool(user["is_super_admin"]):
         abort(403)
@@ -2933,6 +2935,7 @@ def _admin_users_context(conn, *, editing_user_id=None):
             FROM users u
             LEFT JOIN branches br ON br.id = u.branch_id
             LEFT JOIN instructors i ON i.id = u.instructor_id
+            WHERE u.deleted_at IS NULL
             ORDER BY u.is_active DESC,
                      CASE u.role WHEN 'admin' THEN 0 WHEN 'booking_agent' THEN 1 WHEN 'instructor' THEN 2 ELSE 3 END,
                      CASE WHEN u.role = 'instructor' THEN COALESCE(i.display_order, 100000) ELSE 0 END,
@@ -3962,6 +3965,69 @@ def admin_user_toggle(user_id):
         "success",
     )
     return redirect(url_for("admin_users"))
+
+
+@app.post("/admin/users/<int:user_id>/delete")
+@role_required("admin")
+def admin_user_delete(user_id):
+    """Permanently remove an archived staff login while retaining history."""
+    try:
+        with get_db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            user = conn.execute(
+                "SELECT * FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+            _require_managed_user_access(user)
+            if user_id == current_user.id:
+                raise ValueError("You cannot delete the account you are currently using.")
+            if user["is_active"]:
+                raise ValueError("Archive this account before permanently deleting it.")
+            if user["is_super_admin"]:
+                raise ValueError("The Super Admin account cannot be permanently deleted.")
+            if user["role"] == "student":
+                raise ValueError(
+                    "Delete or archive student records from the Clients section."
+                )
+            account_snapshot = {
+                "target_user_id": user_id,
+                "username": user["username"],
+                "full_name": user["full_name"],
+                "role": user["role"],
+                "branch_id": user["branch_id"],
+                "instructor_id": user["instructor_id"],
+            }
+            # Keep this internal row as a historical identity anchor for old
+            # bookings and audit entries. It is permanently removed from the
+            # staff directory, stripped of contact/login credentials and can
+            # never be reactivated.
+            tombstone_username = f"deleted-staff-{user_id}-{secrets.token_hex(6)}"
+            conn.execute(
+                """
+                UPDATE users
+                SET username = ?, password_hash = ?, email = NULL, phone = NULL,
+                    is_active = 0, login_enabled = 0, must_change_password = 1,
+                    deactivated_at = COALESCE(deactivated_at, CURRENT_TIMESTAMP),
+                    deleted_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    tombstone_username,
+                    generate_password_hash(secrets.token_urlsafe(48)),
+                    user_id,
+                ),
+            )
+            _audit(conn, "staff_account_permanently_deleted", details=account_snapshot)
+        flash("Staff account permanently deleted. Historical bookings were retained.", "success")
+    except DATABASE_INTEGRITY_ERRORS:
+        flash(
+            "The staff account could not be permanently deleted because the record changed. "
+            "Refresh the page and try again.",
+            "warning",
+        )
+    except ValueError as exc:
+        flash(str(exc), "warning")
+    return redirect(url_for("admin_users", status="archived"))
 
 
 @app.post("/admin/users/<int:user_id>/reset-password")

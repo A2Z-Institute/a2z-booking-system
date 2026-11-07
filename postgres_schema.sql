@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS users (
     login_enabled INTEGER NOT NULL DEFAULT 1,
     must_change_password INTEGER NOT NULL DEFAULT 1,
     deactivated_at TEXT,
+    deleted_at TEXT,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
     permission_mask INTEGER,
@@ -65,6 +66,7 @@ CREATE TABLE IF NOT EXISTS users (
     CHECK ((role = 'instructor' AND instructor_id IS NOT NULL)
         OR (role <> 'instructor' AND instructor_id IS NULL))
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TEXT;
 DO $$
 BEGIN
     ALTER TABLE instructors

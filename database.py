@@ -202,6 +202,7 @@ def _rebuild_legacy_account_tables(conn: sqlite3.Connection) -> None:
                 must_change_password INTEGER NOT NULL DEFAULT 1,
                 permission_mask INTEGER,
                 deactivated_at TEXT,
+                deleted_at TEXT,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (instructor_id) REFERENCES instructors(id),
@@ -238,11 +239,13 @@ def _rebuild_legacy_account_tables(conn: sqlite3.Connection) -> None:
             )""",
             """INSERT INTO users_rebuild
                 (id, username, password_hash, role, instructor_id, full_name,
-                 email, phone, branch_id, is_active, login_enabled,
-                 must_change_password, deactivated_at, updated_at, created_at)
+                 email, phone, branch_id, is_super_admin, is_active,
+                 login_enabled, must_change_password, permission_mask,
+                 deactivated_at, deleted_at, updated_at, created_at)
             SELECT id, username, password_hash, role, instructor_id, full_name,
-                   email, phone, branch_id, is_active, login_enabled,
-                   must_change_password, deactivated_at,
+                   email, phone, branch_id, is_super_admin, is_active,
+                   login_enabled, must_change_password, permission_mask,
+                   deactivated_at, deleted_at,
                    COALESCE(updated_at, created_at, CURRENT_TIMESTAMP),
                    COALESCE(created_at, CURRENT_TIMESTAMP)
             FROM users""",
@@ -332,6 +335,7 @@ def _init_sqlite_db() -> None:
                 login_enabled INTEGER NOT NULL DEFAULT 1,
                 must_change_password INTEGER NOT NULL DEFAULT 1,
                 deactivated_at TEXT,
+                deleted_at TEXT,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (instructor_id) REFERENCES instructors(id),
@@ -697,6 +701,7 @@ def _init_sqlite_db() -> None:
                 "must_change_password": "INTEGER NOT NULL DEFAULT 1",
                 "permission_mask": "INTEGER",
                 "deactivated_at": "TEXT",
+                "deleted_at": "TEXT",
                 "updated_at": "TEXT",
                 # SQLite only permits constant defaults on ALTER TABLE. These
                 # are backfilled below; new databases still use the full DDL.

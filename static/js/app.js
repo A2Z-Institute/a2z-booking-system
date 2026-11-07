@@ -264,6 +264,7 @@
       filterUsers();
       search?.focus();
     });
+    filterUsers();
   }
 
   // Native HTML dragging does not scroll long staff lists automatically in

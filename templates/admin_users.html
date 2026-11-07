@@ -167,7 +167,7 @@
         <select id="user-status-filter" data-user-status-filter>
           <option value="">Active and archived</option>
           <option value="active">Active only</option>
-          <option value="archived">Archived only</option>
+          <option value="archived" {% if request.args.get('status') == 'archived' %}selected{% endif %}>Archived only</option>
         </select>
       </div>
       <div class="filter-actions">
@@ -229,6 +229,12 @@
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class="button {{ 'button-danger' if managed.is_active else 'button-secondary' }} button-small" type="submit" data-confirm="{{ 'Archive this account? Future bookings and active assignments will be closed.' if managed.is_active else 'Reactivate this account?' }}">{{ 'Archive' if managed.is_active else 'Reactivate' }}</button>
                       </form>
+                      {% if not managed.is_active and not managed.is_super_admin and managed.role != 'student' %}
+                        <form class="inline-form" action="{{ url_for('admin_user_delete', user_id=managed.id) }}" method="post">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                          <button class="button button-danger button-small" type="submit" data-confirm="Permanently delete the staff login for {{ managed.full_name }}? This cannot be undone. Historical bookings and audit records will remain intact.">Delete</button>
+                        </form>
+                      {% endif %}
                     </div>
                   </td>
                 </tr>
@@ -267,6 +273,12 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="button {{ 'button-danger' if managed.is_active else 'button-secondary' }} button-small" type="submit" data-confirm="{{ 'Archive this account? Future bookings and active assignments will be closed.' if managed.is_active else 'Reactivate this account?' }}">{{ 'Archive' if managed.is_active else 'Reactivate' }}</button>
               </form>
+              {% if not managed.is_active and not managed.is_super_admin and managed.role != 'student' %}
+                <form action="{{ url_for('admin_user_delete', user_id=managed.id) }}" method="post">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="button button-danger button-small" type="submit" data-confirm="Permanently delete the staff login for {{ managed.full_name }}? This cannot be undone. Historical bookings and audit records will remain intact.">Delete</button>
+                </form>
+              {% endif %}
             </div>
           </article>
         {% endfor %}
