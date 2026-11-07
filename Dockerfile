@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gosu \
+    && apt-get install -y --no-install-recommends gosu postgresql-client \
     && rm -rf /var/lib/apt/lists/* \
     && addgroup --system a2z && adduser --system --ingroup a2z a2z \
     && mkdir -p /data \

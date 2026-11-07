@@ -145,7 +145,7 @@ Plain HTTP is acceptable only on a trusted local network for a small pilot. A VP
 | --- | --- |
 | `A2Z_SECRET_KEY` | Signs session cookies. Use a stable random value of at least 32 bytes; changing it signs everyone out. |
 | `A2Z_DATABASE` | SQLite database path. An absolute path outside a synced folder is best on an always-on PC. |
-| `A2Z_BACKUP_DIR` | Persistent directory for verified SQLite backups. Use `/data/backups` in Coolify. |
+| `A2Z_BACKUP_DIR` | Persistent directory for verified backups. PostgreSQL uses `.dump` archives and SQLite uses `.db` files. Use `/data/backups` in Coolify. |
 | `A2Z_BACKUP_RETENTION` | Number of daily backups retained; defaults to `30`. |
 | `A2Z_ENABLE_BACKUPS` | Starts the hourly backup monitor, which creates at most one verified backup per day. Keep `1` in production. |
 | `A2Z_ADMIN_PASSWORD` | Initial password used only when the built-in administrator is first created. |
@@ -244,6 +244,22 @@ Changing a seed password after the database exists does not reset an account. Us
 ## Backups
 
 The database contains personal details, account records, schedules, attendance and audit events. Protect backups like the live system.
+
+When `A2Z_POSTGRES_URL` is configured, the application creates a custom-format
+`pg_dump` archive and verifies it with `pg_restore --list` before it is accepted.
+The password is passed through the protected process environment rather than a
+command-line argument. The hourly monitor creates no more than one verified
+archive per day and retains the newest `A2Z_BACKUP_RETENTION` archives. The
+administrator backup download uses the same PostgreSQL-safe process.
+
+Test a restore in a separate database at least monthly:
+
+```bash
+createdb a2z_restore_test
+pg_restore --clean --if-exists --no-owner --dbname=a2z_restore_test /data/backups/a2z-booking-YYYYMMDD-HHMMSS.dump
+```
+
+Never run the restore test against the live database.
 
 SQLite runs in WAL mode, so do not copy only the live `.db` file while the server is running. From this folder, create a consistent online backup with:
 

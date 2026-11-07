@@ -46,8 +46,15 @@ from flask_login import (
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-from backup_database import backup_directory, verify_database
-from database import database_path, get_db, init_db, postgres_url, seed_portal_accounts, seed_reference_data
+from backup_database import BackupError, create_backup
+from database import (
+    DATABASE_INTEGRITY_ERRORS,
+    get_db,
+    init_db,
+    postgres_url,
+    seed_portal_accounts,
+    seed_reference_data,
+)
 from driving_test_pdf import DrivingTestPdfError, parse_driving_test_pdf
 from free_slots import WORK_WINDOWS, compute_free_slots, intersect_free_slots
 from gemini_insights import (
@@ -3290,7 +3297,7 @@ def admin_users():
             temporary_password=generated_password,
             temporary_username=username if generated_password else None,
         )
-    except sqlite3.IntegrityError:
+    except DATABASE_INTEGRITY_ERRORS:
         return _render_admin_users(
             error="That username or email is already in use.", status_code=400
         )
@@ -3846,7 +3853,7 @@ def admin_user_edit(user_id):
             )
         flash(f"{full_name}'s details have been updated.", "success")
         return redirect(url_for("admin_users"))
-    except sqlite3.IntegrityError:
+    except DATABASE_INTEGRITY_ERRORS:
         return _render_admin_users(
             editing_user_id=user_id,
             error="That username, email or instructor record is already in use.",
@@ -4456,7 +4463,7 @@ def api_create_booking():
         ), 201
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    except sqlite3.IntegrityError:
+    except DATABASE_INTEGRITY_ERRORS:
         return jsonify({"error": "That slot was just taken. Please choose another time."}), 409
 
 
@@ -6346,7 +6353,7 @@ def api_calendar_create_appointment():
         ), 409
     except (TypeError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
-    except sqlite3.IntegrityError:
+    except DATABASE_INTEGRITY_ERRORS:
         return jsonify({"error": "That time now conflicts with another appointment."}), 409
 
 
@@ -6676,7 +6683,7 @@ def api_calendar_reschedule_appointment(booking_id):
         ), 409
     except (TypeError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
-    except sqlite3.IntegrityError:
+    except DATABASE_INTEGRITY_ERRORS:
         return jsonify({"error": "That time now conflicts with another appointment."}), 409
 
 
@@ -6735,7 +6742,11 @@ def api_calendar_delete_appointment(booking_id):
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         booking = conn.execute(
-            "SELECT id, branch_id, target_date, calendar_revision FROM bookings WHERE id = ?", (booking_id,)
+            """SELECT id, branch_id, target_date, start_time, end_time,
+                      student_user_id, student_name, instructor_id, machine_id,
+                      validation_status, calendar_revision
+               FROM bookings WHERE id = ?""",
+            (booking_id,),
         ).fetchone()
         if not booking:
             abort(404)
@@ -6750,12 +6761,28 @@ def api_calendar_delete_appointment(booking_id):
                 return jsonify(
                     {"error": "This appointment changed in another window. Refresh and try again."}
                 ), 409
-        conn.execute("DELETE FROM audit_events WHERE booking_id = ?", (booking_id,))
+        snapshot = dict(booking)
+        _audit(
+            conn,
+            "appointment_permanent_delete_requested",
+            booking_id,
+            {"booking": snapshot, "deleted_by_role": current_user.role},
+        )
+        # Keep the original activity records even after the appointment row is
+        # removed. Their JSON details remain available in the audit export.
+        conn.execute(
+            "UPDATE audit_events SET booking_id = NULL WHERE booking_id = ?",
+            (booking_id,),
+        )
         conn.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
         _audit(
             conn,
             "appointment_permanently_deleted",
-            details={"booking_id": booking_id, "deleted_by_role": current_user.role},
+            details={
+                "booking_id": booking_id,
+                "booking": snapshot,
+                "deleted_by_role": current_user.role,
+            },
         )
     return jsonify({"success": True})
 
@@ -6813,7 +6840,7 @@ def api_calendar_delete_client_upcoming_appointments(booking_id):
 
         placeholders = ",".join("?" for _ in booking_ids)
         conn.execute(
-            f"DELETE FROM audit_events WHERE booking_id IN ({placeholders})",
+            f"UPDATE audit_events SET booking_id = NULL WHERE booking_id IN ({placeholders})",
             booking_ids,
         )
         conn.execute(
@@ -6830,6 +6857,7 @@ def api_calendar_delete_client_upcoming_appointments(booking_id):
                 "from_date": selected["target_date"],
                 "deleted_count": len(booking_ids),
                 "selected_booking_id": booking_id,
+                "deleted_booking_ids": booking_ids,
                 "deleted_by_role": current_user.role,
             },
         )
@@ -9460,18 +9488,16 @@ def import_clients_view():
 @app.get("/admin/backups/download")
 @super_admin_required
 def download_database_backup():
-    backup_dir = backup_directory()
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(IST).strftime("%Y%m%d-%H%M%S")
-    target = backup_dir / f"a2z-scheduler-backup-{stamp}.db"
-    source_conn = sqlite3.connect(database_path())
-    target_conn = sqlite3.connect(target)
     try:
-        source_conn.backup(target_conn)
-    finally:
-        target_conn.close()
-        source_conn.close()
-    verify_database(target)
+        target = create_backup(
+            once_per_day=False,
+            retain=int(os.environ.get("A2Z_BACKUP_RETENTION", "30")),
+        )
+    except (BackupError, OSError, sqlite3.Error):
+        app.logger.exception("Administrator database backup failed")
+        abort(503, description="The database backup could not be created. Try again shortly.")
+    if target is None:
+        abort(503, description="The configured database is not available for backup.")
     with get_db() as conn:
         _audit(conn, "database_backup_downloaded", details={"file": target.name})
     return send_file(target, as_attachment=True, download_name=target.name)
@@ -10392,7 +10418,7 @@ def admin_services():
             return redirect(url_for("admin_services"))
         except (TypeError, ValueError) as exc:
             flash(str(exc), "error")
-        except sqlite3.IntegrityError:
+        except DATABASE_INTEGRITY_ERRORS:
             flash("A course with that name already exists at this branch.", "error")
     with get_db() as conn:
         context = _service_management_context(conn)
@@ -11261,7 +11287,7 @@ def booking_decision(booking_id):
             else "Request declined. The student can see your reason.",
             "success",
         )
-    except sqlite3.IntegrityError:
+    except DATABASE_INTEGRITY_ERRORS:
         flash("The slot now conflicts with another approved booking.", "error")
     return redirect(_role_home())
 

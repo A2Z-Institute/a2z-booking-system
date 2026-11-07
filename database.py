@@ -17,6 +17,19 @@ from zoneinfo import ZoneInfo
 from werkzeug.security import generate_password_hash
 
 
+try:
+    from psycopg import IntegrityError as PostgresIntegrityError
+except ImportError:  # Local SQLite-only development does not need psycopg.
+    PostgresIntegrityError = ()
+
+
+DATABASE_INTEGRITY_ERRORS = (
+    (sqlite3.IntegrityError, PostgresIntegrityError)
+    if PostgresIntegrityError
+    else (sqlite3.IntegrityError,)
+)
+
+
 def postgres_url() -> str | None:
     """Return the internal PostgreSQL URL when the production backend uses it."""
     return os.environ.get("A2Z_POSTGRES_URL") or None

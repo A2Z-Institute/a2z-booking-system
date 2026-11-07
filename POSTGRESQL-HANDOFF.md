@@ -10,6 +10,9 @@ currently running KVM 4 application.
 - A safe SQLite-to-PostgreSQL migration tool with source and target count
   verification.
 - PostgreSQL connection support controlled only by `A2Z_POSTGRES_URL`.
+- Verified daily PostgreSQL `pg_dump` archives with retention and administrator download support.
+- A database trigger that rejects simultaneous client, instructor or equipment overlaps unless an authorised double-booking override was saved.
+- Appointment deletion retains its audit evidence instead of deleting the activity history.
 - The normal SQLite database remains the default when that variable is absent.
 
 ## Do not deploy this package over the live system
