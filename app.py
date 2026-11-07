@@ -4631,6 +4631,17 @@ def _calendar_event(row):
         if email and "@" in email:
             local, domain = email.split("@", 1)
             email = (local[:1] + "•••@" + domain) if local else "•••@" + domain
+    try:
+        session_end = datetime.combine(
+            date.fromisoformat(row["target_date"]),
+            datetime.strptime(row["end_time"], "%H:%M").time(),
+            IST,
+        )
+        session_has_ended = session_end <= datetime.now(IST)
+    except (TypeError, ValueError):
+        # One malformed legacy time must not prevent the rest of the calendar
+        # from loading. It simply cannot use the status-recovery shortcut.
+        session_has_ended = False
     return {
         "type": "appointment",
         "id": row["id"],
@@ -4676,6 +4687,17 @@ def _calendar_event(row):
             current_user.role == "instructor"
             and current_user.instructor_id == row["instructor_id"]
             and row["validation_status"] not in {"Cancelled", "Rejected"}
+        ),
+        # A transferred instructor's historical appointment can remain on the
+        # original branch calendar after the login moves to a new profile.
+        # Only an administrator may correct an accidentally cancelled,
+        # already-finished appointment, and the dedicated endpoint changes
+        # status/attendance only so the original booking ownership is kept.
+        "can_admin_complete_cancelled": (
+            current_user.role == "admin"
+            and current_user.has_permission("write_access")
+            and row["validation_status"] == "Cancelled"
+            and session_has_ended
         ),
         "can_edit": (
             current_user.role in {"admin", "booking_agent"}
@@ -6979,6 +7001,86 @@ def api_calendar_instructor_status(booking_id):
             (next_status, current_user.id, booking_id),
         )
         _audit(conn, "instructor_status_updated", booking_id, {"status": next_status})
+        row = _booking_rows(conn, "b.id = ?", (booking_id,))[0]
+    return jsonify({"success": True, "event": _calendar_event(row)})
+
+
+@app.patch("/api/calendar/appointments/<int:booking_id>/admin-complete-cancelled")
+@role_required("admin")
+def api_calendar_admin_complete_cancelled(booking_id):
+    """Correct one finished cancelled booking without changing its ownership."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        revision = int(payload.get("revision"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Refresh the calendar and try again."}), 400
+
+    with get_db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        booking = conn.execute(
+            "SELECT * FROM bookings WHERE id = ?", (booking_id,)
+        ).fetchone()
+        if not booking:
+            abort(404)
+        _require_branch_access(booking["branch_id"])
+        if booking["validation_status"] != "Cancelled":
+            return jsonify(
+                {"error": "Only a cancelled appointment can be changed to completed."}
+            ), 409
+        if revision != booking["calendar_revision"]:
+            return jsonify(
+                {"error": "This appointment changed in another window. Refresh and try again."}
+            ), 409
+
+        now = datetime.now(IST)
+        try:
+            session_end = datetime.combine(
+                date.fromisoformat(booking["target_date"]),
+                datetime.strptime(booking["end_time"], "%H:%M").time(),
+                IST,
+            )
+        except (TypeError, ValueError):
+            return jsonify(
+                {"error": "This appointment has an invalid date or finish time."}
+            ), 409
+        if session_end > now:
+            return jsonify(
+                {"error": "This appointment can be completed after its scheduled finish time."}
+            ), 409
+
+        cursor = conn.execute(
+            """
+            UPDATE bookings
+            SET validation_status = 'Completed', cancelled_at = NULL,
+                reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP,
+                attendance_recorded_by = ?,
+                attendance_recorded_at = CURRENT_TIMESTAMP,
+                calendar_revision = calendar_revision + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND calendar_revision = ?
+              AND validation_status = 'Cancelled'
+            """,
+            (current_user.id, current_user.id, booking_id, revision),
+        )
+        if not cursor.rowcount:
+            return jsonify(
+                {"error": "This appointment changed in another window. Refresh and try again."}
+            ), 409
+        _cancel_queued_booking_notifications(conn, booking_id)
+        _audit(
+            conn,
+            "cancelled_booking_completed_by_admin",
+            booking_id,
+            {
+                "old_status": "Cancelled",
+                "new_status": "Completed",
+                "instructor_id": booking["instructor_id"],
+                "branch_id": booking["branch_id"],
+                "target_date": booking["target_date"],
+                "start_time": booking["start_time"],
+                "end_time": booking["end_time"],
+            },
+        )
         row = _booking_rows(conn, "b.id = ?", (booking_id,))[0]
     return jsonify({"success": True, "event": _calendar_event(row)})
 

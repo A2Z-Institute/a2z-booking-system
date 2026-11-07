@@ -82,6 +82,7 @@
   const cancelAppointmentButton = editor.querySelector("[data-editor-cancel]");
   const deleteClientUpcomingButton = editor.querySelector("[data-editor-delete-client-upcoming]");
   const permanentDeleteButton = editor.querySelector("[data-editor-permanent-delete]");
+  const adminCompleteCancelledButton = editor.querySelector("[data-editor-admin-complete-cancelled]");
   const bookingMenu = editor.querySelector("[data-editor-booking-menu]");
   const clientDetailsLink = editor.querySelector("[data-editor-client-details]");
   const clientNotesLink = editor.querySelector("[data-editor-client-notes]");
@@ -1126,6 +1127,7 @@
     }
     if (cancelAppointmentButton) cancelAppointmentButton.hidden = true;
     if (permanentDeleteButton) permanentDeleteButton.hidden = true;
+    if (adminCompleteCancelledButton) adminCompleteCancelledButton.hidden = true;
     if (bookingMenu) bookingMenu.hidden = true;
     if (serviceTotal) serviceTotal.hidden = true;
     if (deleteBusyButton) deleteBusyButton.hidden = true;
@@ -1220,6 +1222,7 @@
       if (descriptionText) descriptionText.textContent = "Appointments remain bookable inside this slot band.";
       if (cancelAppointmentButton) cancelAppointmentButton.hidden = true;
       if (permanentDeleteButton) permanentDeleteButton.hidden = true;
+      if (adminCompleteCancelledButton) adminCompleteCancelledButton.hidden = true;
       if (bookingMenu) bookingMenu.hidden = true;
       if (deleteBusyButton) deleteBusyButton.hidden = true;
       if (deleteUpcomingBusyButton) deleteUpcomingBusyButton.hidden = true;
@@ -1247,6 +1250,7 @@
       if (descriptionText) descriptionText.textContent = "This time is unavailable for appointments.";
       if (cancelAppointmentButton) cancelAppointmentButton.hidden = true;
       if (permanentDeleteButton) permanentDeleteButton.hidden = true;
+      if (adminCompleteCancelledButton) adminCompleteCancelledButton.hidden = true;
       if (bookingMenu) bookingMenu.hidden = true;
       if (deleteBusyButton) deleteBusyButton.hidden = !event.can_edit;
       if (deleteUpcomingBusyButton) deleteUpcomingBusyButton.hidden = !event.can_edit;
@@ -1283,6 +1287,9 @@
         if (currentRole === "instructor") saveButton.textContent = "Save status";
       }
       if (permanentDeleteButton) permanentDeleteButton.hidden = currentRole !== "admin";
+      if (adminCompleteCancelledButton) {
+        adminCompleteCancelledButton.hidden = !event.can_admin_complete_cancelled;
+      }
       setEditorType("appointment");
       if (!event.can_edit || currentRole === "instructor") {
         if (titleText) titleText.textContent = "Appointment details";
@@ -2618,6 +2625,47 @@
       await loadEvents({ force: true });
     } catch (error) {
       showError(error.message || "The appointment could not be deleted.");
+    }
+  });
+
+  adminCompleteCancelledButton?.addEventListener("click", async () => {
+    if (
+      !editingEvent
+      || editingEvent.type !== "appointment"
+      || currentRole !== "admin"
+      || !editingEvent.can_admin_complete_cancelled
+    ) return;
+    if (!window.confirm(
+      `Change ${editingEvent.student_name}'s cancelled appointment to Completed?\n\n`
+      + "Only the status will change. The original instructor, branch, date, time, and booking history will remain unchanged."
+    )) return;
+    clearError();
+    adminCompleteCancelledButton.disabled = true;
+    try {
+      const response = await fetch(
+        replaceId(calendar.dataset.adminCompleteCancelledUrlTemplate, editingEvent.id),
+        {
+          method: "PATCH",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrf,
+          },
+          credentials: "same-origin",
+          body: JSON.stringify({ revision: editingEvent.revision }),
+        },
+      );
+      const data = await parseJson(response);
+      if (!response.ok) throw new Error(data.error || "The appointment status could not be changed.");
+      if (data.event) mergeSavedEvents([data.event]);
+      dialog.close();
+      announce("Cancelled appointment changed to Completed.");
+      notifyOtherCalendarWindows();
+      queueCalendarReconcile();
+    } catch (error) {
+      showError(error.message || "The appointment status could not be changed.");
+    } finally {
+      adminCompleteCancelledButton.disabled = false;
     }
   });
 
