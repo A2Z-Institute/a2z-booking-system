@@ -4631,17 +4631,6 @@ def _calendar_event(row):
         if email and "@" in email:
             local, domain = email.split("@", 1)
             email = (local[:1] + "•••@" + domain) if local else "•••@" + domain
-    try:
-        session_end = datetime.combine(
-            date.fromisoformat(row["target_date"]),
-            datetime.strptime(row["end_time"], "%H:%M").time(),
-            IST,
-        )
-        session_has_ended = session_end <= datetime.now(IST)
-    except (TypeError, ValueError):
-        # One malformed legacy time must not prevent the rest of the calendar
-        # from loading. It simply cannot use the status-recovery shortcut.
-        session_has_ended = False
     return {
         "type": "appointment",
         "id": row["id"],
@@ -4690,14 +4679,13 @@ def _calendar_event(row):
         ),
         # A transferred instructor's historical appointment can remain on the
         # original branch calendar after the login moves to a new profile.
-        # Only an administrator may correct an accidentally cancelled,
-        # already-finished appointment, and the dedicated endpoint changes
-        # status/attendance only so the original booking ownership is kept.
+        # Only an administrator may correct an accidentally cancelled
+        # appointment, and the dedicated endpoint changes status/attendance
+        # only so the original booking ownership is kept.
         "can_admin_complete_cancelled": (
             current_user.role == "admin"
             and current_user.has_permission("write_access")
             and row["validation_status"] == "Cancelled"
-            and session_has_ended
         ),
         "can_edit": (
             current_user.role in {"admin", "booking_agent"}
@@ -7008,7 +6996,7 @@ def api_calendar_instructor_status(booking_id):
 @app.patch("/api/calendar/appointments/<int:booking_id>/admin-complete-cancelled")
 @role_required("admin")
 def api_calendar_admin_complete_cancelled(booking_id):
-    """Correct one finished cancelled booking without changing its ownership."""
+    """Correct one cancelled booking without changing its ownership."""
     payload = request.get_json(silent=True) or {}
     try:
         revision = int(payload.get("revision"))
@@ -7030,22 +7018,6 @@ def api_calendar_admin_complete_cancelled(booking_id):
         if revision != booking["calendar_revision"]:
             return jsonify(
                 {"error": "This appointment changed in another window. Refresh and try again."}
-            ), 409
-
-        now = datetime.now(IST)
-        try:
-            session_end = datetime.combine(
-                date.fromisoformat(booking["target_date"]),
-                datetime.strptime(booking["end_time"], "%H:%M").time(),
-                IST,
-            )
-        except (TypeError, ValueError):
-            return jsonify(
-                {"error": "This appointment has an invalid date or finish time."}
-            ), 409
-        if session_end > now:
-            return jsonify(
-                {"error": "This appointment can be completed after its scheduled finish time."}
             ), 409
 
         cursor = conn.execute(
