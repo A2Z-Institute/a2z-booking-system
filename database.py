@@ -133,7 +133,7 @@ def _migrate_unused_numeric_client_names(conn) -> None:
     )
 
 
-def _migrate_remove_selected_placeholder_clients(conn) -> None:
+def _migrate_remove_selected_placeholder_clients(conn, migration_key, branch_names) -> None:
     """Remove the selected directory entries while retaining linked history."""
     claimed = conn.execute(
         """
@@ -141,32 +141,27 @@ def _migrate_remove_selected_placeholder_clients(conn) -> None:
         ON CONFLICT (migration_key) DO NOTHING
         RETURNING migration_key
         """,
-        ("20261109_remove_selected_placeholder_clients",),
+        (migration_key,),
     ).fetchone()
     if not claimed:
         return
     today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+    placeholders = ", ".join("(?, ?)" for _ in branch_names)
+    match_values = tuple(value for branch_name in branch_names for value in branch_name)
     conn.execute(
-        """
+        f"""
         UPDATE users AS u
         SET is_active = 0, login_enabled = 0,
             deactivated_at = COALESCE(deactivated_at, CAST(CURRENT_TIMESTAMP AS TEXT)),
             deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE u.role = 'student' AND u.deleted_at IS NULL
-          AND (u.branch_id, trim(u.full_name)) IN (
-              (1, '077367 75260 Otc/12/26/krc'),
-              (120, '0788 778 1005'), (1, '0788 778 1005'),
-              (120, '081293 59954'), (120, '081390 15857'),
-              (121, '090721 88923'),
-              (1, '098470 47906'), (120, '098470 47906'),
-              (1, '1 90721 96377'), (120, '1036'), (1, '2 BOOKING')
-          )
+          AND (u.branch_id, lower(trim(u.full_name))) IN ({placeholders})
           AND NOT EXISTS (
               SELECT 1 FROM bookings b
               WHERE b.target_date >= ?
                 AND (b.student_user_id = u.id OR (
                     b.student_user_id IS NULL AND b.branch_id = u.branch_id
-                    AND trim(b.student_name) = trim(u.full_name)
+                    AND lower(trim(b.student_name)) = lower(trim(u.full_name))
                 ))
           )
           AND NOT EXISTS (
@@ -174,7 +169,7 @@ def _migrate_remove_selected_placeholder_clients(conn) -> None:
               WHERE d.client_id = u.id AND d.test_date >= ?
           )
         """,
-        (today, today),
+        (*match_values, today, today),
     )
 
 
@@ -1355,7 +1350,28 @@ def init_db() -> None:
         _migrate_historical_pending_to_absent(conn)
         _migrate_client_name_star_prefixes(conn)
         _migrate_unused_numeric_client_names(conn)
-        _migrate_remove_selected_placeholder_clients(conn)
+        _migrate_remove_selected_placeholder_clients(
+            conn,
+            "20261109_remove_selected_placeholder_clients",
+            (
+                (1, "077367 75260 otc/12/26/krc"),
+                (120, "0788 778 1005"), (1, "0788 778 1005"),
+                (120, "081293 59954"), (120, "081390 15857"),
+                (121, "090721 88923"),
+                (1, "098470 47906"), (120, "098470 47906"),
+                (1, "1 90721 96377"), (120, "1036"), (1, "2 booking"),
+            ),
+        )
+        _migrate_remove_selected_placeholder_clients(
+            conn,
+            "20261109_remove_slot_and_equipment_placeholder_clients",
+            (
+                (1, "2 wheeler slot"), (120, "2 wheeler slot"), (120, "2-w slot"),
+                (121, "20"), (1, "20 ft trailer"), (120, "20 ft trailer"),
+                (1, "20 trailer"), (120, "20 trailer"), (1, "20ft trailer slot"),
+                (120, "2nd slot"), (120, "2w"), (120, "2w 2nd slot"),
+            ),
+        )
 
 
 def seed_reference_data() -> None:
