@@ -3888,6 +3888,15 @@ def admin_user_toggle(user_id):
                 flash("Keep at least one active administrator account.", "warning")
                 return redirect(url_for("admin_users"))
         next_active = 0 if deactivating else 1
+        next_login_enabled = (
+            1
+            if next_active
+            and (
+                user["role"] != "student"
+                or app.config["A2Z_STUDENT_SELF_BOOKING"]
+            )
+            else 0
+        )
         if not deactivating and user["role"] == "instructor" and user["instructor_id"]:
             profile_in_use = conn.execute(
                 """
@@ -3906,11 +3915,11 @@ def admin_user_toggle(user_id):
                 return redirect(url_for("admin_users"))
         conn.execute(
             """
-            UPDATE users SET is_active = ?,
+            UPDATE users SET is_active = ?, login_enabled = ?,
                 deactivated_at = CASE WHEN ? = 0 THEN CURRENT_TIMESTAMP ELSE NULL END,
                 updated_at = CURRENT_TIMESTAMP WHERE id = ?
             """,
-            (next_active, next_active, user_id),
+            (next_active, next_login_enabled, next_active, user_id),
         )
         if user["instructor_id"]:
             conn.execute(
@@ -4035,16 +4044,65 @@ def admin_user_delete(user_id):
 def admin_user_reset_password(user_id):
     password = _temporary_password()
     with get_db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         _require_managed_user_access(user)
+        if not user["is_active"]:
+            flash(
+                "Reactivate this account before resetting its password.",
+                "warning",
+            )
+            return redirect(url_for("admin_users", status="archived"))
+        if (
+            user["role"] == "student"
+            and not app.config["A2Z_STUDENT_SELF_BOOKING"]
+        ):
+            flash("Student sign-in is disabled for this portal.", "warning")
+            return redirect(url_for("admin_users"))
+        if user["role"] == "instructor":
+            profile = conn.execute(
+                """
+                SELECT is_active, verification_status
+                FROM instructors WHERE id = ?
+                """,
+                (user["instructor_id"],),
+            ).fetchone()
+            if not profile or profile["verification_status"] != "verified":
+                flash(
+                    "Verify this instructor profile before resetting its password.",
+                    "warning",
+                )
+                return redirect(url_for("admin_users"))
+            if not profile["is_active"]:
+                # An active login paired with an inactive instructor profile
+                # cannot pass the login readiness check. Repair that legacy
+                # mismatch as part of the administrator's explicit reset.
+                conn.execute(
+                    """
+                    UPDATE instructors SET is_active = 1,
+                        updated_at = CURRENT_TIMESTAMP WHERE id = ?
+                    """,
+                    (user["instructor_id"],),
+                )
+        password_hash = generate_password_hash(password)
+        if not check_password_hash(password_hash, password):
+            raise RuntimeError("Temporary password verification failed.")
         conn.execute(
             """
-            UPDATE users SET password_hash = ?, must_change_password = 1,
+            UPDATE users SET password_hash = ?, login_enabled = 1,
+                must_change_password = 1,
                 updated_at = CURRENT_TIMESTAMP WHERE id = ?
             """,
-            (generate_password_hash(password), user_id),
+            (password_hash, user_id),
         )
-        _audit(conn, "temporary_password_issued", details={"target_user_id": user_id})
+        _audit(
+            conn,
+            "temporary_password_issued",
+            details={
+                "target_user_id": user_id,
+                "login_access_repaired": not bool(user["login_enabled"]),
+            },
+        )
     return _render_admin_users(
         temporary_password=password, temporary_username=user["username"]
     )

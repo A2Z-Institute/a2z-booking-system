@@ -221,10 +221,12 @@
                   <td>
                     <div class="table-actions">
                       <a class="button button-secondary button-small" href="{{ url_for('admin_user_edit', user_id=managed.id) }}#account-form">Edit</a>
-                      <form class="inline-form" action="{{ url_for('admin_user_reset_password', user_id=managed.id) }}" method="post">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button class="button button-quiet button-small" type="submit" data-confirm="Issue a new temporary password for {{ managed.full_name }}?">Reset password</button>
-                      </form>
+                      {% if managed.is_active %}
+                        <form class="inline-form" action="{{ url_for('admin_user_reset_password', user_id=managed.id) }}" method="post">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                          <button class="button button-quiet button-small" type="submit" data-confirm="Issue a new temporary password for {{ managed.full_name }}?">Reset password</button>
+                        </form>
+                      {% endif %}
                       <form class="inline-form" action="{{ url_for('admin_user_toggle', user_id=managed.id) }}" method="post">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class="button {{ 'button-danger' if managed.is_active else 'button-secondary' }} button-small" type="submit" data-confirm="{{ 'Archive this account? Future bookings and active assignments will be closed.' if managed.is_active else 'Reactivate this account?' }}">{{ 'Archive' if managed.is_active else 'Reactivate' }}</button>
@@ -265,10 +267,12 @@
             </dl>
             <div class="action-row">
               <a class="button button-secondary button-small" href="{{ url_for('admin_user_edit', user_id=managed.id) }}#account-form">Edit</a>
-              <form action="{{ url_for('admin_user_reset_password', user_id=managed.id) }}" method="post">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class="button button-quiet button-small" type="submit" data-confirm="Issue a new temporary password for {{ managed.full_name }}?">Reset password</button>
-              </form>
+              {% if managed.is_active %}
+                <form action="{{ url_for('admin_user_reset_password', user_id=managed.id) }}" method="post">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="button button-quiet button-small" type="submit" data-confirm="Issue a new temporary password for {{ managed.full_name }}?">Reset password</button>
+                </form>
+              {% endif %}
               <form action="{{ url_for('admin_user_toggle', user_id=managed.id) }}" method="post">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="button {{ 'button-danger' if managed.is_active else 'button-secondary' }} button-small" type="submit" data-confirm="{{ 'Archive this account? Future bookings and active assignments will be closed.' if managed.is_active else 'Reactivate this account?' }}">{{ 'Archive' if managed.is_active else 'Reactivate' }}</button>
