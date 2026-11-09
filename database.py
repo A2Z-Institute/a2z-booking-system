@@ -133,7 +133,9 @@ def _migrate_unused_numeric_client_names(conn) -> None:
     )
 
 
-def _migrate_remove_selected_placeholder_clients(conn, migration_key, branch_names) -> None:
+def _migrate_remove_selected_placeholder_clients(
+    conn, migration_key, branch_names=(), *, name_pattern=None
+) -> None:
     """Remove the selected directory entries while retaining linked history."""
     claimed = conn.execute(
         """
@@ -146,8 +148,13 @@ def _migrate_remove_selected_placeholder_clients(conn, migration_key, branch_nam
     if not claimed:
         return
     today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
-    placeholders = ", ".join("(?, ?)" for _ in branch_names)
-    match_values = tuple(value for branch_name in branch_names for value in branch_name)
+    if name_pattern is None:
+        placeholders = ", ".join("(?, ?)" for _ in branch_names)
+        name_filter = f"(u.branch_id, lower(trim(u.full_name))) IN ({placeholders})"
+        match_values = tuple(value for branch_name in branch_names for value in branch_name)
+    else:
+        name_filter = "lower(trim(u.full_name)) ~ ?"
+        match_values = (name_pattern,)
     conn.execute(
         f"""
         UPDATE users AS u
@@ -155,7 +162,7 @@ def _migrate_remove_selected_placeholder_clients(conn, migration_key, branch_nam
             deactivated_at = COALESCE(deactivated_at, CAST(CURRENT_TIMESTAMP AS TEXT)),
             deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE u.role = 'student' AND u.deleted_at IS NULL
-          AND (u.branch_id, lower(trim(u.full_name))) IN ({placeholders})
+          AND {name_filter}
           AND NOT EXISTS (
               SELECT 1 FROM bookings b
               WHERE b.target_date >= ?
@@ -1370,6 +1377,23 @@ def init_db() -> None:
                 (121, "20"), (1, "20 ft trailer"), (120, "20 ft trailer"),
                 (1, "20 trailer"), (120, "20 trailer"), (1, "20ft trailer slot"),
                 (120, "2nd slot"), (120, "2w"), (120, "2w 2nd slot"),
+            ),
+        )
+        _migrate_remove_selected_placeholder_clients(
+            conn,
+            "20261109_remove_placeholder_client_name_patterns",
+            # Match whole labels only. Free-form names and notes can contain
+            # these words, so never match a keyword inside a longer name.
+            name_pattern=(
+                r"^\s*(?:"
+                r"[24][\s-]*w(?:heeler)?(?:\s+(?:road(?:\s+slot)?|simulator(?:\s+slot)?|"
+                r"(?:(?:[0-9]+(?:st|nd|rd|th)|first|second|third)\s+)?slot))?"
+                r"|2w\s+simulator\s+slot\s+milan\s+sir"
+                r"|4\s+w\s+h"
+                r"|[0-9]+\s*(?:ft\s*)?trailer(?:\s+slot)?"
+                r"|(?:[0-9]+(?:st|nd|rd|th)|first|second|third)\s+slot"
+                r"|[0-9]+\s+bookings?(?:\s+only)?"
+                r")\s*$"
             ),
         )
 
