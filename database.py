@@ -1396,6 +1396,17 @@ def init_db() -> None:
                 r")\s*$"
             ),
         )
+        _migrate_remove_selected_placeholder_clients(
+            conn,
+            "20261109_remove_timed_and_road_slot_placeholder_clients",
+            name_pattern=(
+                r"^\s*(?:4[\s-]*mv\s+road\s+slot|[24][\s-]*w(?:heeler)?\s+(?:"
+                r"h|[0-9]+\s*(?:mins?|minutes?|minuts?)\s+slot|"
+                r"road\s+(?:(?:[0-9]+(?:st|nd|rd|th)|first|second|third)\s+slot"
+                r"(?:\s+halt)?|halt)))\s*$"
+            ),
+        )
+
 
 
 def seed_reference_data() -> None:
