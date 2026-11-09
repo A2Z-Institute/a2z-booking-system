@@ -4029,7 +4029,7 @@ def admin_user_delete(user_id):
                 UPDATE users
                 SET username = ?, password_hash = ?, email = NULL, phone = NULL,
                     is_active = 0, login_enabled = 0, must_change_password = 1,
-                    deactivated_at = COALESCE(deactivated_at, CURRENT_TIMESTAMP),
+                    deactivated_at = COALESCE(deactivated_at, CAST(CURRENT_TIMESTAMP AS TEXT)),
                     deleted_at = CURRENT_TIMESTAMP,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
