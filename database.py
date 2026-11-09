@@ -1406,7 +1406,14 @@ def init_db() -> None:
                 r"(?:\s+halt)?|halt)))\s*$"
             ),
         )
-
+        _migrate_remove_selected_placeholder_clients(
+            conn,
+            "20261109_remove_admission_code_placeholder_clients",
+            name_pattern=(
+                r"^\s*(?:[a-z]{1,8}\s*/\s*[0-9]{1,8}\s*/\s*(?:[0-9]{2}|[0-9]{4})"
+                r"|aa[op]\s*/\s*[0-9]{0,8}|aap\s+customer(?:\s*-\s*nimmy)?)\s*$"
+            ),
+        )
 
 
 def seed_reference_data() -> None:
