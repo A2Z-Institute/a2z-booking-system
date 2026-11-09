@@ -7541,7 +7541,7 @@ def _client_access_row(conn, client_id):
 def clients_directory():
     query = " ".join((request.args.get("q") or "").split())[:100]
     params = []
-    clauses = ["u.role = 'student'"]
+    clauses = ["u.role = 'student'", "u.deleted_at IS NULL"]
     if _portal_branch_id() is not None:
         clauses.append("u.branch_id = ?")
         params.append(_portal_branch_id())

@@ -133,6 +133,51 @@ def _migrate_unused_numeric_client_names(conn) -> None:
     )
 
 
+def _migrate_remove_selected_placeholder_clients(conn) -> None:
+    """Remove the selected directory entries while retaining linked history."""
+    claimed = conn.execute(
+        """
+        INSERT INTO schema_migrations (migration_key) VALUES (?)
+        ON CONFLICT (migration_key) DO NOTHING
+        RETURNING migration_key
+        """,
+        ("20261109_remove_selected_placeholder_clients",),
+    ).fetchone()
+    if not claimed:
+        return
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+    conn.execute(
+        """
+        UPDATE users AS u
+        SET is_active = 0, login_enabled = 0,
+            deactivated_at = COALESCE(deactivated_at, CAST(CURRENT_TIMESTAMP AS TEXT)),
+            deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE u.role = 'student' AND u.deleted_at IS NULL
+          AND (u.branch_id, trim(u.full_name)) IN (
+              (1, '077367 75260 Otc/12/26/krc'),
+              (120, '0788 778 1005'), (1, '0788 778 1005'),
+              (120, '081293 59954'), (120, '081390 15857'),
+              (121, '090721 88923'),
+              (1, '098470 47906'), (120, '098470 47906'),
+              (1, '1 90721 96377'), (120, '1036'), (1, '2 BOOKING')
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM bookings b
+              WHERE b.target_date >= ?
+                AND (b.student_user_id = u.id OR (
+                    b.student_user_id IS NULL AND b.branch_id = u.branch_id
+                    AND trim(b.student_name) = trim(u.full_name)
+                ))
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM driving_test_candidates d
+              WHERE d.client_id = u.id AND d.test_date >= ?
+          )
+        """,
+        (today, today),
+    )
+
+
 @contextmanager
 def get_db():
     if postgres_url():
@@ -1310,6 +1355,7 @@ def init_db() -> None:
         _migrate_historical_pending_to_absent(conn)
         _migrate_client_name_star_prefixes(conn)
         _migrate_unused_numeric_client_names(conn)
+        _migrate_remove_selected_placeholder_clients(conn)
 
 
 def seed_reference_data() -> None:
