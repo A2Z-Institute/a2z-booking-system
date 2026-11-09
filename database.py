@@ -68,6 +68,29 @@ def database_path() -> Path:
     return Path(os.environ.get("A2Z_DATABASE", DEFAULT_DB_PATH)).resolve()
 
 
+def _migrate_client_name_star_prefixes(conn) -> None:
+    """Clean legacy client name prefixes once without changing linked records."""
+    claimed = conn.execute(
+        """
+        INSERT INTO schema_migrations (migration_key) VALUES (?)
+        ON CONFLICT (migration_key) DO NOTHING
+        RETURNING migration_key
+        """,
+        ("20261109_remove_client_name_star_prefixes",),
+    ).fetchone()
+    if not claimed:
+        return
+    conn.execute(
+        """
+        UPDATE users
+        SET full_name = ltrim(full_name, '* ')
+        WHERE role = 'student'
+          AND substr(ltrim(full_name), 1, 1) = '*'
+          AND ltrim(full_name, '* ') <> ''
+        """
+    )
+
+
 @contextmanager
 def get_db():
     if postgres_url():
@@ -1243,6 +1266,7 @@ def init_db() -> None:
             "WHERE buffer_before_minutes != 0 OR buffer_after_minutes != 0"
         )
         _migrate_historical_pending_to_absent(conn)
+        _migrate_client_name_star_prefixes(conn)
 
 
 def seed_reference_data() -> None:
