@@ -75,7 +75,7 @@
             <strong>{{ event.event_type|replace('_', ' ')|title }}</strong>
             <span>{% if event.student_name %}{{ event.student_name }}{% elif event.actor_name %}By {{ event.actor_name }}{% else %}System activity{% endif %}{% if event.booking_id %} · Booking #{{ event.booking_id }}{% endif %}</span>
           </div>
-          <time datetime="{{ event.created_at }}">{{ event.created_at }}</time>
+          <time datetime="{{ event.created_at }}">{{ event.created_at|activity_timestamp }}</time>
         </li>
       {% endfor %}
     </ol>
