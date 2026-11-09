@@ -91,6 +91,48 @@ def _migrate_client_name_star_prefixes(conn) -> None:
     )
 
 
+def _migrate_unused_numeric_client_names(conn) -> None:
+    """Remove numeric-only client records that have no operational history."""
+    claimed = conn.execute(
+        """
+        INSERT INTO schema_migrations (migration_key) VALUES (?)
+        ON CONFLICT (migration_key) DO NOTHING
+        RETURNING migration_key
+        """,
+        ("20261109_remove_unused_numeric_client_names",),
+    ).fetchone()
+    if not claimed:
+        return
+    conn.execute(
+        """
+        DELETE FROM users AS u
+        WHERE u.role = 'student'
+          AND u.full_name ~ '^[[:space:]]*[0-9]+[[:space:]]*$'
+          AND NOT EXISTS (
+              SELECT 1 FROM bookings b
+              WHERE u.id IN (b.student_user_id, b.reviewed_by, b.attendance_recorded_by)
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM driving_test_candidates d
+              WHERE u.id IN (d.client_id, d.reviewed_by, d.created_by)
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM student_instructor_assignments a
+              WHERE u.id IN (a.student_user_id, a.assigned_by)
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM client_profiles p
+              WHERE u.id IN (p.updated_by, p.booking_blocked_by)
+                 OR (p.user_id = u.id AND p.booking_blocked = 1)
+          )
+          AND NOT EXISTS (SELECT 1 FROM audit_events WHERE actor_user_id = u.id)
+          AND NOT EXISTS (SELECT 1 FROM instructors WHERE verified_by = u.id)
+          AND NOT EXISTS (SELECT 1 FROM instructor_time_off WHERE created_by = u.id)
+          AND NOT EXISTS (SELECT 1 FROM booking_slots WHERE created_by = u.id)
+        """
+    )
+
+
 @contextmanager
 def get_db():
     if postgres_url():
@@ -1267,6 +1309,7 @@ def init_db() -> None:
         )
         _migrate_historical_pending_to_absent(conn)
         _migrate_client_name_star_prefixes(conn)
+        _migrate_unused_numeric_client_names(conn)
 
 
 def seed_reference_data() -> None:
