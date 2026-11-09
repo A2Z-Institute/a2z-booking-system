@@ -1423,6 +1423,11 @@ def init_db() -> None:
                 (120, "aa"), (120, "aa2"), (120, "aa6p/"),
             ),
         )
+        _migrate_remove_selected_placeholder_clients(
+            conn,
+            "20261109_remove_selected_phone_prefix_placeholder_clients",
+            ((1, "+91 90720 17259 constance"), (120, "+91 90720 17259 constance")),
+        )
 
 
 def seed_reference_data() -> None:
