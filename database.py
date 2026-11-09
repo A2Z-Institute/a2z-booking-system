@@ -1414,6 +1414,15 @@ def init_db() -> None:
                 r"|aa[op]\s*/\s*[0-9]{0,8}|aap\s+customer(?:\s*-\s*nimmy)?)\s*$"
             ),
         )
+        _migrate_remove_selected_placeholder_clients(
+            conn,
+            "20261109_remove_short_and_branch_placeholder_clients",
+            (
+                (120, "a,"), (1, "a,"), (1, "?"), (120, "a"),
+                (121, "a batch"), (120, "a k branch"),
+                (120, "aa"), (120, "aa2"), (120, "aa6p/"),
+            ),
+        )
 
 
 def seed_reference_data() -> None:
