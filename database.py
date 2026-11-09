@@ -1428,6 +1428,16 @@ def init_db() -> None:
             "20261109_remove_selected_phone_prefix_placeholder_clients",
             ((1, "+91 90720 17259 constance"), (120, "+91 90720 17259 constance")),
         )
+        _migrate_remove_selected_placeholder_clients(
+            conn,
+            "20261109_remove_numeric_and_admission_placeholder_clients",
+            name_pattern=(
+                r"^\s*(?:[+() -]*(?:[0-9][+() -]*){10,}"
+                r"(?:\s+[a-z][a-z0-9]{0,7}\s*/\s*[0-9]{1,8}\s*/\s*"
+                r"(?:[0-9]{2}|[0-9]{4})(?:\s*/\s*[a-z]{1,6}[0-9]{1,6})?)?"
+                r"|\?)\s*$"
+            ),
+        )
 
 
 def seed_reference_data() -> None:
