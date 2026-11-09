@@ -481,6 +481,20 @@ def friendly_time(value):
         return value
 
 
+@app.template_filter("activity_timestamp")
+def activity_timestamp(value):
+    try:
+        timestamp = datetime.fromisoformat(str(value))
+    except ValueError:
+        return value
+    # SQLite's CURRENT_TIMESTAMP is UTC and carries no offset.
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    local_time = timestamp.astimezone(IST)
+    clock = local_time.strftime("%I:%M %p").lstrip("0").lower()
+    return f"{local_time:%d/%m/%Y} {clock}"
+
+
 def _role_home():
     if (
         current_user.role in {"admin", "booking_agent", "instructor"}
