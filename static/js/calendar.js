@@ -2195,9 +2195,6 @@
     if (!firstName || !lastName) throw new Error("Client first name and last name are required.");
     if (!phone) throw new Error("Client phone number is required.");
     if (!payload.notes.trim()) throw new Error("Appointment notes are required.");
-    if (editorClassNumber && !editorClassNumber.validity.valid) {
-      throw new Error("Enter a whole class number between 1 and 9999.");
-    }
     if (!payload.student_id) {
       const createdClientId = await createClient();
       payload = appointmentPayload();

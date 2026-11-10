@@ -1310,14 +1310,19 @@
 }
 
 .appointment-notes-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 0.7rem 0.8rem;
 }
 
+.smart-appointment-grid .appointment-notes-row > .field {
+  grid-column: auto;
+}
+
 .appointment-notes-row input[data-editor-class-number] {
-  width: 4.5rem;
+  width: 5rem;
+  max-width: 100%;
   min-height: 32px;
   padding: 0.25rem 0.35rem;
 }

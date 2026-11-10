@@ -6201,13 +6201,19 @@ def api_calendar_delete_upcoming_booking_slots(slot_id):
     return jsonify({"success": True, "deleted_count": deleted, **preview})
 
 
-def _parse_class_number(value):
+def _parse_class_numbers(value):
     text = str(value).strip() if value is not None else ""
     if not text:
-        return None
-    if not re.fullmatch(r"[0-9]{1,4}", text) or int(text) == 0:
-        raise ValueError("Enter a whole class number between 1 and 9999.")
-    return int(text)
+        raise ValueError("Class number is required.")
+    numbers = []
+    for part in text.split(","):
+        part = part.strip()
+        if not re.fullmatch(r"[0-9]{1,4}", part) or not 1 <= int(part) <= 50:
+            raise ValueError("Enter class numbers from 1 to 50, separated by commas.")
+        numbers.append(int(part))
+    if len(numbers) != len(set(numbers)):
+        raise ValueError("Enter each class number only once.")
+    return sorted(numbers)
 
 
 @app.post("/api/calendar/appointments")
@@ -6239,9 +6245,10 @@ def api_calendar_create_appointment():
         dates, repeat_rule = _repeat_dates(
             target, payload.get("repeat"), payload.get("repeat_count")
         )
-        class_number = _parse_class_number(payload.get("class_number"))
-        if class_number is not None and class_number + len(dates) - 1 > 9999:
-            raise ValueError("The last class number in a repeat must be 9999 or lower.")
+        class_numbers = _parse_class_numbers(payload.get("class_number"))
+        class_span = class_numbers[-1] - class_numbers[0] + 1
+        if class_numbers[-1] + (len(dates) - 1) * class_span > 50:
+            raise ValueError("The last class number in a repeat must be 50 or lower.")
         with get_db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             # Book every service for an already-known person against the same
@@ -6405,6 +6412,7 @@ def api_calendar_create_appointment():
             series_id = secrets.token_urlsafe(12) if len(dates) > 1 else None
             created_rows = []
             for series_position, occurrence_date in enumerate(dates, start=1):
+                class_offset = (series_position - 1) * class_span
                 cursor = conn.execute(
                     """
                     INSERT INTO bookings
@@ -6431,7 +6439,7 @@ def api_calendar_create_appointment():
                         end_time,
                         requested_status,
                         note,
-                        class_number + series_position - 1 if class_number is not None else None,
+                        ",".join(str(number + class_offset) for number in class_numbers),
                         services[0]["id"],
                         service_name,
                         price_cents,
@@ -6705,7 +6713,7 @@ def api_calendar_reschedule_appointment(booking_id):
                 else booking["notes"]
             )
             class_number = (
-                _parse_class_number(payload["class_number"])
+                ",".join(map(str, _parse_class_numbers(payload["class_number"])))
                 if "class_number" in payload
                 else booking["class_number"]
             )
