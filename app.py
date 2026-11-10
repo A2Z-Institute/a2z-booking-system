@@ -7573,6 +7573,42 @@ def _client_access_row(conn, client_id):
     return row
 
 
+@app.get("/api/calendar/clients/<int:client_id>/equipment/<int:machine_id>/upcoming")
+@permission_required("client_database")
+def api_calendar_client_equipment_upcoming(client_id, machine_id):
+    now = datetime.now(IST)
+    today = now.date().isoformat()
+    with get_db() as conn:
+        if not _client_access_row(conn, client_id):
+            abort(404)
+        client_ids = _related_client_ids(conn, client_id) or [client_id]
+        client_placeholders = ",".join("?" for _ in client_ids)
+        status_placeholders = ",".join("?" for _ in ACTIVE_BOOKING_STATUSES)
+        clauses = [
+            f"b.student_user_id IN ({client_placeholders})",
+            "b.machine_id = ?",
+            f"b.validation_status IN ({status_placeholders})",
+            "(b.target_date > ? OR (b.target_date = ? AND b.end_time > ?))",
+        ]
+        params = [*client_ids, machine_id, *ACTIVE_BOOKING_STATUSES,
+                  today, today, now.strftime("%H:%M")]
+        branch_id = _portal_branch_id()
+        if branch_id is not None:
+            clauses.append("b.branch_id = ?")
+            params.append(branch_id)
+        rows = conn.execute(
+            f"""
+            SELECT b.target_date AS date, b.start_time, b.end_time, b.class_number,
+                   m.machine_code, m.category AS equipment_category
+            FROM bookings b JOIN machines m ON m.id = b.machine_id
+            WHERE {' AND '.join(clauses)}
+            ORDER BY b.target_date, b.start_time, b.id
+            """,
+            tuple(params),
+        ).fetchall()
+    return jsonify({"appointments": [dict(row) for row in rows]})
+
+
 @app.get("/clients")
 @permission_required("client_database")
 def clients_directory():

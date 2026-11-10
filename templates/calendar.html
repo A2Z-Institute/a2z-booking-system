@@ -39,6 +39,7 @@
   data-selected-client="{{ selected_client_id|default('', true) }}"
   data-initial-client-id="{{ selected_client_id|default('', true) }}"
   data-client-url-template="{{ url_for('client_detail', client_id=0) }}"
+  data-client-equipment-upcoming-url="{{ url_for('api_calendar_client_equipment_upcoming', client_id=0, machine_id=0) }}"
 >
   <div class="calendar-toolbar" aria-label="Calendar controls">
     <div class="calendar-toolbar-primary">
@@ -272,6 +273,7 @@
               <div data-client-typeahead-results></div>
             </div>
             <div class="client-absence-alert field-span-all" data-client-absence-alert hidden></div>
+            <div class="client-absence-alert field-span-all" data-client-equipment-upcoming aria-live="polite" hidden></div>
             <div class="field">
               <label for="editor-date">Date</label>
               <input id="editor-date" name="target_date" type="date" value="{{ calendar_date }}" data-editor-date required>
@@ -571,5 +573,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20261110-5') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20261110-6') }}" defer></script>
 {% endblock %}

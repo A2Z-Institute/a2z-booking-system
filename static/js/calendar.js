@@ -57,6 +57,9 @@
   const clientTypeahead = editor.querySelector("[data-client-typeahead]");
   const clientTypeaheadResults = editor.querySelector("[data-client-typeahead-results]");
   const clientAbsenceAlert = editor.querySelector("[data-client-absence-alert]");
+  const clientEquipmentUpcoming = editor.querySelector("[data-client-equipment-upcoming]");
+  let equipmentUpcomingRequest = null;
+  let equipmentUpcomingKey = "";
   const clientContactInputs = [clientFirstName, clientLastName, clientPhone, clientEmail]
     .filter((input) => input instanceof HTMLInputElement);
 
@@ -491,6 +494,7 @@
     if (fillingClient || editingEvent) return;
     clientInput.value = "";
     clearClientAbsenceAlert();
+    clearEquipmentUpcoming();
     if (bookingMenu) bookingMenu.hidden = true;
     if (cancelAppointmentButton) cancelAppointmentButton.hidden = true;
     clearTimeout(clientSearchTimer);
@@ -881,12 +885,70 @@
     });
   };
 
+  const clearEquipmentUpcoming = () => {
+    equipmentUpcomingRequest?.abort();
+    equipmentUpcomingRequest = null;
+    equipmentUpcomingKey = "";
+    if (clientEquipmentUpcoming) {
+      clientEquipmentUpcoming.hidden = true;
+      clientEquipmentUpcoming.replaceChildren();
+    }
+  };
+
+  const refreshEquipmentUpcoming = async () => {
+    const urlTemplate = calendar.dataset.clientEquipmentUpcomingUrl;
+    const clientId = clientInput.value;
+    const machineId = machineInput.value;
+    if (!clientEquipmentUpcoming || !urlTemplate || !clientId || !machineId || !selectedServices().length) {
+      clearEquipmentUpcoming();
+      return;
+    }
+    const key = `${clientId}:${machineId}`;
+    if (key === equipmentUpcomingKey) return;
+    clearEquipmentUpcoming();
+    equipmentUpcomingKey = key;
+    const request = new AbortController();
+    equipmentUpcomingRequest = request;
+    const heading = document.createElement("strong");
+    heading.textContent = "Upcoming appointments for this equipment";
+    const result = document.createElement("div");
+    result.textContent = "Loading…";
+    clientEquipmentUpcoming.replaceChildren(heading, result);
+    clientEquipmentUpcoming.hidden = false;
+    try {
+      const url = replaceId(replaceId(urlTemplate, clientId), machineId);
+      const response = await fetch(url, { signal: request.signal, headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error("Unable to load upcoming appointments.");
+      const { appointments } = await response.json();
+      if (equipmentUpcomingRequest !== request) return;
+      if (!appointments.length) {
+        result.textContent = "No upcoming appointments for this equipment.";
+        return;
+      }
+      const list = document.createElement("ul");
+      for (const appointment of appointments) {
+        const row = document.createElement("li");
+        const date = formatWhatsappDate(appointment.date);
+        const time = `${formatClock(appointment.start_time)}–${formatClock(appointment.end_time)}`;
+        const equipment = `${appointment.machine_code.replace(/-/g, " ")} · ${appointment.equipment_category}`;
+        row.textContent = `${date} · ${time} · ${equipment} · Class No. ${appointment.class_number ?? "Not recorded"}`;
+        list.append(row);
+      }
+      result.replaceChildren(list);
+    } catch (error) {
+      if (equipmentUpcomingRequest !== request) return;
+      result.textContent = "Unable to load upcoming appointments.";
+      equipmentUpcomingKey = "";
+    }
+  };
+
   const showSelectedEquipment = () => {
     if (machineDisplay) {
       machineDisplay.value = machineInput.value
         ? machineInput.selectedOptions[0]?.textContent.trim() || ""
         : "No compatible equipment";
     }
+    refreshEquipmentUpcoming();
   };
 
   const syncMachines = () => {
@@ -2896,6 +2958,7 @@
   });
 
   dialog.addEventListener("close", () => {
+    clearEquipmentUpcoming();
     editingEvent = null;
     whatsappConfirmationEvent = null;
     if (whatsappConfirmationButton) whatsappConfirmationButton.hidden = true;
