@@ -7073,8 +7073,8 @@ def api_calendar_instructor_status(booking_id):
         revision = int(payload.get("revision"))
     except (TypeError, ValueError):
         return jsonify({"error": "Refresh the calendar and try again."}), 400
-    mark = None if next_status == "No-show" else payload.get("mark")
-    if next_status != "No-show" and (type(mark) is not int or not 1 <= mark <= 10):
+    mark = payload.get("mark")
+    if next_status == "Completed" and (type(mark) is not int or not 1 <= mark <= 10):
         return jsonify({"error": "Choose a whole-number mark from 1 to 10."}), 400
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -7098,6 +7098,8 @@ def api_calendar_instructor_status(booking_id):
             return jsonify(
                 {"error": "This appointment changed in another window. Refresh and try again."}
             ), 409
+        if next_status != "Completed":
+            mark = None if next_status == "No-show" else booking["instructor_mark"]
         updated = conn.execute(
             """
             UPDATE bookings

@@ -47,6 +47,7 @@
   const editorNotes = editor.querySelector("[data-editor-notes]");
   const editorClassNumber = editor.querySelector("[data-editor-class-number]");
   const editorMark = editor.querySelector("[data-editor-mark]");
+  const editorMarkField = editor.querySelector("[data-editor-mark-field]");
   const bufferBefore = editor.querySelector("[data-editor-buffer-before]");
   const bufferAfter = editor.querySelector("[data-editor-buffer-after]");
   const repeatInput = editor.querySelector("[data-editor-repeat]");
@@ -1373,11 +1374,11 @@
         });
         if (currentRole === "instructor" && event.can_update_status && editorStatus) {
           editorStatus.disabled = false;
-          syncInstructorMark();
           if (saveButton) saveButton.disabled = false;
         }
       }
     }
+    syncInstructorMark();
     dialog.showModal();
   };
 
@@ -2359,9 +2360,11 @@
   };
 
   const syncInstructorMark = () => {
-    if (currentRole === "instructor" && editingEvent?.can_update_status && editorMark) {
-      editorMark.disabled = editorStatus?.value === "No-show";
-    }
+    if (!editorMarkField || !editorMark) return;
+    const showMark = Boolean(editingEvent?.can_update_status) && editorStatus?.value === "Completed";
+    editorMarkField.hidden = !showMark;
+    editorMark.disabled = !showMark;
+    editorMark.required = showMark;
   };
   editorStatus?.addEventListener("change", syncInstructorMark);
 
@@ -2383,7 +2386,7 @@
         body: JSON.stringify({
           status,
           revision: editingEvent.revision,
-          mark: status === "No-show" ? null : Number(editorMark?.value),
+          ...(status === "Completed" ? { mark: Number(editorMark?.value) } : {}),
         }),
       },
     );
