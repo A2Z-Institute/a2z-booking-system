@@ -30,6 +30,7 @@
   const clientInput = editor.querySelector("[data-editor-client], [data-editor-student]");
   const instructorInput = editor.querySelector("[data-editor-instructor]");
   const machineInput = editor.querySelector("[data-editor-machine]");
+  const machineDisplay = editor.querySelector("[data-editor-machine-display]");
   const serviceChecks = Array.from(editor.querySelectorAll("[data-editor-service]"));
   const servicePicker = editor.querySelector("[data-service-picker]");
   const servicePickerEmpty = editor.querySelector("[data-service-picker-empty]");
@@ -880,6 +881,14 @@
     });
   };
 
+  const showSelectedEquipment = () => {
+    if (machineDisplay) {
+      machineDisplay.value = machineInput.value
+        ? machineInput.selectedOptions[0]?.textContent.trim() || ""
+        : "No compatible equipment";
+    }
+  };
+
   const syncMachines = () => {
     const branchId = appointmentBranchId
       || instructorInput.selectedOptions[0]?.dataset.branchId
@@ -903,6 +912,7 @@
       if (!allowed && option.selected) machineInput.value = "";
     });
     if (!machineInput.value && allowedOptions.length) machineInput.value = allowedOptions[0].value;
+    showSelectedEquipment();
   };
 
   const syncEditorOptions = () => {
@@ -995,7 +1005,6 @@
     revisionInput.value = event.revision || "";
     clientInput.value = String(event.client_id || event.student_user_id || "");
     setAppointmentInstructor(event.instructor_id, event.branch_id);
-    machineInput.value = String(event.machine_id || "");
     editorDate.value = event.date;
     editorStart.value = event.start_time;
     if (editorEnd) editorEnd.value = event.end_time;
@@ -1021,6 +1030,7 @@
     setServiceSelection([]);
     syncEditorOptions();
     setServiceSelection(event.service_ids?.length ? event.service_ids : [event.service_id].filter(Boolean));
+    machineInput.value = String(event.machine_id || "");
     syncMachines();
     updateDuration();
     if (serviceTotal) {
@@ -1162,6 +1172,7 @@
       syncMachines();
       const machineOption = Array.from(machineInput.options).find((option) => option.value === machineId && !option.disabled);
       if (machineOption) machineInput.value = machineId;
+      showSelectedEquipment();
     }
     updateDuration();
     applyTrailerDefaultFinish();
@@ -2201,7 +2212,8 @@
       }
     }
     if (!payload.service_ids.length) throw new Error("Choose at least one service.");
-    if (!payload.instructor_id || !payload.machine_id) throw new Error("Choose the instructor and compatible equipment.");
+    if (!payload.instructor_id) throw new Error("Choose an instructor.");
+    if (!payload.machine_id) throw new Error("No compatible equipment is available for the selected services.");
     if (!payload.target_date || !payload.start_time || !payload.end_time) throw new Error("Choose the date, start, and finish time.");
     if (minutes(payload.end_time) <= minutes(payload.start_time)) throw new Error("Finish must be later than start.");
     if (!bookingIdInput.value && selectedClientBookingBlocked) {
@@ -2522,7 +2534,6 @@
       updateServiceTrigger();
     });
   });
-  machineInput.addEventListener("change", applyTrailerDefaultFinish);
   servicePickerOpenButton?.addEventListener("click", () => {
     if (!servicePicker) return;
     // Re-evaluate branch visibility whenever the picker opens. This also

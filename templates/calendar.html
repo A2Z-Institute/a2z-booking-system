@@ -320,9 +320,10 @@
                 {% endfor %}
               </select>
               <div class="field">
-                <label for="editor-machine">Equipment</label>
-                <select id="editor-machine" name="machine_id" data-editor-machine required>
-                  <option value="">Choose compatible equipment</option>
+                <label for="editor-machine-display">Equipment</label>
+                <input id="editor-machine-display" type="text" data-editor-machine-display readonly>
+                <select name="machine_id" data-editor-machine hidden aria-hidden="true" tabindex="-1">
+                  <option value=""></option>
                   {% for machine in machines %}
                     <option value="{{ machine.id }}" data-branch-id="{{ machine.branch_id }}">{{ machine.machine_code|replace('-', ' ') }} · {{ machine.category }}</option>
                   {% endfor %}
@@ -570,5 +571,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20261110-4') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20261110-5') }}" defer></script>
 {% endblock %}
