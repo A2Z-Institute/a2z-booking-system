@@ -1333,7 +1333,7 @@
   padding: 0.25rem 0.35rem;
 }
 
-.appointment-class-fields select[data-editor-mark] {
+.appointment-class-fields [data-editor-mark] {
   width: 4rem;
   min-height: 32px;
   padding: 0.25rem 0.35rem;

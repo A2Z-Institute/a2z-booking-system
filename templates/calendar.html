@@ -5,7 +5,7 @@
 {% block body_class %}calendar-page{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20261110-3') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20261110-4') }}">
 {% endblock %}
 
 {% block content %}
@@ -254,6 +254,11 @@
                       <option value="{{ mark }}">{{ mark }}</option>
                     {% endfor %}
                   </select>
+                </div>
+                {% elif current_user.role == 'admin' %}
+                <div class="field">
+                  <label for="editor-mark">Mark</label>
+                  <input id="editor-mark" type="text" data-editor-mark placeholder="—" readonly>
                 </div>
                 {% endif %}
               </div>

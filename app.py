@@ -4735,7 +4735,14 @@ def _calendar_event(row):
         "status": row["validation_status"],
         "notes": (row["notes"] or "") if can_view_notes else "",
         "class_number": row["class_number"],
-        "instructor_mark": row["instructor_mark"],
+        "instructor_mark": (
+            row["instructor_mark"]
+            if current_user.role == "admin" or (
+                current_user.role == "instructor"
+                and current_user.instructor_id == row["instructor_id"]
+            )
+            else None
+        ),
         "revision": row["calendar_revision"],
         "buffer_before_minutes": row["buffer_before_minutes"],
         "buffer_after_minutes": row["buffer_after_minutes"],
