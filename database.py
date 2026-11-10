@@ -940,6 +940,7 @@ def _init_sqlite_db() -> None:
                 "buffer_before_minutes": "INTEGER NOT NULL DEFAULT 0",
                 "buffer_after_minutes": "INTEGER NOT NULL DEFAULT 0",
                 "calendar_revision": "INTEGER NOT NULL DEFAULT 1",
+                "class_number": "INTEGER",
                 "series_id": "TEXT",
                 "repeat_rule": "TEXT",
                 "allow_double_booking": "INTEGER NOT NULL DEFAULT 0",

@@ -181,7 +181,7 @@ BRANCH_CURRENCY_OPTIONS = (
 BOOKING_SELECT = """
     SELECT b.id, b.student_name, b.mobile_number, b.student_user_id,
            b.machine_id, b.instructor_id, b.branch_id, b.target_date,
-           b.start_time, b.end_time, b.validation_status, b.notes,
+           b.start_time, b.end_time, b.validation_status, b.notes, b.class_number,
            b.review_notes, b.reviewed_by, b.reviewed_at, b.cancelled_at,
            b.attendance_recorded_by, b.attendance_recorded_at,
            b.created_at, b.updated_at, b.service_id,
@@ -4733,6 +4733,7 @@ def _calendar_event(row):
         "end_time": row["end_time"],
         "status": row["validation_status"],
         "notes": (row["notes"] or "") if can_view_notes else "",
+        "class_number": row["class_number"],
         "revision": row["calendar_revision"],
         "buffer_before_minutes": row["buffer_before_minutes"],
         "buffer_after_minutes": row["buffer_after_minutes"],
@@ -6200,6 +6201,15 @@ def api_calendar_delete_upcoming_booking_slots(slot_id):
     return jsonify({"success": True, "deleted_count": deleted, **preview})
 
 
+def _parse_class_number(value):
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        return None
+    if not re.fullmatch(r"[0-9]{1,4}", text) or int(text) == 0:
+        raise ValueError("Enter a whole class number between 1 and 9999.")
+    return int(text)
+
+
 @app.post("/api/calendar/appointments")
 @permission_required("write_access")
 def api_calendar_create_appointment():
@@ -6229,6 +6239,9 @@ def api_calendar_create_appointment():
         dates, repeat_rule = _repeat_dates(
             target, payload.get("repeat"), payload.get("repeat_count")
         )
+        class_number = _parse_class_number(payload.get("class_number"))
+        if class_number is not None and class_number + len(dates) - 1 > 9999:
+            raise ValueError("The last class number in a repeat must be 9999 or lower.")
         with get_db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             # Book every service for an already-known person against the same
@@ -6397,12 +6410,12 @@ def api_calendar_create_appointment():
                     INSERT INTO bookings
                         (student_name, mobile_number, student_user_id, machine_id,
                          instructor_id, branch_id, target_date, start_time, end_time,
-                         validation_status, notes, service_id, service_name,
+                         validation_status, notes, class_number, service_id, service_name,
                          service_price_cents, currency, buffer_before_minutes,
                          buffer_after_minutes, reviewed_by, reviewed_at,
                          cancelled_at, series_id, repeat_rule, series_position,
                          series_count, allow_double_booking, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                             ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?,
                             ?, CURRENT_TIMESTAMP)
                     """,
@@ -6418,6 +6431,7 @@ def api_calendar_create_appointment():
                         end_time,
                         requested_status,
                         note,
+                        class_number + series_position - 1 if class_number is not None else None,
                         services[0]["id"],
                         service_name,
                         price_cents,
@@ -6690,6 +6704,11 @@ def api_calendar_reschedule_appointment(booking_id):
                 if "notes" in payload
                 else booking["notes"]
             )
+            class_number = (
+                _parse_class_number(payload["class_number"])
+                if "class_number" in payload
+                else booking["class_number"]
+            )
             old_values = {
                 "date": booking["target_date"],
                 "start": booking["start_time"],
@@ -6706,7 +6725,7 @@ def api_calendar_reschedule_appointment(booking_id):
                 SET target_date = ?, start_time = ?, end_time = ?,
                     instructor_id = ?, machine_id = ?, branch_id = ?,
                     student_user_id = ?, student_name = ?, mobile_number = ?,
-                    validation_status = ?, notes = ?, service_id = ?,
+                    validation_status = ?, notes = ?, class_number = ?, service_id = ?,
                     service_name = ?, service_price_cents = ?, currency = ?,
                     buffer_before_minutes = ?, buffer_after_minutes = ?,
                     allow_double_booking = ?,
@@ -6727,6 +6746,7 @@ def api_calendar_reschedule_appointment(booking_id):
                     resource["phone"] or "",
                     next_status,
                     notes or None,
+                    class_number,
                     primary_service_id,
                     service_name,
                     price_cents,

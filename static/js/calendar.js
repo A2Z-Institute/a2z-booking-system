@@ -44,6 +44,7 @@
   const editorEnd = editor.querySelector("[data-editor-end]");
   const editorStatus = editor.querySelector("[data-editor-status]");
   const editorNotes = editor.querySelector("[data-editor-notes]");
+  const editorClassNumber = editor.querySelector("[data-editor-class-number]");
   const bufferBefore = editor.querySelector("[data-editor-buffer-before]");
   const bufferAfter = editor.querySelector("[data-editor-buffer-after]");
   const repeatInput = editor.querySelector("[data-editor-repeat]");
@@ -1006,6 +1007,7 @@
     }
     clearClientAbsenceAlert();
     if (editorNotes) editorNotes.value = event.notes || "";
+    if (editorClassNumber) editorClassNumber.value = event.class_number ?? "";
     const firstNameInput = editor.querySelector("[data-new-client-first-name]");
     const lastNameInput = editor.querySelector("[data-new-client-last-name]");
     const phoneInput = editor.querySelector("[data-new-client-phone]");
@@ -2177,6 +2179,7 @@
       allow_double_booking: false,
       double_booking_confirmed: false,
       notes: editorNotes?.value || "",
+      class_number: editorClassNumber?.value || null,
       client_full_name: clientFirstName?.value.trim() || "",
       client_admission_number: clientLastName?.value.trim() || "",
       client_phone: clientPhone?.value.trim() || "",
@@ -2192,6 +2195,9 @@
     if (!firstName || !lastName) throw new Error("Client first name and last name are required.");
     if (!phone) throw new Error("Client phone number is required.");
     if (!payload.notes.trim()) throw new Error("Appointment notes are required.");
+    if (editorClassNumber && !editorClassNumber.validity.valid) {
+      throw new Error("Enter a whole class number between 1 and 9999.");
+    }
     if (!payload.student_id) {
       const createdClientId = await createClient();
       payload = appointmentPayload();
