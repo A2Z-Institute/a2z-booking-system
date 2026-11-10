@@ -182,6 +182,7 @@ BOOKING_SELECT = """
     SELECT b.id, b.student_name, b.mobile_number, b.student_user_id,
            b.machine_id, b.instructor_id, b.branch_id, b.target_date,
            b.start_time, b.end_time, b.validation_status, b.notes, b.class_number,
+           b.instructor_mark,
            b.review_notes, b.reviewed_by, b.reviewed_at, b.cancelled_at,
            b.attendance_recorded_by, b.attendance_recorded_at,
            b.created_at, b.updated_at, b.service_id,
@@ -4734,6 +4735,7 @@ def _calendar_event(row):
         "status": row["validation_status"],
         "notes": (row["notes"] or "") if can_view_notes else "",
         "class_number": row["class_number"],
+        "instructor_mark": row["instructor_mark"],
         "revision": row["calendar_revision"],
         "buffer_before_minutes": row["buffer_before_minutes"],
         "buffer_after_minutes": row["buffer_after_minutes"],
@@ -7053,7 +7055,7 @@ def api_calendar_delete_client_upcoming_appointments(booking_id):
 @app.patch("/api/calendar/appointments/<int:booking_id>/instructor-status")
 @role_required("instructor")
 def api_calendar_instructor_status(booking_id):
-    """Allow an instructor to update only the appointment status dropdown."""
+    """Allow an instructor to update the status and mark on their appointment."""
     payload = request.get_json(silent=True) or {}
     next_status = str(payload.get("status") or "").strip()
     if next_status not in VISIBLE_BOOKING_STATUSES:
@@ -7064,6 +7066,9 @@ def api_calendar_instructor_status(booking_id):
         revision = int(payload.get("revision"))
     except (TypeError, ValueError):
         return jsonify({"error": "Refresh the calendar and try again."}), 400
+    mark = payload.get("mark")
+    if type(mark) is not int or not 1 <= mark <= 10:
+        return jsonify({"error": "Choose a whole-number mark from 1 to 10."}), 400
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         booking = conn.execute(
@@ -7086,18 +7091,20 @@ def api_calendar_instructor_status(booking_id):
             return jsonify(
                 {"error": "This appointment changed in another window. Refresh and try again."}
             ), 409
-        conn.execute(
+        updated = conn.execute(
             """
             UPDATE bookings
-            SET validation_status = ?, reviewed_by = ?,
+            SET validation_status = ?, reviewed_by = ?, instructor_mark = ?,
                 reviewed_at = CURRENT_TIMESTAMP,
                 calendar_revision = calendar_revision + 1,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
+            WHERE id = ? AND calendar_revision = ?
             """,
-            (next_status, current_user.id, booking_id),
+            (next_status, current_user.id, mark, booking_id, revision),
         )
-        _audit(conn, "instructor_status_updated", booking_id, {"status": next_status})
+        if not updated.rowcount:
+            return jsonify({"error": "This appointment changed in another window. Refresh and try again."}), 409
+        _audit(conn, "instructor_status_updated", booking_id, {"status": next_status, "mark": mark})
         row = _booking_rows(conn, "b.id = ?", (booking_id,))[0]
     return jsonify({"success": True, "event": _calendar_event(row)})
 

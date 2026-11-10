@@ -167,6 +167,8 @@ CREATE TABLE IF NOT EXISTS bookings (
 );
 
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS class_number TEXT;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS instructor_mark INTEGER
+    CHECK (instructor_mark BETWEEN 1 AND 10);
 DO $$
 BEGIN
     IF EXISTS (

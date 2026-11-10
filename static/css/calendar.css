@@ -1316,6 +1316,12 @@
   gap: 0.7rem 0.8rem;
 }
 
+.appointment-class-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem 0.8rem;
+}
+
 .smart-appointment-grid .appointment-notes-row > .field {
   grid-column: auto;
 }
@@ -1323,6 +1329,12 @@
 .appointment-notes-row input[data-editor-class-number] {
   width: 5rem;
   max-width: 100%;
+  min-height: 32px;
+  padding: 0.25rem 0.35rem;
+}
+
+.appointment-class-fields select[data-editor-mark] {
+  width: 4rem;
   min-height: 32px;
   padding: 0.25rem 0.35rem;
 }

@@ -941,6 +941,7 @@ def _init_sqlite_db() -> None:
                 "buffer_after_minutes": "INTEGER NOT NULL DEFAULT 0",
                 "calendar_revision": "INTEGER NOT NULL DEFAULT 1",
                 "class_number": "TEXT",
+                "instructor_mark": "INTEGER CHECK (instructor_mark BETWEEN 1 AND 10)",
                 "series_id": "TEXT",
                 "repeat_rule": "TEXT",
                 "allow_double_booking": "INTEGER NOT NULL DEFAULT 0",

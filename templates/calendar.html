@@ -5,7 +5,7 @@
 {% block body_class %}calendar-page{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20261110-2') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20261110-3') }}">
 {% endblock %}
 
 {% block content %}
@@ -240,9 +240,22 @@
                 <label for="editor-notes">Notes</label>
                 <input id="editor-notes" name="notes" maxlength="500" data-editor-notes required>
               </div>
-              <div class="field">
-                <label for="editor-class-number">Class No.</label>
-                <input id="editor-class-number" name="class_number" type="text" maxlength="200" autocomplete="off" placeholder="e.g. 2,3" data-editor-class-number required>
+              <div class="appointment-class-fields">
+                <div class="field">
+                  <label for="editor-class-number">Class No.</label>
+                  <input id="editor-class-number" name="class_number" type="text" maxlength="200" autocomplete="off" placeholder="e.g. 2,3" data-editor-class-number required>
+                </div>
+                {% if current_user.role == 'instructor' %}
+                <div class="field">
+                  <label for="editor-mark">Mark</label>
+                  <select id="editor-mark" name="mark" data-editor-mark required>
+                    <option value="" disabled selected>—</option>
+                    {% for mark in range(1, 11) %}
+                      <option value="{{ mark }}">{{ mark }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                {% endif %}
               </div>
             </div>
             <div class="field">
@@ -573,5 +586,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20261110-6') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20261110-8') }}" defer></script>
 {% endblock %}

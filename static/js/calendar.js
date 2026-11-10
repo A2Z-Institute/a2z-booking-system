@@ -46,6 +46,7 @@
   const editorStatus = editor.querySelector("[data-editor-status]");
   const editorNotes = editor.querySelector("[data-editor-notes]");
   const editorClassNumber = editor.querySelector("[data-editor-class-number]");
+  const editorMark = editor.querySelector("[data-editor-mark]");
   const bufferBefore = editor.querySelector("[data-editor-buffer-before]");
   const bufferAfter = editor.querySelector("[data-editor-buffer-after]");
   const repeatInput = editor.querySelector("[data-editor-repeat]");
@@ -1077,6 +1078,7 @@
     clearClientAbsenceAlert();
     if (editorNotes) editorNotes.value = event.notes || "";
     if (editorClassNumber) editorClassNumber.value = event.class_number ?? "";
+    if (editorMark) editorMark.value = event.instructor_mark ?? "";
     const firstNameInput = editor.querySelector("[data-new-client-first-name]");
     const lastNameInput = editor.querySelector("[data-new-client-last-name]");
     const phoneInput = editor.querySelector("[data-new-client-phone]");
@@ -1371,6 +1373,7 @@
         });
         if (currentRole === "instructor" && event.can_update_status && editorStatus) {
           editorStatus.disabled = false;
+          if (editorMark) editorMark.disabled = false;
           if (saveButton) saveButton.disabled = false;
         }
       }
@@ -2372,13 +2375,14 @@
         body: JSON.stringify({
           status: editorStatus?.value || "Approved",
           revision: editingEvent.revision,
+          mark: Number(editorMark?.value),
         }),
       },
     );
     const data = await parseJson(response);
     if (!response.ok) throw new Error(data.error || "The status could not be changed.");
     return {
-      message: `Status changed to ${data.event?.status || editorStatus?.value}.`,
+      message: "Appointment updated.",
       savedEvents: data.event ? [data.event] : [],
     };
   };
