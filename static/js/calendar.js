@@ -126,6 +126,7 @@
   ) return;
 
   let events = [];
+  let allCalendarEvents = null;
   let loadRequest;
   let loadInFlight = false;
   let loadGeneration = 0;
@@ -756,6 +757,31 @@
     const start = Math.max(STAFF_DAY_START, minutes(event.start_time));
     const end = Math.min(STAFF_DAY_END, minutes(event.end_time));
     return end > start ? { start, end } : null;
+  };
+  const instructorFillLabel = (columnEvents) => {
+    const breakMinutes = new Set();
+    for (const event of columnEvents) {
+      if (event.type !== "busy" || !["breakfast", "lunch", "tea"].includes(event.busy_kind)) continue;
+      const range = visibleEventRange(event);
+      if (!range) continue;
+      for (let minute = range.start; minute < range.end; minute += 1) {
+        breakMinutes.add(minute);
+      }
+    }
+    const availableMinutes = STAFF_DAY_END - STAFF_DAY_START - breakMinutes.size;
+    if (!availableMinutes) return "— filled";
+
+    let bookedMinutes = 0;
+    for (const event of columnEvents) {
+      if (event.type !== "appointment" || ["Cancelled", "Rejected"].includes(event.status)) continue;
+      const range = visibleEventRange(event);
+      if (!range) continue;
+      for (let minute = range.start; minute < range.end; minute += 1) {
+        if (!breakMinutes.has(minute)) bookedMinutes += 1;
+      }
+    }
+    // Dividing both durations by 15 gives the same ratio in class units.
+    return `${Math.round(100 * bookedMinutes / availableMinutes)}% filled`;
   };
   const eventSlotStart = (event) => {
     const range = visibleEventRange(event);
@@ -2040,11 +2066,17 @@
       const header = document.createElement("header");
       header.className = "calendar-column-header";
       const title = document.createElement("strong");
-      title.textContent = column.title;
+      const fillEvents = canFilterStatus && statusFilter.value
+        ? (allCalendarEvents || []).filter((item) => (
+          item.date === column.date && String(item.instructor_id) === String(column.instructorId)
+        ))
+        : columnEvents;
+      const fillSuffix = allCalendarEvents ? ` · ${instructorFillLabel(fillEvents)}` : "";
+      title.textContent = column.subtitle ? column.title : column.title + fillSuffix;
       header.append(title);
       if (column.subtitle) {
         const subtitle = document.createElement("span");
-        subtitle.textContent = column.subtitle;
+        subtitle.textContent = column.subtitle + fillSuffix;
         header.append(subtitle);
       }
       if (branchFilter instanceof HTMLSelectElement && column.branchName) {
@@ -2110,7 +2142,6 @@
     const query = new URLSearchParams({ start, end });
     if (branchFilter?.value) query.set("branch_id", branchFilter.value);
     if (instructorFilter.value) query.set("instructor_id", instructorFilter.value);
-    if (canFilterStatus && statusFilter.value) query.set("status", statusFilter.value);
     query.set("_sync", String(Date.now()));
     try {
       const response = await fetch(`${calendar.dataset.eventsUrl}?${query}`, {
@@ -2139,7 +2170,11 @@
       // existing DOM when nothing changed so a touch scroll cannot stutter.
       if (silent && incomingSignature === lastEventsPayloadSignature) return true;
       lastEventsPayloadSignature = incomingSignature;
-      events = incomingEvents;
+      allCalendarEvents = incomingEvents;
+      const selectedStatus = canFilterStatus ? statusFilter.value : "";
+      events = selectedStatus
+        ? incomingEvents.filter((event) => event.type !== "appointment" || event.status === selectedStatus)
+        : incomingEvents;
       if (!silent) message.hidden = true;
       renderCalendar();
       if (resetHorizontalScroll && calendarScroll) {
