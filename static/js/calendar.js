@@ -1373,7 +1373,7 @@
         });
         if (currentRole === "instructor" && event.can_update_status && editorStatus) {
           editorStatus.disabled = false;
-          if (editorMark) editorMark.disabled = false;
+          syncInstructorMark();
           if (saveButton) saveButton.disabled = false;
         }
       }
@@ -2358,10 +2358,18 @@
     };
   };
 
+  const syncInstructorMark = () => {
+    if (currentRole === "instructor" && editingEvent?.can_update_status && editorMark) {
+      editorMark.disabled = editorStatus?.value === "No-show";
+    }
+  };
+  editorStatus?.addEventListener("change", syncInstructorMark);
+
   const saveInstructorStatus = async () => {
     if (!editingEvent || editingEvent.type !== "appointment") {
       throw new Error("Open an appointment before changing its status.");
     }
+    const status = editorStatus?.value || "Approved";
     const response = await fetch(
       replaceId(calendar.dataset.instructorStatusUrlTemplate, editingEvent.id),
       {
@@ -2373,9 +2381,9 @@
         },
         credentials: "same-origin",
         body: JSON.stringify({
-          status: editorStatus?.value || "Approved",
+          status,
           revision: editingEvent.revision,
-          mark: Number(editorMark?.value),
+          mark: status === "No-show" ? null : Number(editorMark?.value),
         }),
       },
     );
