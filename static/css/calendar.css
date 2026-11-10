@@ -1309,6 +1309,19 @@
   grid-column: 1 / -1;
 }
 
+.appointment-notes-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.7rem 0.8rem;
+}
+
+.appointment-notes-row input[data-editor-class-number] {
+  width: 4.5rem;
+  min-height: 32px;
+  padding: 0.25rem 0.35rem;
+}
+
 .smart-appointment-grid .field:nth-child(3),
 .smart-appointment-grid .field:nth-child(4),
 .smart-appointment-grid .field:nth-child(5),

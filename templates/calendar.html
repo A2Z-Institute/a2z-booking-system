@@ -5,7 +5,7 @@
 {% block body_class %}calendar-page{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20261103-1') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css', v='20261110-1') }}">
 {% endblock %}
 
 {% block content %}
@@ -234,13 +234,15 @@
               {% endfor %}
             </select>
             </div>
-            <div class="field field-span-all">
-              <label for="editor-notes">Notes</label>
-              <input id="editor-notes" name="notes" maxlength="500" data-editor-notes required>
-            </div>
-            <div class="field">
-              <label for="editor-class-number">Class Number</label>
-              <input id="editor-class-number" name="class_number" type="number" min="1" max="9999" step="1" placeholder="e.g. 3" data-editor-class-number>
+            <div class="appointment-notes-row field-span-all">
+              <div class="field">
+                <label for="editor-notes">Notes</label>
+                <input id="editor-notes" name="notes" maxlength="500" data-editor-notes required>
+              </div>
+              <div class="field">
+                <label for="editor-class-number">Class No.</label>
+                <input id="editor-class-number" name="class_number" type="number" min="1" max="9999" step="1" placeholder="e.g. 3" data-editor-class-number>
+              </div>
             </div>
             <div class="field">
               <label for="new-client-first-name">Full Name</label>
