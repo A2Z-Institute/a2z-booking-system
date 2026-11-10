@@ -23,7 +23,6 @@
   </div>
   <div class="management-panel-actions">
     {% if current_user.has_permission('contact_details') and client.phone %}<a class="button button-secondary button-small" href="tel:{{ client.phone|replace(' ', '') }}">Call client</a>{% endif %}
-    {% if current_user.has_permission('contact_details') and client.email %}<a class="button button-secondary button-small" href="mailto:{{ client.email }}">Email client</a>{% endif %}
     {% if client.is_active and not client.booking_blocked and current_user.has_permission('write_access') %}
       <a class="button button-primary button-small" href="{{ url_for('calendar_view') }}?client={{ client.id }}">+ Add appointment</a>
     {% endif %}
@@ -74,7 +73,7 @@
   <header class="management-panel-header">
     <div>
       <h2 id="client-details-title">Client details</h2>
-      <p>Contact information and private preferences used by staff when arranging training.</p>
+      <p>Contact and training information used by staff when arranging appointments.</p>
     </div>
   </header>
 
@@ -117,69 +116,12 @@
         </div>
       {% endif %}
       <div class="field">
-        <label for="client-birthday">Birthday</label>
-        <input id="client-birthday" name="birthday" type="date" value="{{ client.birthday|default('', true) }}">
-      </div>
-      <div class="field">
-        <label for="client-gender">Gender</label>
-        <select id="client-gender" name="gender">
-          <option value="" {% if not client.gender %}selected{% endif %}>Unspecified</option>
-          <option value="male" {% if client.gender == 'male' %}selected{% endif %}>Male</option>
-          <option value="female" {% if client.gender == 'female' %}selected{% endif %}>Female</option>
-          <option value="other" {% if client.gender == 'other' %}selected{% endif %}>Other</option>
-          <option value="prefer_not_to_say" {% if client.gender == 'prefer_not_to_say' %}selected{% endif %}>Prefer not to say</option>
-        </select>
-      </div>
-      <div class="field">
         <label for="client-phone">Mobile</label>
         <input id="client-phone" name="phone" maxlength="30" value="{{ client.phone|default('', true) }}" autocomplete="tel">
       </div>
       <div class="field">
         <label for="client-secondary-phone">Secondary phone</label>
         <input id="client-secondary-phone" name="secondary_phone" maxlength="30" value="{{ client.secondary_phone|default('', true) }}" autocomplete="tel">
-      </div>
-      <div class="field">
-        <label for="client-email">Email</label>
-        <input id="client-email" name="email" type="email" maxlength="160" value="{{ client.email|default('', true) }}" autocomplete="email">
-      </div>
-      <div class="field">
-        <label for="client-secondary-email">Secondary email</label>
-        <input id="client-secondary-email" name="secondary_email" type="email" maxlength="160" value="{{ client.secondary_email|default('', true) }}">
-      </div>
-      <div class="field">
-        <label for="client-zip">Postcode</label>
-        <input id="client-zip" name="zip_code" maxlength="20" value="{{ client.zip_code|default('', true) }}" autocomplete="postal-code">
-      </div>
-      <div class="field field-span-2">
-        <label for="client-city">City</label>
-        <input id="client-city" name="city" maxlength="120" value="{{ client.city|default('', true) }}" autocomplete="address-level2">
-      </div>
-      <div class="field field-span-all">
-        <label for="client-street">Street address</label>
-        <input id="client-street" name="street" maxlength="250" value="{{ client.street|default('', true) }}" autocomplete="street-address">
-      </div>
-    </div>
-
-    <div class="client-profile-secondary">
-      <div class="field">
-        <label for="client-tags">Tags</label>
-        <input id="client-tags" name="tags" maxlength="250" value="{{ client.tags|default('', true) }}" placeholder="For example: assessment, refresher">
-      </div>
-      <div class="field">
-        <label for="preferred-channel">Reminder channel</label>
-        <select id="preferred-channel" name="preferred_channel">
-          <option value="email" {% if client.preferred_channel == 'email' %}selected{% endif %}>Email</option>
-          <option value="sms" {% if client.preferred_channel == 'sms' %}selected{% endif %}>SMS</option>
-        </select>
-      </div>
-      <label class="checkbox-field">
-        <input type="checkbox" name="reminders_enabled" value="1" {% if client.reminders_enabled %}checked{% endif %}>
-        <span><strong>Appointment reminders enabled</strong><small>Turn this off if the client opts out.</small></span>
-      </label>
-      <div class="field field-span-all">
-        <label for="client-notes">Private staff notes</label>
-        <textarea id="client-notes" name="internal_notes" maxlength="2000" placeholder="Information staff should remember.">{{ client.internal_notes|default('', true) }}</textarea>
-        <span class="field-hint">These notes are never shown to the client.</span>
       </div>
     </div>
 
@@ -228,6 +170,7 @@
               </div>
             </div>
             <p>{{ booking.instructor_name }} · {{ booking.machine_code|replace('-', ' ') }}</p>
+            {% if booking.class_number %}<p><strong>Class No.</strong> {{ booking.class_number }}</p>{% endif %}
             {% if booking.notes %}<p><strong>Appointment note:</strong> {{ booking.notes }}</p>{% endif %}
           </div>
         </article>
@@ -257,6 +200,7 @@
               <span class="status-badge status-{{ status_key }}">{{ 'Confirmed' if booking.validation_status == 'Approved' else ('Absent' if booking.validation_status == 'No-show' else booking.validation_status) }}</span>
             </div>
             <p>{{ booking.instructor_name }} · {{ booking.machine_code|replace('-', ' ') }}</p>
+            {% if booking.class_number %}<p><strong>Class No.</strong> {{ booking.class_number }}</p>{% endif %}
             {% if booking.review_notes %}<p><strong>Staff note:</strong> {{ booking.review_notes }}</p>{% endif %}
           </div>
         </article>

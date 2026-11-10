@@ -7941,9 +7941,12 @@ def client_profile_update(client_id):
                     "preferred_channel",
                 )
             }
-            # HTML checkboxes are omitted when cleared, so absence means off.
+            # The simplified form omits reminder settings. Older forms that
+            # submit a channel still use an omitted checkbox to mean off.
             profile_payload["reminders_enabled"] = (
                 request.form.get("reminders_enabled") == "1"
+                if "preferred_channel" in request.form or "reminders_enabled" in request.form
+                else existing["reminders_enabled"]
             )
             profile = _client_profile_values(profile_payload)
 

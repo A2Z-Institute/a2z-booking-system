@@ -546,7 +546,6 @@
             <button type="button" data-editor-delete-client-upcoming>Delete upcoming client bookings</button>
           {% endif %}
           <a href="#" data-editor-client-details {% if current_user.role == 'booking_agent' %}target="_blank" rel="noopener"{% endif %}>Client Details</a>
-          <a href="#" data-editor-client-notes>Client Notes</a>
           {% if current_user.role in ['admin', 'booking_agent'] and current_user.has_permission('contact_details') %}
             <button type="button" data-editor-whatsapp hidden>Send WhatsApp confirmation</button>
           {% endif %}
@@ -571,5 +570,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20261110-3') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20261110-4') }}" defer></script>
 {% endblock %}

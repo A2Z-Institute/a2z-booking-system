@@ -86,7 +86,6 @@
   const adminCompleteCancelledButton = editor.querySelector("[data-editor-admin-complete-cancelled]");
   const bookingMenu = editor.querySelector("[data-editor-booking-menu]");
   const clientDetailsLink = editor.querySelector("[data-editor-client-details]");
-  const clientNotesLink = editor.querySelector("[data-editor-client-notes]");
   const whatsappConfirmationButton = editor.querySelector("[data-editor-whatsapp]");
   const deleteBusyButton = editor.querySelector("[data-editor-busy-delete]");
   const deleteUpcomingBusyButton = editor.querySelector("[data-editor-busy-delete-upcoming]");
@@ -416,7 +415,6 @@
     syncEditorOptions();
     const clientUrl = replaceId(calendar.dataset.clientUrlTemplate || "", client.id);
     if (clientDetailsLink) clientDetailsLink.href = `${clientUrl}#upcoming-title`;
-    if (clientNotesLink) clientNotesLink.href = `${clientUrl}#client-notes`;
     if (cancelAppointmentButton) cancelAppointmentButton.hidden = true;
     if (bookingMenu) bookingMenu.hidden = false;
     announce(`${client.full_name || "Client"} selected.`);
@@ -1031,7 +1029,6 @@
     }
     const clientUrl = replaceId(calendar.dataset.clientUrlTemplate || "", event.student_user_id || event.client_id || 0);
     if (clientDetailsLink) clientDetailsLink.href = `${clientUrl}#upcoming-title`;
-    if (clientNotesLink) clientNotesLink.href = `${clientUrl}#client-notes`;
     whatsappConfirmationEvent = event;
     if (whatsappConfirmationButton) {
       whatsappConfirmationButton.hidden = !String(event.student_phone || "").trim();
