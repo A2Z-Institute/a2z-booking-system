@@ -2084,7 +2084,7 @@
         const percentage = instructorFillPercentage(fillEvents);
         const fill = document.createElement("b");
         fill.className = "calendar-instructor-fill";
-        fill.textContent = percentage === null ? "— filled" : `${percentage}% filled`;
+        fill.textContent = percentage === null ? "—" : `${percentage}%`;
         if (percentage !== null) {
           fill.dataset.level = percentage >= 80 ? "high" : percentage >= 50 ? "medium" : "low";
         }
