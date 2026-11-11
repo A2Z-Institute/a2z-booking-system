@@ -4751,9 +4751,8 @@ def _calendar_event(row):
         "repeat_rule": row.get("repeat_rule") or "none",
         "series_position": row.get("series_position") or 1,
         "series_count": row.get("series_count") or 1,
-        # Instructors can update only their own appointment status.  This is
-        # deliberately separate from can_edit so they cannot drag, change the
-        # client, alter the time, or otherwise modify the booking.
+        # Instructors can update status, mark, and class number on their own
+        # appointments through a separate endpoint.
         "can_update_status": (
             current_user.role == "instructor"
             and current_user.instructor_id == row["instructor_id"]
@@ -7062,7 +7061,7 @@ def api_calendar_delete_client_upcoming_appointments(booking_id):
 @app.patch("/api/calendar/appointments/<int:booking_id>/instructor-status")
 @role_required("instructor")
 def api_calendar_instructor_status(booking_id):
-    """Allow an instructor to update the status and mark on their appointment."""
+    """Allow instructors to update status, mark, and class number on their appointments."""
     payload = request.get_json(silent=True) or {}
     next_status = str(payload.get("status") or "").strip()
     if next_status not in VISIBLE_BOOKING_STATUSES:
@@ -7088,7 +7087,7 @@ def api_calendar_instructor_status(booking_id):
         ).fetchone()
         if not booking:
             abort(404)
-        # A status-only update is part of the instructor's historical record.
+        # Instructor updates are part of the appointment's historical record.
         # It must remain available after the appointment date and when an old
         # client has since been deactivated. Other past-booking edits remain
         # administrator-only through the normal appointment update endpoint.
@@ -7098,22 +7097,31 @@ def api_calendar_instructor_status(booking_id):
             return jsonify(
                 {"error": "This appointment changed in another window. Refresh and try again."}
             ), 409
+        class_number = booking["class_number"]
+        if "class_number" in payload:
+            try:
+                class_number = _class_entries(payload["class_number"])[0]
+            except ValueError as error:
+                return jsonify({"error": str(error)}), 400
         if next_status != "Completed":
             mark = None if next_status == "No-show" else booking["instructor_mark"]
         updated = conn.execute(
             """
             UPDATE bookings
             SET validation_status = ?, reviewed_by = ?, instructor_mark = ?,
-                reviewed_at = CURRENT_TIMESTAMP,
+                class_number = ?, reviewed_at = CURRENT_TIMESTAMP,
                 calendar_revision = calendar_revision + 1,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ? AND calendar_revision = ?
             """,
-            (next_status, current_user.id, mark, booking_id, revision),
+            (next_status, current_user.id, mark, class_number, booking_id, revision),
         )
         if not updated.rowcount:
             return jsonify({"error": "This appointment changed in another window. Refresh and try again."}), 409
-        _audit(conn, "instructor_status_updated", booking_id, {"status": next_status, "mark": mark})
+        details = {"status": next_status, "mark": mark}
+        if class_number != booking["class_number"]:
+            details["class_number"] = class_number
+        _audit(conn, "instructor_status_updated", booking_id, details)
         row = _booking_rows(conn, "b.id = ?", (booking_id,))[0]
     return jsonify({"success": True, "event": _calendar_event(row)})
 

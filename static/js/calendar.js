@@ -1410,7 +1410,6 @@
       if (deleteUpcomingSlotButton) deleteUpcomingSlotButton.hidden = true;
       if (saveButton) {
         saveButton.hidden = !event.can_edit && !event.can_update_status;
-        if (currentRole === "instructor") saveButton.textContent = "Save status";
       }
       if (permanentDeleteButton) permanentDeleteButton.hidden = currentRole !== "admin";
       if (adminCompleteCancelledButton) {
@@ -1425,6 +1424,11 @@
         });
         if (currentRole === "instructor" && event.can_update_status && editorStatus) {
           editorStatus.disabled = false;
+          if (editorClassNumber) {
+            editorClassNumber.disabled = false;
+            // Older appointments may have no class number yet.
+            editorClassNumber.required = Boolean(event.class_number);
+          }
           if (saveButton) saveButton.disabled = false;
         }
       }
@@ -2461,6 +2465,8 @@
       throw new Error("Open an appointment before changing its status.");
     }
     const status = editorStatus?.value || "Approved";
+    const classNumber = editorClassNumber?.value.trim() || "";
+    const originalClassNumber = String(editingEvent.class_number ?? "").trim();
     const response = await fetch(
       replaceId(calendar.dataset.instructorStatusUrlTemplate, editingEvent.id),
       {
@@ -2475,6 +2481,7 @@
           status,
           revision: editingEvent.revision,
           ...(status === "Completed" ? { mark: Number(editorMark?.value) } : {}),
+          ...(classNumber !== originalClassNumber ? { class_number: classNumber } : {}),
         }),
       },
     );
@@ -2628,9 +2635,7 @@
       editor.removeAttribute("aria-busy");
       if (saveButton) {
         saveButton.disabled = false;
-        saveButton.textContent = currentRole === "instructor" && editorType === "appointment"
-          ? "Save status"
-          : editorType === "busy" ? "Save busy time"
+        saveButton.textContent = editorType === "busy" ? "Save busy time"
           : editorType === "slot" ? "Save slot"
           : "Save appointment";
       }

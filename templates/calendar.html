@@ -278,12 +278,13 @@
             {% if current_user.role == 'instructor' %}
             <div class="field">
               <label for="editor-status">Status</label>
-              <select id="editor-status" name="status" data-editor-status>
+              <select id="editor-status" name="status" data-editor-status aria-describedby="instructor-status-hint">
                 <option value="Approved">Confirmed</option>
                 <option value="Completed">Completed</option>
                 <option value="No-show">Absent</option>
                 <option value="Running Late">Running Late</option>
               </select>
+              <small id="instructor-status-hint">Select Completed to enter a mark.</small>
             </div>
             {% endif %}
             <div class="client-typeahead field-span-all" data-client-typeahead hidden>
@@ -591,5 +592,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/calendar.js', v='20261111-4') }}" defer></script>
+<script src="{{ url_for('static', filename='js/calendar.js', v='20261111-5') }}" defer></script>
 {% endblock %}
