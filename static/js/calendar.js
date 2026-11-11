@@ -1493,7 +1493,8 @@
       ${canStartDoubleBooking ? `<span class="calendar-event-double-book${isShortAppointment ? " is-compact" : ""}" title="Add another booking at this time">${isShortAppointment ? "+" : "+ Book"}</span>` : ''}
       ${canDragEvent ? `<span class="calendar-event-resize" title="Drag to change ${isSlot ? "slot" : isBusy ? "busy time" : "appointment"} duration" aria-label="Resize ${isSlot ? "booking slot" : isBusy ? "busy time" : "appointment"}"></span>` : ''}
     `;
-    button.querySelector(".calendar-event-client").textContent =
+    const clientLabel = button.querySelector(".calendar-event-client");
+    clientLabel.textContent =
       isBusy || isSlot ? (event.title || "Booking slot") : (event.student_name || "Client");
     const timeLabel = button.querySelector(".calendar-event-time");
     timeLabel.textContent = (
@@ -1506,7 +1507,12 @@
       fill.className = "calendar-instructor-fill";
       fill.dataset.level = slotPercentage >= 80 ? "high" : slotPercentage >= 50 ? "medium" : "low";
       fill.textContent = `${slotPercentage}%`;
-      timeLabel.prepend(fill, " · ");
+      if (durationMinutes <= 30) {
+        timeLabel.prepend(fill, " · ");
+      } else {
+        fill.classList.add("calendar-booking-slot-percentage");
+        clientLabel.after(fill);
+      }
     }
     button.querySelector(".calendar-event-service").textContent = isSlot ? "Available for booking" : isBusy
       ? (event.instructor_name || "Unavailable")

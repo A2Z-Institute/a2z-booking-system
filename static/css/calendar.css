@@ -869,6 +869,14 @@
   white-space: normal;
 }
 
+.calendar-booking-slot-percentage {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .calendar-event-slot-note {
   display: none;
 }
