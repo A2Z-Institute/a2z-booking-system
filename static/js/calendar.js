@@ -758,7 +758,7 @@
     const end = Math.min(STAFF_DAY_END, minutes(event.end_time));
     return end > start ? { start, end } : null;
   };
-  const instructorFillLabel = (columnEvents) => {
+  const instructorFillPercentage = (columnEvents) => {
     const breakMinutes = new Set();
     for (const event of columnEvents) {
       if (event.type !== "busy" || !["breakfast", "lunch", "tea"].includes(event.busy_kind)) continue;
@@ -769,7 +769,7 @@
       }
     }
     const availableMinutes = STAFF_DAY_END - STAFF_DAY_START - breakMinutes.size;
-    if (!availableMinutes) return "— filled";
+    if (!availableMinutes) return null;
 
     let bookedMinutes = 0;
     for (const event of columnEvents) {
@@ -781,7 +781,7 @@
       }
     }
     // Dividing both durations by 15 gives the same ratio in class units.
-    return `${Math.round(100 * bookedMinutes / availableMinutes)}% filled`;
+    return Math.round(100 * bookedMinutes / availableMinutes);
   };
   const eventSlotStart = (event) => {
     const range = visibleEventRange(event);
@@ -2071,13 +2071,24 @@
           item.date === column.date && String(item.instructor_id) === String(column.instructorId)
         ))
         : columnEvents;
-      const fillSuffix = allCalendarEvents ? ` · ${instructorFillLabel(fillEvents)}` : "";
-      title.textContent = column.subtitle ? column.title : column.title + fillSuffix;
+      title.textContent = column.title;
+      let instructorName = title;
       header.append(title);
       if (column.subtitle) {
         const subtitle = document.createElement("span");
-        subtitle.textContent = column.subtitle + fillSuffix;
+        subtitle.textContent = column.subtitle;
         header.append(subtitle);
+        instructorName = subtitle;
+      }
+      if (allCalendarEvents) {
+        const percentage = instructorFillPercentage(fillEvents);
+        const fill = document.createElement("b");
+        fill.className = "calendar-instructor-fill";
+        fill.textContent = percentage === null ? "— filled" : `${percentage}% filled`;
+        if (percentage !== null) {
+          fill.dataset.level = percentage >= 80 ? "high" : percentage >= 50 ? "medium" : "low";
+        }
+        instructorName.append(" · ", fill);
       }
       if (branchFilter instanceof HTMLSelectElement && column.branchName) {
         const branchBadge = document.createElement("small");

@@ -193,6 +193,18 @@
   white-space: nowrap;
 }
 
+.calendar-instructor-fill[data-level="low"] {
+  color: #166534;
+}
+
+.calendar-instructor-fill[data-level="medium"] {
+  color: #a54800;
+}
+
+.calendar-instructor-fill[data-level="high"] {
+  color: #b91c1c;
+}
+
 .calendar-column-header .calendar-branch-badge {
   justify-self: start;
   overflow: hidden;
