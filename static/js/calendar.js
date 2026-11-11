@@ -798,7 +798,6 @@
     for (const event of columnEvents) {
       if (
         event.type !== "appointment"
-        || String(event.machine_id) !== String(slot.machine_id)
         || ["Cancelled", "Rejected"].includes(event.status)
       ) continue;
       const start = Math.max(slotStart, minutes(event.start_time));
