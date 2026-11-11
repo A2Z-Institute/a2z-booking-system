@@ -783,6 +783,27 @@
     // Dividing both durations by 15 gives the same ratio in class units.
     return Math.round(100 * bookedMinutes / availableMinutes);
   };
+  const bookingSlotFillPercentage = (slot, columnEvents) => {
+    const slotStart = minutes(slot.start_time);
+    const slotEnd = minutes(slot.end_time);
+    const duration = slotEnd - slotStart;
+    if (duration <= 0) return null;
+
+    const bookedMinutes = new Set();
+    for (const event of columnEvents) {
+      if (
+        event.type !== "appointment"
+        || String(event.machine_id) !== String(slot.machine_id)
+        || ["Cancelled", "Rejected"].includes(event.status)
+      ) continue;
+      const start = Math.max(slotStart, minutes(event.start_time));
+      const end = Math.min(slotEnd, minutes(event.end_time));
+      for (let minute = start; minute < end; minute += 1) {
+        bookedMinutes.add(minute);
+      }
+    }
+    return Math.round(100 * bookedMinutes.size / duration);
+  };
   const eventSlotStart = (event) => {
     const range = visibleEventRange(event);
     return range ? timeValue(Math.floor(range.start / 15) * 15) : null;
@@ -1408,7 +1429,7 @@
     dialog.showModal();
   };
 
-  const createEventButton = (event) => {
+  const createEventButton = (event, slotPercentage = null) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = eventClass(event);
@@ -1469,11 +1490,19 @@
     `;
     button.querySelector(".calendar-event-client").textContent =
       isBusy || isSlot ? (event.title || "Booking slot") : (event.student_name || "Client");
-    button.querySelector(".calendar-event-time").textContent = (
+    const timeLabel = button.querySelector(".calendar-event-time");
+    timeLabel.textContent = (
       event.type === "busy"
       && event.start_time === "00:00"
       && event.end_time === "23:59"
     ) ? "All day" : `${formatClock(event.start_time)} – ${formatClock(event.end_time)}`;
+    if (slotPercentage !== null) {
+      const fill = document.createElement("b");
+      fill.className = "calendar-instructor-fill";
+      fill.dataset.level = slotPercentage >= 80 ? "high" : slotPercentage >= 50 ? "medium" : "low";
+      fill.textContent = `${slotPercentage}%`;
+      timeLabel.prepend(fill, " · ");
+    }
     button.querySelector(".calendar-event-service").textContent = isSlot ? "Available for booking" : isBusy
       ? (event.instructor_name || "Unavailable")
       : (event.machine_category || event.machine_name || event.service_name || "Equipment");
@@ -1497,7 +1526,7 @@
     button.setAttribute(
       "aria-label",
       isBusy || isSlot
-        ? `${event.title || "Busy time"}, ${event.start_time} to ${event.end_time}${isSlot && slotNote.textContent ? `, note: ${slotNote.textContent}` : ""}`
+        ? `${event.title || "Busy time"}, ${event.start_time} to ${event.end_time}${slotPercentage === null ? "" : `, ${slotPercentage}% booked`}${isSlot && slotNote.textContent ? `, note: ${slotNote.textContent}` : ""}`
         : `${event.student_name}, ${displayStatus(event.status)}, ${event.machine_category || event.machine_name || event.service_name || "equipment"}, ${event.student_phone || "no phone"}, ${event.start_time} to ${event.end_time}`,
     );
     button.addEventListener("click", (clickEvent) => {
@@ -2123,7 +2152,10 @@
           ? `${column.title}, ${column.subtitle}, ${start}. Occupied`
           : `${column.title}, ${column.subtitle}, ${start}. Book appointment`);
         wireSlot(slot, column, start, occupied);
-        startsHere.forEach((item) => slot.append(createEventButton(item)));
+        startsHere.forEach((item) => {
+          const slotPercentage = item.type === "slot" ? bookingSlotFillPercentage(item, fillEvents) : null;
+          slot.append(createEventButton(item, slotPercentage));
+        });
         section.append(slot);
       });
       grid.append(section);
