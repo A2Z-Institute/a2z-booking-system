@@ -196,7 +196,8 @@ BOOKING_SELECT = """
            m.machine_code, m.category AS machine_category,
            m.location AS machine_location,
            i.name AS instructor_name, br.name AS branch_name,
-           u.email AS student_email, COALESCE(cp.admission_number, '') AS admission_number,
+           u.email AS student_email, u.full_name AS client_profile_name,
+           COALESCE(cp.admission_number, '') AS admission_number,
            s.color AS service_color
     FROM bookings b
     JOIN machines m ON m.id = b.machine_id
@@ -9659,9 +9660,10 @@ def export_appointments_csv():
         (
             booking["id"],
             booking["target_date"],
-            booking["start_time"],
-            booking["end_time"],
-            booking["student_name"],
+            friendly_time(booking["start_time"]),
+            friendly_time(booking["end_time"]),
+            (booking["client_profile_name"] or "").strip() or booking["student_name"],
+            booking["admission_number"],
             booking["service_name"],
             booking["machine_code"],
             booking["instructor_name"],
@@ -9677,9 +9679,10 @@ def export_appointments_csv():
         (
             "Booking ID",
             "Date",
-            "Start",
-            "End",
-            "Client",
+            "Start (IST)",
+            "End (IST)",
+            "Client Name",
+            "Admission Number",
             "Services",
             "Equipment",
             "Instructor",
@@ -11943,9 +11946,9 @@ def admin_bookings_export():
         (
             booking["id"],
             booking["target_date"],
-            booking["start_time"],
-            booking["end_time"],
-            booking["student_name"],
+            friendly_time(booking["start_time"]),
+            friendly_time(booking["end_time"]),
+            (booking["client_profile_name"] or "").strip() or booking["student_name"],
             booking["admission_number"],
             booking["mobile_number"],
             booking["instructor_name"],
@@ -11959,7 +11962,7 @@ def admin_bookings_export():
     return _csv_response(
         f"a2z-bookings-{date_label}.csv",
         (
-            "Booking ID", "Date", "Start", "Finish", "Client",
+            "Booking ID", "Date", "Start (IST)", "Finish (IST)", "Client Name",
             "Admission Number", "Phone", "Instructor", "Training / Equipment",
             "Branch", "Status", "Notes",
         ),
