@@ -758,16 +758,20 @@
     const end = Math.min(STAFF_DAY_END, minutes(event.end_time));
     return end > start ? { start, end } : null;
   };
-  const instructorFillPercentage = (columnEvents) => {
+  const breakMinutesInRange = (columnEvents, rangeStart, rangeEnd) => {
     const breakMinutes = new Set();
     for (const event of columnEvents) {
       if (event.type !== "busy" || !["breakfast", "lunch", "tea"].includes(event.busy_kind)) continue;
-      const range = visibleEventRange(event);
-      if (!range) continue;
-      for (let minute = range.start; minute < range.end; minute += 1) {
+      const start = Math.max(rangeStart, minutes(event.start_time));
+      const end = Math.min(rangeEnd, minutes(event.end_time));
+      for (let minute = start; minute < end; minute += 1) {
         breakMinutes.add(minute);
       }
     }
+    return breakMinutes;
+  };
+  const instructorFillPercentage = (columnEvents) => {
+    const breakMinutes = breakMinutesInRange(columnEvents, STAFF_DAY_START, STAFF_DAY_END);
     const availableMinutes = STAFF_DAY_END - STAFF_DAY_START - breakMinutes.size;
     if (!availableMinutes) return null;
 
@@ -786,8 +790,9 @@
   const bookingSlotFillPercentage = (slot, columnEvents) => {
     const slotStart = minutes(slot.start_time);
     const slotEnd = minutes(slot.end_time);
-    const duration = slotEnd - slotStart;
-    if (duration <= 0) return null;
+    const breakMinutes = breakMinutesInRange(columnEvents, slotStart, slotEnd);
+    const availableMinutes = slotEnd - slotStart - breakMinutes.size;
+    if (!(availableMinutes > 0)) return null;
 
     const bookedMinutes = new Set();
     for (const event of columnEvents) {
@@ -799,10 +804,10 @@
       const start = Math.max(slotStart, minutes(event.start_time));
       const end = Math.min(slotEnd, minutes(event.end_time));
       for (let minute = start; minute < end; minute += 1) {
-        bookedMinutes.add(minute);
+        if (!breakMinutes.has(minute)) bookedMinutes.add(minute);
       }
     }
-    return Math.round(100 * bookedMinutes.size / duration);
+    return Math.round(100 * bookedMinutes.size / availableMinutes);
   };
   const eventSlotStart = (event) => {
     const range = visibleEventRange(event);
