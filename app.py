@@ -9644,6 +9644,13 @@ def export_appointments_csv():
     elif _portal_branch_id() is not None:
         clauses.append("b.branch_id = ?")
         params.append(_portal_branch_id())
+    # Match the Booking Register's cutoff for imported Smart Scheduling recurrences.
+    clauses.append(
+        "(b.source_reference IS NULL OR b.source_reference NOT LIKE ? "
+        "OR b.target_date <= ?)"
+    )
+    params.extend(("smart:%", "2026-12-31"))
+
     with get_db() as conn:
         bookings = _booking_rows(
             conn,
