@@ -151,6 +151,7 @@
               <th scope="col">Instructor</th>
               <th scope="col">Branch</th>
               <th scope="col">Status</th>
+              <th scope="col">Notes</th>
               <th scope="col"><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
@@ -172,6 +173,7 @@
                 <td>{{ booking.instructor_name|default('Unassigned') }}</td>
                 <td>{{ booking.branch_name|default('—') }}</td>
                 <td><span class="status-badge status-{{ status_key }}">{{ display_status }}</span></td>
+                <td class="booking-register-note">{{ booking.notes|default('', true)|trim or '—' }}</td>
                 <td>
                   {% if status_key == 'pending' %}
                     <div class="table-actions">
@@ -256,6 +258,10 @@
             <div class="field-span-2">
               <dt>Branch</dt>
               <dd>{{ booking.branch_name|default('—') }}</dd>
+            </div>
+            <div class="field-span-2">
+              <dt>Notes</dt>
+              <dd class="booking-register-note">{{ booking.notes|default('', true)|trim or '—' }}</dd>
             </div>
           </dl>
           {% if status_key == 'pending' %}

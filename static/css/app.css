@@ -882,6 +882,12 @@ h3 {
   white-space: nowrap;
 }
 
+.booking-register-note {
+  max-width: 22rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .data-table tbody tr:last-child td {
   border-bottom: 0;
 }
