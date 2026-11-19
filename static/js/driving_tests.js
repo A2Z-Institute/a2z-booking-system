@@ -1,6 +1,20 @@
 (() => {
   "use strict";
 
+  const resultFilter = document.querySelector("#test-filter-status");
+  const failedSectionField = document.querySelector("[data-failed-section-filter]");
+  const failedSectionSelect = document.querySelector("#test-filter-failed-section");
+  if (resultFilter && failedSectionField && failedSectionSelect) {
+    const syncFailedSectionFilter = () => {
+      const show = resultFilter.value === "Failed";
+      failedSectionField.hidden = !show;
+      failedSectionSelect.disabled = !show;
+      if (!show) failedSectionSelect.value = "";
+    };
+    resultFilter.addEventListener("change", syncFailedSectionFilter);
+    syncFailedSectionFilter();
+  }
+
   const picker = document.querySelector("[data-driving-client-picker]");
   if (picker) {
     const search = picker.querySelector("[data-driving-client-search]");

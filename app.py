@@ -8902,6 +8902,9 @@ def admin_driving_tests():
     selected_date_from = (request.args.get("date_from") or "").strip()
     selected_date_to = (request.args.get("date_to") or "").strip()
     search_query = " ".join((request.args.get("q") or "").split())[:100]
+    selected_failed_section = (request.args.get("failed_section") or "").strip().upper()
+    if selected_status != "Failed" or selected_failed_section not in DRIVING_TEST_FAILED_SECTIONS:
+        selected_failed_section = ""
     clauses = []
     params = []
     if selected_status:
@@ -8952,6 +8955,14 @@ def admin_driving_tests():
 
     with get_db() as conn:
         attempts = _driving_test_rows(conn, clauses, params)
+        if selected_failed_section:
+            attempts = [
+                attempt for attempt in attempts
+                if selected_failed_section in {
+                    " ".join(section.upper().split())
+                    for section in (attempt.get("failed_section") or "").split(",")
+                }
+            ]
         histories = _driving_test_training_histories(conn, attempts)
         if instructor_id:
             attempts = [
@@ -9051,6 +9062,7 @@ def admin_driving_tests():
         today=datetime.now(IST).date().isoformat(),
         filters={
             "status": selected_status,
+            "failed_section": selected_failed_section,
             "branch": selected_branch,
             "instructor": selected_instructor,
             "instructor_name": selected_instructor_name,
