@@ -170,7 +170,9 @@
               </div>
             </div>
             <p>{{ booking.instructor_name }} · {{ booking.machine_code|replace('-', ' ') }}</p>
-            {% if booking.class_number %}<p><strong>Class No.</strong> {{ booking.class_number }}</p>{% endif %}
+            {% if booking.class_number or current_user.role == 'admin' %}
+              <p>{% if booking.class_number %}<strong>Class No.</strong> {{ booking.class_number }}{% endif %}{% if current_user.role == 'admin' %}{% if booking.class_number %} · {% endif %}<strong>Mark</strong> {{ booking.instructor_mark|default('—', true) }}{% if booking.instructor_mark %}/10{% endif %}{% endif %}</p>
+            {% endif %}
             {% if booking.notes %}<p><strong>Appointment note:</strong> {{ booking.notes }}</p>{% endif %}
           </div>
         </article>
@@ -200,7 +202,9 @@
               <span class="status-badge status-{{ status_key }}">{{ 'Confirmed' if booking.validation_status == 'Approved' else ('Absent' if booking.validation_status == 'No-show' else booking.validation_status) }}</span>
             </div>
             <p>{{ booking.instructor_name }} · {{ booking.machine_code|replace('-', ' ') }}</p>
-            {% if booking.class_number %}<p><strong>Class No.</strong> {{ booking.class_number }}</p>{% endif %}
+            {% if booking.class_number or current_user.role == 'admin' %}
+              <p>{% if booking.class_number %}<strong>Class No.</strong> {{ booking.class_number }}{% endif %}{% if current_user.role == 'admin' %}{% if booking.class_number %} · {% endif %}<strong>Mark</strong> {{ booking.instructor_mark|default('—', true) }}{% if booking.instructor_mark %}/10{% endif %}{% endif %}</p>
+            {% endif %}
             {% if booking.review_notes %}<p><strong>Staff note:</strong> {{ booking.review_notes }}</p>{% endif %}
           </div>
         </article>
