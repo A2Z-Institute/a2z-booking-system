@@ -6236,6 +6236,49 @@ def _class_entries(value, count=1):
     ]
 
 
+def _assert_unused_class_numbers(conn, student_id, machine_id, entries, exclude_booking_id=None):
+    """Reject reused numeric classes for a client's equipment."""
+    if not student_id:
+        return
+    client_ids = sorted(set(_related_client_ids(conn, student_id)) | {student_id})
+    placeholders = ",".join("?" for _ in client_ids)
+    # SQLite callers hold BEGIN IMMEDIATE. Lock the client rows on PostgreSQL
+    # so concurrent saves cannot both claim the same class number.
+    if postgres_url():
+        conn.execute(
+            f"SELECT id FROM users WHERE id IN ({placeholders}) ORDER BY id FOR UPDATE",
+            client_ids,
+        ).fetchall()
+    rows = conn.execute(
+        f"""
+        SELECT id, class_number, target_date FROM bookings
+        WHERE student_user_id IN ({placeholders}) AND machine_id = ?
+          AND validation_status NOT IN ('Cancelled', 'Rejected', 'No-show', 'Absent')
+          AND id <> ?
+        ORDER BY target_date, id
+        """,
+        (*client_ids, machine_id, exclude_booking_id or 0),
+    ).fetchall()
+    used = {}
+    for row in rows:
+        for part in str(row["class_number"] or "").split(","):
+            if part.strip().isdigit():
+                used.setdefault(int(part.strip()), row)
+    for entry in entries:
+        for part in str(entry or "").split(","):
+            if not part.strip().isdigit():
+                continue
+            number = int(part.strip())
+            if number in used:
+                booking = used[number]
+                raise ValueError(
+                    f"Class No. {number} is already used for this client's equipment "
+                    f"in booking #{booking['id']} on {booking['target_date']}. "
+                    "Choose a different class number."
+                )
+            used[number] = {"id": "this repeat", "target_date": "this booking"}
+
+
 @app.post("/api/calendar/appointments")
 @permission_required("write_access")
 def api_calendar_create_appointment():
@@ -6272,6 +6315,8 @@ def api_calendar_create_appointment():
             # canonical record.  This also repairs the case where an older
             # formatted-phone import left duplicate client rows behind.
             student_id = _canonical_client_id(conn, student_id)
+            if requested_status != "No-show":
+                _assert_unused_class_numbers(conn, student_id, machine_id, class_entries)
             _assert_client_booking_allowed(conn, student_id)
             _overwrite_client_from_booking_form(conn, student_id, payload)
             _assert_client_booking_allowed(conn, student_id)
@@ -6735,6 +6780,15 @@ def api_calendar_reschedule_appointment(booking_id):
                 if "class_number" in payload
                 else booking["class_number"]
             )
+            if next_status not in {"Cancelled", "Rejected", "No-show", "Absent"} and (
+                class_number != booking["class_number"]
+                or student_id != booking["student_user_id"]
+                or machine_id != booking["machine_id"]
+                or booking["validation_status"] in {"Cancelled", "Rejected", "No-show", "Absent"}
+            ):
+                _assert_unused_class_numbers(
+                    conn, student_id, machine_id, [class_number], booking_id
+                )
             old_values = {
                 "date": booking["target_date"],
                 "start": booking["start_time"],
@@ -7104,6 +7158,17 @@ def api_calendar_instructor_status(booking_id):
                 class_number = _class_entries(payload["class_number"])[0]
             except ValueError as error:
                 return jsonify({"error": str(error)}), 400
+        if next_status != "No-show" and (
+            class_number != booking["class_number"]
+            or booking["validation_status"] in {"No-show", "Absent"}
+        ):
+            try:
+                _assert_unused_class_numbers(
+                    conn, booking["student_user_id"], booking["machine_id"],
+                    [class_number], booking_id,
+                )
+            except ValueError as error:
+                return jsonify({"error": str(error)}), 400
         if next_status != "Completed":
             mark = None if next_status == "No-show" else booking["instructor_mark"]
         updated = conn.execute(
@@ -7153,6 +7218,14 @@ def api_calendar_admin_complete_cancelled(booking_id):
             return jsonify(
                 {"error": "This appointment changed in another window. Refresh and try again."}
             ), 409
+
+        try:
+            _assert_unused_class_numbers(
+                conn, booking["student_user_id"], booking["machine_id"],
+                [booking["class_number"]], booking_id,
+            )
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
 
         cursor = conn.execute(
             """
