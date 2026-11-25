@@ -1973,30 +1973,51 @@ def _lock_instructor_day(conn, instructor_id, target):
         )
 
 
-def _exact_active_appointment(conn, student_id, instructor_id, target, start_time, end_time):
-    """Return an already-saved identical appointment, if one exists."""
+def _exact_active_appointment(
+    conn, student_id, instructor_id, target, start_time, end_time, *,
+    machine_id, class_number, service_ids,
+):
+    """Return a saved appointment matching the request, if one exists."""
     placeholders = ", ".join("?" for _ in ACTIVE_BOOKING_STATUSES)
-    return conn.execute(
+    candidates = conn.execute(
         f"""
         SELECT id FROM bookings
         WHERE student_user_id = ?
           AND instructor_id = ?
+          AND machine_id = ?
           AND target_date = ?
           AND start_time = ?
           AND end_time = ?
+          AND class_number = ?
           AND validation_status IN ({placeholders})
         ORDER BY id DESC
-        LIMIT 1
         """,
         (
             int(student_id),
             int(instructor_id),
+            int(machine_id),
             target.isoformat(),
             start_time,
             end_time,
+            class_number,
             *ACTIVE_BOOKING_STATUSES,
         ),
-    ).fetchone()
+    ).fetchall()
+    for booking in candidates:
+        saved_services = [
+            row["service_id"]
+            for row in conn.execute(
+                """
+                SELECT service_id FROM booking_services
+                WHERE booking_id = ? AND service_id IS NOT NULL
+                ORDER BY sort_order, id
+                """,
+                (booking["id"],),
+            ).fetchall()
+        ]
+        if saved_services == service_ids:
+            return booking
+    return None
 
 
 class InstructorTransferBlocked(ValueError):
@@ -6315,8 +6336,6 @@ def api_calendar_create_appointment():
             # canonical record.  This also repairs the case where an older
             # formatted-phone import left duplicate client rows behind.
             student_id = _canonical_client_id(conn, student_id)
-            if requested_status != "No-show":
-                _assert_unused_class_numbers(conn, student_id, machine_id, class_entries)
             _assert_client_booking_allowed(conn, student_id)
             _overwrite_client_from_booking_form(conn, student_id, payload)
             _assert_client_booking_allowed(conn, student_id)
@@ -6364,8 +6383,11 @@ def api_calendar_create_appointment():
                     occurrence_date,
                     start_time,
                     end_time,
+                    machine_id=machine_id,
+                    class_number=class_number,
+                    service_ids=service_ids,
                 )
-                for occurrence_date in dates
+                for occurrence_date, class_number in zip(dates, class_entries)
             ]
             if any(exact_matches):
                 if len(dates) == 1:
@@ -6397,6 +6419,8 @@ def api_calendar_create_appointment():
                     "This repeated schedule includes an appointment that is already saved. "
                     "No duplicate appointments were created."
                 )
+            if requested_status != "No-show":
+                _assert_unused_class_numbers(conn, student_id, machine_id, class_entries)
             allow_admin_past = (
                 current_user.role == "admin"
                 and payload.get("allow_past_appointment") is True
