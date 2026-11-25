@@ -205,6 +205,7 @@
             {% if booking.class_number or current_user.role == 'admin' %}
               <p>{% if booking.class_number %}<strong>Class No.</strong> {{ booking.class_number }}{% endif %}{% if current_user.role == 'admin' %}{% if booking.class_number %} · {% endif %}<strong>Mark</strong> {{ booking.instructor_mark|default('—', true) }}{% if booking.instructor_mark %}/10{% endif %}{% endif %}</p>
             {% endif %}
+            {% if booking.notes %}<p><strong>Appointment note:</strong> {{ booking.notes }}</p>{% endif %}
             {% if booking.review_notes %}<p><strong>Staff note:</strong> {{ booking.review_notes }}</p>{% endif %}
           </div>
         </article>
