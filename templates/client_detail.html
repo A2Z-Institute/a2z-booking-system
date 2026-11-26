@@ -173,7 +173,7 @@
             {% if booking.class_number or current_user.role == 'admin' %}
               <p>{% if booking.class_number %}<strong>Class No.</strong> {{ booking.class_number }}{% endif %}{% if current_user.role == 'admin' %}{% if booking.class_number %} · {% endif %}<strong>Mark</strong> {{ booking.instructor_mark|default('—', true) }}{% if booking.instructor_mark %}/10{% endif %}{% endif %}</p>
             {% endif %}
-            {% if current_user.role == 'admin' %}
+            {% if current_user.role in ['admin', 'booking_agent'] %}
               <details class="decision-details">
                 <summary class="button button-secondary button-small">Edit Class No.</summary>
                 <form class="compact-decision-form" method="post" action="{{ url_for('client_appointment_class_number', client_id=client.id, booking_id=booking.id) }}">
@@ -219,7 +219,7 @@
             {% if booking.class_number or current_user.role == 'admin' %}
               <p>{% if booking.class_number %}<strong>Class No.</strong> {{ booking.class_number }}{% endif %}{% if current_user.role == 'admin' %}{% if booking.class_number %} · {% endif %}<strong>Mark</strong> {{ booking.instructor_mark|default('—', true) }}{% if booking.instructor_mark %}/10{% endif %}{% endif %}</p>
             {% endif %}
-            {% if current_user.role == 'admin' %}
+            {% if current_user.role in ['admin', 'booking_agent'] %}
               <details class="decision-details">
                 <summary class="button button-secondary button-small">Edit Class No.</summary>
                 <form class="compact-decision-form" method="post" action="{{ url_for('client_appointment_class_number', client_id=client.id, booking_id=booking.id) }}">

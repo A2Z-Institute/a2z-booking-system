@@ -8027,7 +8027,7 @@ def client_detail(client_id):
 
 
 @app.post("/clients/<int:client_id>/appointments/<int:booking_id>/class-number")
-@role_required("admin")
+@role_required("admin", "booking_agent")
 def client_appointment_class_number(client_id, booking_id):
     try:
         class_number = _class_entries(request.form.get("class_number"))[0]
