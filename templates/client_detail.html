@@ -170,6 +170,7 @@
               </div>
             </div>
             <p>{{ booking.instructor_name }} · {{ booking.machine_code|replace('-', ' ') }}</p>
+            <p><a class="button button-secondary button-small" href="{{ url_for('calendar_view', date=booking.target_date, view='day', branch_id=booking.branch_id, instructor_id=booking.instructor_id, status='') }}">View in calendar</a></p>
             {% if booking.class_number or current_user.role == 'admin' %}
               <p>{% if booking.class_number %}<strong>Class No.</strong> {{ booking.class_number }}{% endif %}{% if current_user.role == 'admin' %}{% if booking.class_number %} · {% endif %}<strong>Mark</strong> {{ booking.instructor_mark|default('—', true) }}{% if booking.instructor_mark %}/10{% endif %}{% endif %}</p>
             {% endif %}
@@ -216,6 +217,7 @@
               <span class="status-badge status-{{ status_key }}">{{ 'Confirmed' if booking.validation_status == 'Approved' else ('Absent' if booking.validation_status == 'No-show' else booking.validation_status) }}</span>
             </div>
             <p>{{ booking.instructor_name }} · {{ booking.machine_code|replace('-', ' ') }}</p>
+            <p><a class="button button-secondary button-small" href="{{ url_for('calendar_view', date=booking.target_date, view='day', branch_id=booking.branch_id, instructor_id=booking.instructor_id, status='') }}">View in calendar</a></p>
             {% if booking.class_number or current_user.role == 'admin' %}
               <p>{% if booking.class_number %}<strong>Class No.</strong> {{ booking.class_number }}{% endif %}{% if current_user.role == 'admin' %}{% if booking.class_number %} · {% endif %}<strong>Mark</strong> {{ booking.instructor_mark|default('—', true) }}{% if booking.instructor_mark %}/10{% endif %}{% endif %}</p>
             {% endif %}
