@@ -173,6 +173,20 @@
             {% if booking.class_number or current_user.role == 'admin' %}
               <p>{% if booking.class_number %}<strong>Class No.</strong> {{ booking.class_number }}{% endif %}{% if current_user.role == 'admin' %}{% if booking.class_number %} · {% endif %}<strong>Mark</strong> {{ booking.instructor_mark|default('—', true) }}{% if booking.instructor_mark %}/10{% endif %}{% endif %}</p>
             {% endif %}
+            {% if current_user.role == 'admin' %}
+              <details class="decision-details">
+                <summary class="button button-secondary button-small">Edit Class No.</summary>
+                <form class="compact-decision-form" method="post" action="{{ url_for('client_appointment_class_number', client_id=client.id, booking_id=booking.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="revision" value="{{ booking.calendar_revision }}">
+                  <div class="field">
+                    <label for="class-number-{{ booking.id }}">Class No.</label>
+                    <input id="class-number-{{ booking.id }}" name="class_number" type="text" maxlength="200" value="{{ booking.class_number|default('', true) }}" placeholder="e.g. 2,3" required>
+                  </div>
+                  <button class="button button-primary button-small" type="submit">Save Class No.</button>
+                </form>
+              </details>
+            {% endif %}
             {% if booking.notes %}<p><strong>Appointment note:</strong> {{ booking.notes }}</p>{% endif %}
           </div>
         </article>
@@ -204,6 +218,20 @@
             <p>{{ booking.instructor_name }} · {{ booking.machine_code|replace('-', ' ') }}</p>
             {% if booking.class_number or current_user.role == 'admin' %}
               <p>{% if booking.class_number %}<strong>Class No.</strong> {{ booking.class_number }}{% endif %}{% if current_user.role == 'admin' %}{% if booking.class_number %} · {% endif %}<strong>Mark</strong> {{ booking.instructor_mark|default('—', true) }}{% if booking.instructor_mark %}/10{% endif %}{% endif %}</p>
+            {% endif %}
+            {% if current_user.role == 'admin' %}
+              <details class="decision-details">
+                <summary class="button button-secondary button-small">Edit Class No.</summary>
+                <form class="compact-decision-form" method="post" action="{{ url_for('client_appointment_class_number', client_id=client.id, booking_id=booking.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="revision" value="{{ booking.calendar_revision }}">
+                  <div class="field">
+                    <label for="class-number-{{ booking.id }}">Class No.</label>
+                    <input id="class-number-{{ booking.id }}" name="class_number" type="text" maxlength="200" value="{{ booking.class_number|default('', true) }}" placeholder="e.g. 2,3" required>
+                  </div>
+                  <button class="button button-primary button-small" type="submit">Save Class No.</button>
+                </form>
+              </details>
             {% endif %}
             {% if booking.notes %}<p><strong>Appointment note:</strong> {{ booking.notes }}</p>{% endif %}
             {% if booking.review_notes %}<p><strong>Staff note:</strong> {{ booking.review_notes }}</p>{% endif %}

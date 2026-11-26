@@ -8026,6 +8026,55 @@ def client_detail(client_id):
     )
 
 
+@app.post("/clients/<int:client_id>/appointments/<int:booking_id>/class-number")
+@role_required("admin")
+def client_appointment_class_number(client_id, booking_id):
+    try:
+        class_number = _class_entries(request.form.get("class_number"))[0]
+        try:
+            revision = int(request.form.get("revision"))
+        except (TypeError, ValueError):
+            raise ValueError("Refresh the client page before editing this appointment.") from None
+        with get_db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            client = _client_access_row(conn, client_id)
+            if not client:
+                abort(404)
+            booking = conn.execute(
+                "SELECT * FROM bookings WHERE id = ?", (booking_id,)
+            ).fetchone()
+            if not booking or booking["student_user_id"] not in _related_client_ids(conn, client_id):
+                abort(404)
+            _require_branch_access(booking["branch_id"])
+            if revision != booking["calendar_revision"]:
+                raise ValueError("This appointment changed. Refresh the page and try again.")
+            if class_number != booking["class_number"]:
+                if booking["validation_status"] not in {"Cancelled", "Rejected", "No-show", "Absent"}:
+                    _assert_unused_class_numbers(
+                        conn, booking["student_user_id"], booking["machine_id"],
+                        [class_number], booking_id,
+                    )
+                updated = conn.execute(
+                    """
+                    UPDATE bookings SET class_number = ?,
+                        calendar_revision = calendar_revision + 1,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND calendar_revision = ?
+                    """,
+                    (class_number, booking_id, revision),
+                )
+                if not updated.rowcount:
+                    raise ValueError("This appointment changed. Refresh the page and try again.")
+                _audit(
+                    conn, "booking_class_number_updated", booking_id,
+                    {"old": booking["class_number"], "new": class_number},
+                )
+        flash("Class number updated.", "success")
+    except ValueError as error:
+        flash(str(error), "error")
+    return redirect(url_for("client_detail", client_id=client_id))
+
+
 @app.post("/clients/<int:client_id>/profile")
 @permission_required("client_database", "write_access")
 def client_profile_update(client_id):
